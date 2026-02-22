@@ -107,6 +107,10 @@
 		_settingExternal = true;
 		editor.setValue(incoming);
 		_settingExternal = false;
+		// Re-apply hints for the new content (marker owners survive setValue)
+		const m = monacoRef;
+		const model = editor.getModel();
+		if (m && model) applyHints(m, model);
 	});
 
 	// Reactively update error markers
