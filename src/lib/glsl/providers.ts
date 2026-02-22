@@ -376,7 +376,7 @@ function argComponentCount(
 	const swizzleMatch = trimmed.match(/\.([xyzwrgbastpq]+)$/);
 	if (swizzleMatch) return swizzleMatch[1].length;
 
-	// Simple identifier — try to resolve its type
+	// Simple identifier - try to resolve its type
 	const identMatch = trimmed.match(/^([a-zA-Z_]\w*)$/);
 	if (identMatch) {
 		const varType = resolveType(docInfo, identMatch[1]);
@@ -493,7 +493,7 @@ function registerInlayHints(monaco: typeof Monaco) {
 							}
 						}
 
-						continue; // handled as constructor — skip regular-param path
+						continue; // handled as constructor - skip regular-param path
 					}
 
 					// Regular function / builtin hint

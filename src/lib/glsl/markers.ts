@@ -1,4 +1,5 @@
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
+import { analyzeDocument, findUnused } from '$lib/glsl/analyze';
 
 /**
  * Parses WebGL shader compilation errors and applies them as Monaco markers.
@@ -57,4 +58,32 @@ export function applyErrors(
 	}
 
 	monaco.editor.setModelMarkers(model, 'glsl', markers);
+}
+
+/**
+ * Analyses the current model for unused symbols and no-effect statements,
+ * then applies Hint-severity markers with the `Unnecessary` tag so Monaco
+ * dims them exactly like unused imports in TypeScript.
+ */
+export function applyHints(
+	monaco: typeof Monaco,
+	model: Monaco.editor.ITextModel,
+): void {
+	const src    = model.getValue();
+	const doc    = analyzeDocument(src);
+	const unused = findUnused(src, doc);
+
+	const markers: Monaco.editor.IMarkerData[] = unused.map((item) => ({
+		severity: monaco.MarkerSeverity.Warning,
+		// MarkerTag.Unnecessary = 1 → dims / grays out the token
+		tags: [1 as Monaco.MarkerTag],
+		message: item.message,
+		startLineNumber: item.line,
+		endLineNumber:   item.line,
+		startColumn:     item.startColumn,
+		endColumn:       item.endColumn,
+		source: 'GLSL',
+	}));
+
+	monaco.editor.setModelMarkers(model, 'glsl-hints', markers);
 }

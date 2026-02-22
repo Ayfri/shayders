@@ -132,3 +132,109 @@ export function analyzeDocument(src: string): GlslDocument {
 export function resolveType(doc: GlslDocument, name: string): string | undefined {
 	return doc.variables.find((v) => v.name === name)?.type;
 }
+
+// Unused / no-effect analysis
+
+export interface UnusedItem {
+	name: string;
+	line: number;
+	/** 1-based inclusive */
+	startColumn: number;
+	/** 1-based exclusive */
+	endColumn: number;
+	kind: 'variable' | 'function' | 'define' | 'void-expression';
+	message: string;
+}
+
+function escapeRe(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Pattern for GLSL primitive types used as constructors
+const CONSTRUCTOR_TYPE_RE =
+	'(?:u?i?b?vec[234]|mat[234](?:x[234])?|float|int|uint|bool)';
+
+/**
+ * Finds:
+ *  - User-defined variables (local / const) that are declared but never read.
+ *  - User-defined functions (non-main) that are declared but never called.
+ *  - Expression statements whose result is immediately discarded
+ *    (e.g. `vec3(1.0);`, `float(x);`).
+ */
+export function findUnused(src: string, doc: GlslDocument): UnusedItem[] {
+	const clean     = stripComments(src);
+	const srcLines  = src.split('\n');
+	const cleanLines = clean.split('\n');
+	const result: UnusedItem[] = [];
+
+	// Unused functions
+	for (const fn of doc.functions) {
+		if (fn.name === 'main') continue;
+
+		const occurrences = (clean.match(new RegExp(`\\b${escapeRe(fn.name)}\\b`, 'g')) ?? []).length;
+		// ≤ 1 → only appears in the function header itself
+		if (occurrences <= 1) {
+			const lineContent = srcLines[fn.line - 1] ?? '';
+			const col = lineContent.indexOf(fn.name);
+			if (col >= 0) {
+				result.push({
+					name: fn.name,
+					line: fn.line,
+					startColumn: col + 1,
+					endColumn: col + fn.name.length + 1,
+					kind: 'function',
+					message: `Function '${fn.name}' is declared but never called.`,
+				});
+			}
+		}
+	}
+
+	// Unused variables
+	for (const v of doc.variables) {
+		// Skip pipeline-visible or parameter qualifiers
+		if (v.qualifier && v.qualifier !== 'const') continue;
+
+		const occurrences = (clean.match(new RegExp(`\\b${escapeRe(v.name)}\\b`, 'g')) ?? []).length;
+		// ≤ 1 → only appears in its own declaration
+		if (occurrences <= 1) {
+			const lineContent = srcLines[v.line - 1] ?? '';
+			const col = lineContent.indexOf(v.name);
+			if (col >= 0) {
+				result.push({
+					name: v.name,
+					line: v.line,
+					startColumn: col + 1,
+					endColumn: col + v.name.length + 1,
+					kind: 'variable',
+					message: `Variable '${v.name}' is declared but never read.`,
+				});
+			}
+		}
+	}
+
+	// Void expression statements
+	// Matches lines whose only statement is a type-constructor call (result discarded).
+	// e.g.  vec3(1.0, 0.5, 0.0);   float(x);   mat2(1.0);
+	const voidStmtRe = new RegExp(
+		`^\\s*(${CONSTRUCTOR_TYPE_RE})\\s*\\(.*\\)\\s*;\\s*$`,
+	);
+
+	for (let i = 0; i < cleanLines.length; i++) {
+		if (!voidStmtRe.test(cleanLines[i])) continue;
+
+		const originalLine = srcLines[i];
+		const colStart = originalLine.search(/\S/); // first non-whitespace
+		const colEnd   = originalLine.trimEnd().length;
+
+		result.push({
+			name: originalLine.trim(),
+			line: i + 1,
+			startColumn: colStart + 1,
+			endColumn: colEnd + 1,
+			kind: 'void-expression',
+			message: 'Expression statement has no effect - the computed value is immediately discarded.',
+		});
+	}
+
+	return result;
+}
