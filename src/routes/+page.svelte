@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { Play, Code, CircleAlert } from '@lucide/svelte';
     import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
+	import { language, conf } from '$lib/glsl';
 
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let gl: WebGLRenderingContext | null = null;
@@ -39,6 +40,10 @@ void main() {
 		import('monaco-editor').then(async (monaco) => {
 			if (isDestroyed || !editorContainer) return;
 
+            monaco.languages.register({ id: 'glsl' });
+            monaco.languages.setMonarchTokensProvider('glsl', language);
+            monaco.languages.setLanguageConfiguration('glsl', conf);
+
 			const EditorWorker = await import('monaco-editor/esm/vs/editor/editor.worker?worker');
 			self.MonacoEnvironment = {
 				getWorker: () => new EditorWorker.default(),
@@ -48,7 +53,7 @@ void main() {
 				automaticLayout: true,
 				fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
 				fontSize: 14,
-				language: 'wgsl',
+				language: 'glsl',
 				minimap: { enabled: false },
 				padding: { top: 16 },
 				theme: 'vs-dark',
