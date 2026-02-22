@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Play, Code, CircleAlert } from '@lucide/svelte';
-	import GlslEditor from '$lib/GlslEditor.svelte';
-	import BuiltinsPanel, { type UniformEntry } from '$lib/BuiltinsPanel.svelte';
+	import { CircleAlert } from '@lucide/svelte';
+	import EditorPanel from '$lib/EditorPanel.svelte';
+	import { type UniformEntry } from '$lib/BuiltinsPanel.svelte';
 
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let gl: WebGLRenderingContext | null = null;
@@ -236,7 +236,7 @@ void main() {
 
 <div class="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans">
 	<!-- Preview panel -->
-	<div class="flex flex-3 flex-col bg-black relative min-w-0">
+	<div class="flex flex-1 flex-col bg-black relative min-w-0">
 		<div class="flex items-center gap-3 px-6 py-2 bg-panel border-b border-border text-xs text-muted shrink-0">
 			<span class="size-3 bg-green-400 rounded-full"></span>
 			<span class="font-medium tracking-wider">Preview</span>
@@ -252,25 +252,11 @@ void main() {
 		{/if}
 	</div>
 
-	<!-- Divider -->
-	<div class="w-px bg-border shrink-0"></div>
-
-	<!-- Editor panel -->
-	<div class="flex flex-2 flex-col min-w-0 bg-surface">
-		<div class="flex items-center gap-4 px-6 py-2 bg-panel border-b border-border text-xs text-muted shrink-0">
-			<Code size={14} class="text-cyan-400 shrink-0" />
-			<span class="font-medium tracking-wider">fragment.glsl</span>
-			<span class="text-xs text-subtle font-mono ml-auto">Ctrl+Enter</span>
-			<button
-				onclick={run}
-				class="flex items-center gap-2 px-4 py-1.5 bg-opacity-12 text-cyan-400 border border-cyan-400 rounded font-mono text-xs font-semibold tracking-wider cursor-pointer"
-			>
-				<Play size={13} />
-				Run
-			</button>
-		</div>
-
-		<GlslEditor bind:value={fragmentCode} errors={error} onRun={run} />
-		<BuiltinsPanel uniforms={activeUniforms} bind:open={panelOpen} />
-	</div>
+	<EditorPanel
+		bind:value={fragmentCode}
+		errors={error}
+		onRun={run}
+		uniforms={activeUniforms}
+		bind:panelOpen
+	/>
 </div>
