@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Play, Eye, Code, CircleAlert } from '@lucide/svelte';
+	import { Play, Code, CircleAlert } from '@lucide/svelte';
+    import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
 
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let gl: WebGLRenderingContext | null = null;
@@ -25,8 +26,48 @@ void main() {
 	let vertexCode = defaultVertexShader;
 	let fragmentCode = $state(defaultFragmentShader);
 
+    let editorContainer = $state<HTMLElement | null>(null);
+	let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
+
 	let program: WebGLProgram | null = null;
 	const startTime = Date.now();
+
+    $effect(() => {
+		if (!editorContainer) return;
+		let isDestroyed = false;
+
+		import('monaco-editor').then(async (monaco) => {
+			if (isDestroyed || !editorContainer) return;
+
+			const EditorWorker = await import('monaco-editor/esm/vs/editor/editor.worker?worker');
+			self.MonacoEnvironment = {
+				getWorker: () => new EditorWorker.default(),
+			};
+
+			editor = monaco.editor.create(editorContainer, {
+				automaticLayout: true,
+				fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+				fontSize: 14,
+				language: 'wgsl',
+				minimap: { enabled: false },
+				padding: { top: 16 },
+				theme: 'vs-dark',
+				value: fragmentCode,
+			});
+
+			editor.onDidChangeModelContent(() => {
+				fragmentCode = editor?.getValue() || '';
+			});
+
+			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, run);
+		});
+
+		return () => {
+			isDestroyed = true;
+			editor?.dispose();
+		};
+	});
+
 
 	function compileShader(ctx: WebGLRenderingContext, type: number, source: string): WebGLShader | null {
 		const shader = ctx.createShader(type);
@@ -133,11 +174,7 @@ void main() {
 				Run
 			</button>
 		</div>
-		<textarea
-			bind:value={fragmentCode}
-			spellcheck="false"
-			class="flex-1 w-full bg-surface font-mono text-md px-4 py-2 resize-none outline-none leading-relaxed placeholder-subtle"
-			onkeydown={(e) => { if (e.ctrlKey && e.key === 'Enter') run(); }}
-		></textarea>
+
+		<div bind:this={editorContainer} class="flex-1 w-full bg-surface"></div>
 	</div>
 </div>
