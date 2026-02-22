@@ -346,13 +346,56 @@ function registerSignatureHelp(monaco: typeof Monaco) {
 	});
 }
 
+// Vector constructor types that get component-labelled inlay hints
+const CONSTRUCTOR_TYPES = new Set([
+	'vec2', 'vec3', 'vec4',
+	'ivec2', 'ivec3', 'ivec4',
+	'uvec2', 'uvec3', 'uvec4',
+	'bvec2', 'bvec3', 'bvec4',
+]);
+
+/** Returns the xyzw component names for a vector constructor type, e.g. vec3 → ['x','y','z'] */
+function constructorComponents(typeName: string): string[] {
+	const doc = TYPE_DOCS[typeName];
+	if (!doc?.components) return [];
+	return doc.components.map((c) => c[0]); // use xyzw aliases (index 0)
+}
+
+/**
+ * Estimates how many constructor component slots an argument expression fills.
+ * - Trailing swizzle (e.g. `a.xy`)  → swizzle length
+ * - Simple identifier with resolved vector type → vector size
+ * - Otherwise → 1 (scalar / unknown)
+ */
+function argComponentCount(
+	arg: string,
+	docInfo: ReturnType<typeof analyzeDocument>,
+): number {
+	const trimmed = arg.trim();
+	// Trailing swizzle: word.xyzw / word.rgba / word.stpq
+	const swizzleMatch = trimmed.match(/\.([xyzwrgbastpq]+)$/);
+	if (swizzleMatch) return swizzleMatch[1].length;
+
+	// Simple identifier — try to resolve its type
+	const identMatch = trimmed.match(/^([a-zA-Z_]\w*)$/);
+	if (identMatch) {
+		const varType = resolveType(docInfo, identMatch[1]);
+		if (varType) {
+			const vecMatch = varType.match(/(?:vec|ivec|uvec|bvec)(\d)/);
+			if (vecMatch) return parseInt(vecMatch[1], 10);
+		}
+	}
+
+	return 1;
+}
+
 function registerInlayHints(monaco: typeof Monaco) {
 	monaco.languages.registerInlayHintsProvider('glsl', {
 		provideInlayHints(model): Monaco.languages.InlayHintList {
 			const hints   = [] as Monaco.languages.InlayHint[];
 			const docInfo = analyzeDocument(model.getValue());
 
-			// Build function → param names map
+			// Build function → param names map (non-constructor builtins + user functions)
 			const fnParams = new Map<string, string[]>();
 
 			for (const [name, info] of Object.entries(BUILTIN_DOCS)) {
@@ -384,10 +427,66 @@ function registerInlayHints(monaco: typeof Monaco) {
 					const fnName = m[1];
 					if (NON_FUNCTION_KEYWORDS.has(fnName)) continue;
 
+					const openParenIdx = m.index + m[0].length;
+
+					// Constructor hint (vec2/vec3/vec4/ivec…/uvec…/bvec…)
+					if (CONSTRUCTOR_TYPES.has(fnName)) {
+						const components = constructorComponents(fnName);
+						if (components.length === 0) continue;
+
+						let slotIdx      = 0;   // next component slot to fill
+						let argBuf       = '';   // accumulated text of current arg
+						let argFirstCol  = -1;   // 0-based column of first non-space char
+						let depth        = 1;
+
+						const flushArg = (hintCol: number, buf: string) => {
+							if (hintCol < 0 || slotIdx >= components.length) return;
+							const count = argComponentCount(buf, docInfo);
+							const label = components.slice(slotIdx, slotIdx + count).join('');
+							slotIdx += count;
+							// Suppress redundant "x: x" hints
+							if (label && buf.trim() !== label) {
+								hints.push({
+									kind:         monaco.languages.InlayHintKind.Parameter,
+									position:     { lineNumber: lineNum, column: hintCol + 1 },
+									label:        `${label}:`,
+									paddingRight: true,
+								});
+							}
+						};
+
+						for (let col = openParenIdx; col < stripped.length && depth > 0; col++) {
+							const ch = stripped[col];
+
+							if (ch === '(') { depth++; argBuf += ch; continue; }
+
+							if (ch === ')') {
+								depth--;
+								if (depth === 0) { flushArg(argFirstCol, argBuf); break; }
+								argBuf += ch;
+								continue;
+							}
+
+							if (ch === ',' && depth === 1) {
+								flushArg(argFirstCol, argBuf);
+								argBuf      = '';
+								argFirstCol = -1;
+								continue;
+							}
+
+							argBuf += ch;
+							if (argFirstCol === -1 && ch !== ' ' && ch !== '\t') {
+								argFirstCol = col;
+							}
+						}
+
+						continue; // handled as constructor — skip regular-param path
+					}
+
+					// Regular function / builtin hint
 					const params = fnParams.get(fnName);
 					if (!params || params.length === 0) continue;
 
-					const openParenIdx = m.index + m[0].length;
 					let depth        = 1;
 					let argIndex     = 0;
 					let needArgStart = true;
@@ -404,13 +503,11 @@ function registerInlayHints(monaco: typeof Monaco) {
 							continue;
 						}
 
-						// First non-space character of this argument
 						if (needArgStart && depth === 1 && ch !== ' ' && ch !== '\t') {
 							needArgStart = false;
 							if (argIndex < params.length) {
 								const paramName = params[argIndex];
-								// Skip "x: x" style redundant hints
-								const argToken = stripped.slice(col).match(/^\w+/)?.[0];
+								const argToken  = stripped.slice(col).match(/^\w+/)?.[0];
 								if (argToken !== paramName) {
 									hints.push({
 										kind:         monaco.languages.InlayHintKind.Parameter,
