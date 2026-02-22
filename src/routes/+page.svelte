@@ -59,8 +59,56 @@ void main() {
 		{ id: 3, type: null, url: null, name: null },
 	]);
 
+	// Low-level uniform line helpers
+	function addUniformLine(code: string, name: string, type: string): string {
+		if (new RegExp(`\\buniform\\s+\\S+\\s+${name}\\s*;`).test(code)) return code;
+		const line = `uniform ${type} ${name};`;
+		const lines = code.split('\n');
+		let insertAt = 0;
+		let lastUniform = -1;
+		let lastPrecision = -1;
+		for (let i = 0; i < lines.length; i++) {
+			if (/^\s*uniform\s/.test(lines[i])) lastUniform = i;
+			if (/^\s*precision\s/.test(lines[i])) lastPrecision = i;
+		}
+		if (lastUniform >= 0) insertAt = lastUniform + 1;
+		else if (lastPrecision >= 0) insertAt = lastPrecision + 1;
+		lines.splice(insertAt, 0, line);
+		return lines.join('\n');
+	}
+
+	function removeUniformLine(code: string, name: string): string {
+		return code.replace(
+			new RegExp(`[ \\t]*uniform\\s+\\S+\\s+${name}\\s*;[ \\t]*\\n?`, 'm'),
+			''
+		);
+	}
+
 	function handleChannelChange(ch: ChannelEntry) {
+		const oldCh = channels.find((c) => c.id === ch.id);
+		const wasActive = oldCh?.type != null;
+		const isActive = ch.type != null;
+		const uniformName = `uChannel${ch.id}`;
+
 		channels = channels.map((c) => (c.id === ch.id ? ch : c));
+
+		if (!wasActive && isActive) {
+			const saved = buffersWithLatestCode();
+			const updated = saved.map((b) =>
+				b.id === 'common' ? b : { ...b, code: addUniformLine(b.code, uniformName, 'sampler2D') }
+			);
+			buffers = updated;
+			editorValue = updated.find((b) => b.id === activeBufferId)?.code ?? editorValue;
+			setTimeout(() => shaderCanvas?.run(), 0);
+		} else if (wasActive && !isActive) {
+			const saved = buffersWithLatestCode();
+			const updated = saved.map((b) =>
+				b.id === 'common' ? b : { ...b, code: removeUniformLine(b.code, uniformName) }
+			);
+			buffers = updated;
+			editorValue = updated.find((b) => b.id === activeBufferId)?.code ?? editorValue;
+			setTimeout(() => shaderCanvas?.run(), 0);
+		}
 	}
 
 	// Helpers
@@ -80,13 +128,20 @@ void main() {
 	}
 
 	function addBuffer() {
-		// Pick the next sequential numeric ID not yet in use
 		let n = 1;
 		while (buffers.some((b) => b.id === `buf${n}`)) n++;
 		const newId = `buf${n}`;
 		const label = `Buffer ${n}`;
+		// The new buffer will occupy this uniform slot
+		const userBufs = buffers.filter((b) => b.id !== 'image' && b.id !== 'common');
+		const newUniformName = BUFFER_UNIFORM_NAMES[userBufs.length];
+		// Save current editor, add new uniform to all existing non-common shaders
+		const saved = buffersWithLatestCode();
+		const updatedExisting = saved.map((b) =>
+			b.id === 'common' ? b : { ...b, code: addUniformLine(b.code, newUniformName, 'sampler2D') }
+		);
 		const newBuf: ShaderBuffer = { id: newId, label, code: defaultBufferShader };
-		buffers = [...buffersWithLatestCode(), newBuf];
+		buffers = [...updatedExisting, newBuf];
 		activeBufferId = newId;
 		editorValue = defaultBufferShader;
 		setTimeout(() => shaderCanvas?.run(), 0);
@@ -111,11 +166,30 @@ void main() {
 
 	function removeBuffer(id: string) {
 		if (id === 'image') return;
-		if (activeBufferId === id) {
-			activeBufferId = 'image';
-			editorValue = buffers.find((b) => b.id === 'image')?.code ?? '';
+		const saved = buffersWithLatestCode();
+		const userBufs = saved.filter((b) => b.id !== 'image' && b.id !== 'common');
+		const removedIdx = userBufs.findIndex((b) => b.id === id);
+		const removedUniform = removedIdx >= 0 ? BUFFER_UNIFORM_NAMES[removedIdx] : null;
+		// Build rename map for buffers that shift down
+		const renames: { from: string; to: string }[] = [];
+		for (let i = removedIdx + 1; i < userBufs.length; i++) {
+			renames.push({ from: BUFFER_UNIFORM_NAMES[i], to: BUFFER_UNIFORM_NAMES[i - 1] });
 		}
-		buffers = buffers.filter((b) => b.id !== id);
+		const newActiveId = activeBufferId === id ? 'image' : activeBufferId;
+		const updatedBufs = saved
+			.filter((b) => b.id !== id)
+			.map((b) => {
+				if (b.id === 'common') return b;
+				let code = b.code;
+				if (removedUniform) code = removeUniformLine(code, removedUniform);
+				for (const { from, to } of renames) {
+					code = code.replace(new RegExp(`\\b${from}\\b`, 'g'), to);
+				}
+				return { ...b, code };
+			});
+		buffers = updatedBufs;
+		activeBufferId = newActiveId;
+		editorValue = updatedBufs.find((b) => b.id === newActiveId)?.code ?? '';
 		setTimeout(() => shaderCanvas?.run(), 0);
 	}
 
@@ -160,10 +234,10 @@ void main() {
 		uMouse: 'Mouse position (x, y) in pixels. Z is 1.0 if mouse is pressed, 0.0 otherwise.',
 		uResolution: 'Canvas dimensions in pixels (width x height).',
 		uTime: 'Elapsed time in seconds since shader start.',
-		uChannel0: 'Channel 0 texture input (sampler2D — image or video).',
-		uChannel1: 'Channel 1 texture input (sampler2D — image or video).',
-		uChannel2: 'Channel 2 texture input (sampler2D — image or video).',
-		uChannel3: 'Channel 3 texture input (sampler2D — image or video).',
+		uChannel0: 'Channel 0 texture input (sampler2D - image or video).',
+		uChannel1: 'Channel 1 texture input (sampler2D - image or video).',
+		uChannel2: 'Channel 2 texture input (sampler2D - image or video).',
+		uChannel3: 'Channel 3 texture input (sampler2D - image or video).',
 	};
 	const BUFFER_UNIFORM_NAMES = ['uBufferA','uBufferB','uBufferC','uBufferD','uBufferE','uBufferF','uBufferG','uBufferH'];
 
@@ -210,27 +284,10 @@ void main() {
 	);
 
 	function toggleUniform(name: string, type: string) {
-		const line = `uniform ${type} ${name};`;
 		if (presentNames.has(name)) {
-			// Remove the line (any whitespace variant)
-			editorValue = editorValue.replace(
-				new RegExp(`[ \\t]*uniform\\s+\\S+\\s+${name}\\s*;[ \\t]*\\n?`, 'm'),
-				''
-			);
+			editorValue = removeUniformLine(editorValue, name);
 		} else {
-			// Insert after last existing uniform, or after precision, or at top
-			const lines = editorValue.split('\n');
-			let insertAt = 0;
-			let lastUniform = -1;
-			let lastPrecision = -1;
-			for (let i = 0; i < lines.length; i++) {
-				if (/^\s*uniform\s/.test(lines[i])) lastUniform = i;
-				if (/^\s*precision\s/.test(lines[i])) lastPrecision = i;
-			}
-			if (lastUniform >= 0) insertAt = lastUniform + 1;
-			else if (lastPrecision >= 0) insertAt = lastPrecision + 1;
-			lines.splice(insertAt, 0, line);
-			editorValue = lines.join('\n');
+			editorValue = addUniformLine(editorValue, name, type);
 		}
 		run();
 	}
