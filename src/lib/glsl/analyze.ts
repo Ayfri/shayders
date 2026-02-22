@@ -142,7 +142,7 @@ export interface UnusedItem {
 	startColumn: number;
 	/** 1-based exclusive */
 	endColumn: number;
-	kind: 'variable' | 'function' | 'define' | 'void-expression';
+	kind: 'variable' | 'function' | 'define' | 'void-expression' | 'uniform';
 	message: string;
 }
 
@@ -184,6 +184,26 @@ export function findUnused(src: string, doc: GlslDocument): UnusedItem[] {
 					endColumn: col + fn.name.length + 1,
 					kind: 'function',
 					message: `Function '${fn.name}' is declared but never called.`,
+				});
+			}
+		}
+	}
+
+	// Unused uniforms (shown as grayed-out, no warning)
+	for (const v of doc.variables) {
+		if (v.qualifier !== 'uniform') continue;
+		const occurrences = (clean.match(new RegExp(`\\b${escapeRe(v.name)}\\b`, 'g')) ?? []).length;
+		if (occurrences <= 1) {
+			const lineContent = srcLines[v.line - 1] ?? '';
+			const col = lineContent.indexOf(v.name);
+			if (col >= 0) {
+				result.push({
+					name: v.name,
+					line: v.line,
+					startColumn: col + 1,
+					endColumn: col + v.name.length + 1,
+					kind: 'uniform',
+					message: `Uniform '${v.name}' is declared but never used in this shader.`,
 				});
 			}
 		}
