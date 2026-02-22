@@ -34,12 +34,17 @@ export const language = <Monaco.languages.IMonarchLanguage>{
 
     keywords: [
         'attribute', 'const', 'uniform', 'varying', 'break', 'continue', 'do',
-        'for', 'while', 'if', 'else', 'in', 'out', 'inout', 'float', 'int', 'void',
-        'bool', 'true', 'false', 'lowp', 'mediump', 'highp', 'precision', 'invariant',
-        'discard', 'return', 'mat2', 'mat3', 'mat4', 'mat2x2', 'mat2x3', 'mat2x4',
-        'mat3x2', 'mat3x3', 'mat3x4', 'mat4x2', 'mat4x3', 'mat4x4', 'vec2', 'vec3',
-        'vec4', 'ivec2', 'ivec3', 'ivec4', 'bvec2', 'bvec3', 'bvec4', 'sampler2D',
-        'samplerCube', 'sampler3D', 'struct'
+        'for', 'while', 'if', 'else', 'in', 'out', 'inout', 'true', 'false',
+        'lowp', 'mediump', 'highp', 'precision', 'invariant',
+        'discard', 'return', 'struct'
+    ],
+
+    types: [
+        'float', 'int', 'void', 'bool',
+        'mat2', 'mat3', 'mat4', 'mat2x2', 'mat2x3', 'mat2x4',
+        'mat3x2', 'mat3x3', 'mat3x4', 'mat4x2', 'mat4x3', 'mat4x4',
+        'vec2', 'vec3', 'vec4', 'ivec2', 'ivec3', 'ivec4',
+        'bvec2', 'bvec3', 'bvec4', 'sampler2D', 'samplerCube', 'sampler3D'
     ],
 
     builtins: [
@@ -63,12 +68,26 @@ export const language = <Monaco.languages.IMonarchLanguage>{
 
     tokenizer: {
         root: [
+            // Uniform declaration: uniform <type> <name>
+            // All characters must be in consecutive groups for Monarch
+            [
+                /(uniform)(\s+)(float|int|bool|void|vec[234]|ivec[234]|bvec[234]|mat[234](?:x[234])?|sampler(?:2D|3D|Cube))(\s+)([a-zA-Z_]\w*)/,
+                ['keyword', 'white', 'keyword.type', 'white', 'variable.uniform']
+            ],
+
+            // Function declaration: <type> <name>(
+            [
+                /(float|int|bool|void|vec[234]|ivec[234]|bvec[234]|mat[234](?:x[234])?)(\s+)([a-zA-Z_]\w*)(?=\s*\()/,
+                ['keyword.type', 'white', 'entity.name.function']
+            ],
+
             // Identifiers and keywords
             [
                 /[a-zA-Z_]\w*/,
                 {
                     cases: {
                         '@keywords': 'keyword',
+                        '@types': 'keyword.type',
                         '@builtins': 'predefined',
                         '@default': 'identifier'
                     }
@@ -82,7 +101,7 @@ export const language = <Monaco.languages.IMonarchLanguage>{
             [/#.*/, 'macro'],
 
             // Delimiters and operators
-            [/[{}()\[\]]/, '@brackets'],
+            [/[{}()[\]]/, '@brackets'],
             [/[<>](?!@symbols)/, '@brackets'],
             [
                 /@symbols/,
@@ -95,7 +114,7 @@ export const language = <Monaco.languages.IMonarchLanguage>{
             ],
 
             // Numbers (floats and ints)
-            [/\d*\.\d+([eE][\-+]?\d+)?/, 'number.float'],
+            [/\d*\.\d+([eE][+-]?\d+)?/, 'number.float'],
             [/0[xX][0-9a-fA-F]+/, 'number.hex'],
             [/\d+/, 'number'],
 
@@ -110,10 +129,10 @@ export const language = <Monaco.languages.IMonarchLanguage>{
         ],
 
         comment: [
-            [/[^\/*]+/, 'comment'],
+            [/[^/*]+/, 'comment'],
             [/\/\*/, 'comment', '@push'],
-            ['\\*/', 'comment', '@pop'],
-            [/[\/*]/, 'comment']
+            [/\*\//, 'comment', '@pop'],
+            [/[/*]/, 'comment']
         ]
     }
 };
