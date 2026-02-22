@@ -173,7 +173,7 @@ void main() {
 		canvas.addEventListener('mouseup', handleMouseUp);
 		canvas.addEventListener('mouseleave', handleMouseLeave);
 
-		// Fullscreen change — browser handles Échap natively
+		// Fullscreen change - browser handles Échap natively
 		const handleFullscreenChange = () => {
 			isFullscreen = !!document.fullscreenElement;
 		};

@@ -2,7 +2,7 @@
 	import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
 	import { language, conf } from '$lib/glsl/language';
 	import { registerGlslProviders } from '$lib/glsl/providers';
-	import { applyErrors } from '$lib/glsl/markers';
+	import { applyErrors, applyHints } from '$lib/glsl/markers';
 	import { registerMaterialDarkerTheme } from '$lib/themes/materialDarker';
 
 	interface Props {
@@ -70,15 +70,20 @@
 
 			instance.onDidChangeModelContent(() => {
 				value = instance.getValue();
+				const m = instance.getModel();
+				if (m) applyHints(monaco, m);
 			});
 
 			if (onRun) {
 				instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, onRun);
 			}
 
-			// Initial error markers
+			// Initial error markers + hints
 			const model = instance.getModel();
-			if (model) applyErrors(monaco, model, errors);
+			if (model) {
+				applyErrors(monaco, model, errors);
+				applyHints(monaco, model);
+			}
 
 			monacoRef = monaco;
 			editor = instance;
