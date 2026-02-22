@@ -11,10 +11,12 @@
 
 	interface Props {
 		uniforms?: UniformEntry[];
+		presentNames?: Set<string>;
+		onToggle?: (name: string, type: string) => void;
 		open?: boolean;
 	}
 
-	let { uniforms = [], open = $bindable(false) }: Props = $props();
+	let { uniforms = [], presentNames = new Set(), onToggle, open = $bindable(false) }: Props = $props();
 
 	const sortedUniforms = $derived(
 		[...uniforms].sort((a, b) => a.name.localeCompare(b.name))
@@ -79,7 +81,6 @@
 	const glBuiltins = Object.entries(BUILTIN_DOCS)
 		.filter(([k]) => k.startsWith('gl_'))
 		.map(([name, doc]) => {
-			// Signature is like "vec4 gl_FragCoord" or "float gl_PointSize"
 			const match = doc.signature.match(/^(\S+)/);
 			const type = match ? match[1] : 'unknown';
 			return { name, type, description: doc.description };
@@ -117,9 +118,19 @@
 					Uniforms
 				</div>
 				{#each sortedUniforms as u (u.name)}
+					{@const present = presentNames.has(u.name)}
 					<div class="flex items-baseline gap-1 px-4 py-1 hover:bg-panel group">
-						<span class="text-cyan-400 font-mono shrink-0 text-[11px]">{u.type}</span>
-						<span class="text-foreground font-mono shrink-0 font-semibold text-[11px]">{u.name}</span>
+						<!-- Indicator / toggle button -->
+						<button
+							onclick={() => onToggle?.(u.name, u.type)}
+							title={present ? `Remove uniform ${u.name}` : `Add uniform ${u.name}`}
+							class="relative flex items-center justify-center w-3.5 shrink-0 self-center cursor-pointer"
+						>
+							<span class="block group-hover:hidden w-1.5 h-1.5 rounded-full {present ? 'bg-green-400/70' : 'bg-border'}"></span>
+							<span class="hidden group-hover:block text-[11px] font-bold leading-none {present ? 'text-red-400' : 'text-cyan-400'}">{present ? '−' : '+'}</span>
+						</button>
+						<span class="{present ? 'text-cyan-400' : 'text-subtle'} font-mono shrink-0 text-[11px]">{u.type}</span>
+						<span class="{present ? 'text-foreground' : 'text-muted'} font-mono shrink-0 font-semibold text-[11px]">{u.name}</span>
 						{#if u.description}
 							<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-[11px]">
 								{u.description}
@@ -158,3 +169,4 @@
 		</div>
 	{/if}
 </div>
+

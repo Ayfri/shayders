@@ -11,6 +11,8 @@
 		errors?: string;
 		onRun?: () => void;
 		uniforms: UniformEntry[];
+		presentNames?: Set<string>;
+		onToggleUniform?: (name: string, type: string) => void;
 		panelOpen?: boolean;
 		buffers: ShaderBuffer[];
 		activeBufferId: string;
@@ -30,6 +32,8 @@
 		errors = '',
 		onRun,
 		uniforms,
+		presentNames = new Set(),
+		onToggleUniform,
 		panelOpen = $bindable(false),
 		buffers,
 		activeBufferId,
@@ -231,7 +235,7 @@
 			<ChannelsPanel {channels} {onChannelChange} />
 		{/if}
 		<GlslEditor bind:value {errors} {onRun} />
-		<BuiltinsPanel {uniforms} bind:open={panelOpen} />
+		<BuiltinsPanel {uniforms} {presentNames} onToggle={onToggleUniform} bind:open={panelOpen} />
 	</div>
 {/if}
 

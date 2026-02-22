@@ -105,7 +105,7 @@
 						<X size={10} />
 					</button>
 				{:else}
-					<span class="text-xs text-subtle">—</span>
+					<span class="text-xs text-subtle">-</span>
 				{/if}
 			</div>
 

@@ -136,6 +136,21 @@ void main() {
 	}
 
 	// Uniforms panel
+	const UNIFORM_CATALOG_BASE: { name: string; type: string }[] = [
+		{ name: 'uAspect', type: 'float' },
+		{ name: 'uDate', type: 'vec4' },
+		{ name: 'uDeltaTime', type: 'float' },
+		{ name: 'uFrameCount', type: 'int' },
+		{ name: 'uFrameRate', type: 'float' },
+		{ name: 'uMouse', type: 'vec3' },
+		{ name: 'uResolution', type: 'vec2' },
+		{ name: 'uTime', type: 'float' },
+		{ name: 'uChannel0', type: 'sampler2D' },
+		{ name: 'uChannel1', type: 'sampler2D' },
+		{ name: 'uChannel2', type: 'sampler2D' },
+		{ name: 'uChannel3', type: 'sampler2D' },
+	];
+
 	const BASE_UNIFORM_DESCS: Record<string, string> = {
 		uAspect: 'Canvas aspect ratio (width / height).',
 		uDate: 'Date and time as (year, month, day, hours * 3600.0 + minutes * 60.0 + seconds)',
@@ -152,16 +167,33 @@ void main() {
 	};
 	const BUFFER_UNIFORM_NAMES = ['uBufferA','uBufferB','uBufferC','uBufferD','uBufferE','uBufferF','uBufferG','uBufferH'];
 
-	const uniformDescriptions = $derived((): Record<string, string> => {
-		const descs: Record<string, string> = { ...BASE_UNIFORM_DESCS };
+	const allUniforms = $derived<UniformEntry[]>((() => {
 		const userBufs = buffers.filter((b) => b.id !== 'image' && b.id !== 'common');
+		const catalog: { name: string; type: string; description?: string }[] = [...UNIFORM_CATALOG_BASE];
 		userBufs.forEach((buf, i) => {
 			if (i < BUFFER_UNIFORM_NAMES.length) {
-				descs[BUFFER_UNIFORM_NAMES[i]] = `Offscreen "${buf.label}" texture (sampler2D).`;
+				catalog.push({
+					name: BUFFER_UNIFORM_NAMES[i],
+					type: 'sampler2D',
+					description: `Offscreen "${buf.label}" texture (sampler2D).`,
+				});
 			}
 		});
-		return descs;
-	});
+		// Append any user-declared uniforms not in the catalog
+		const parsed = parseUniforms(editorValue);
+		const catalogNames = new Set(catalog.map((c) => c.name));
+		for (const pu of parsed) {
+			if (!catalogNames.has(pu.name)) {
+				catalog.push({ name: pu.name, type: pu.type, description: undefined });
+			}
+		}
+		return catalog.map(({ name, type, description }) => ({
+			name,
+			type,
+			description: description ?? BASE_UNIFORM_DESCS[name],
+			value: uniformValues[name],
+		}));
+	})());
 
 	function parseUniforms(code: string): { name: string; type: string }[] {
 		const regex = /^\s*uniform\s+(\w+)\s+(\w+)\s*;/gm;
@@ -173,14 +205,35 @@ void main() {
 		return results;
 	}
 
-	let activeUniforms = $derived<UniformEntry[]>(
-		parseUniforms(editorValue).map(({ type, name }) => ({
-			type,
-			name,
-			description: uniformDescriptions()[name],
-			value: uniformValues[name],
-		})),
+	const presentNames = $derived<Set<string>>(
+		new Set(parseUniforms(editorValue).map((u) => u.name))
 	);
+
+	function toggleUniform(name: string, type: string) {
+		const line = `uniform ${type} ${name};`;
+		if (presentNames.has(name)) {
+			// Remove the line (any whitespace variant)
+			editorValue = editorValue.replace(
+				new RegExp(`[ \\t]*uniform\\s+\\S+\\s+${name}\\s*;[ \\t]*\\n?`, 'm'),
+				''
+			);
+		} else {
+			// Insert after last existing uniform, or after precision, or at top
+			const lines = editorValue.split('\n');
+			let insertAt = 0;
+			let lastUniform = -1;
+			let lastPrecision = -1;
+			for (let i = 0; i < lines.length; i++) {
+				if (/^\s*uniform\s/.test(lines[i])) lastUniform = i;
+				if (/^\s*precision\s/.test(lines[i])) lastPrecision = i;
+			}
+			if (lastUniform >= 0) insertAt = lastUniform + 1;
+			else if (lastPrecision >= 0) insertAt = lastPrecision + 1;
+			lines.splice(insertAt, 0, line);
+			editorValue = lines.join('\n');
+		}
+		run();
+	}
 
 	// Auto-compile (debounced)
 	let _compileTimer = 0;
@@ -205,7 +258,9 @@ void main() {
 		bind:value={editorValue}
 		errors={error}
 		onRun={run}
-		uniforms={activeUniforms}
+		uniforms={allUniforms}
+		{presentNames}
+		onToggleUniform={toggleUniform}
 		bind:panelOpen
 		{buffers}
 		{activeBufferId}
