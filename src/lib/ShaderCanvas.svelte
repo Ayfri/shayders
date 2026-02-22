@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { CircleAlert, Maximize2, Minimize2 } from '@lucide/svelte';
+	import type { ChannelEntry } from '$lib/ChannelsPanel.svelte';
 
 	// 'image' and 'common' are reserved. All other IDs are user buffers (buf1, buf2, …).
 	export type BufferId = string;
@@ -13,6 +14,7 @@
 
 	interface Props {
 		buffers: ShaderBuffer[];
+		channels?: ChannelEntry[];
 		error?: string;
 		uniformValues?: Record<string, string>;
 		thumbnails?: Record<string, string>;
@@ -20,6 +22,7 @@
 
 	let {
 		buffers,
+		channels = [],
 		error = $bindable(''),
 		uniformValues = $bindable({}),
 		thumbnails = $bindable({}),
@@ -56,6 +59,15 @@ void main() {
 		texture: WebGLTexture | null;
 	}
 	const bufferStates = new Map<BufferId, InternalBufState>();
+
+	// Channel texture state
+	interface ChannelTexState {
+		texture: WebGLTexture;
+		videoEl: HTMLVideoElement | null;
+		url: string;
+	}
+	const channelTexStates = new Map<number, ChannelTexState>();
+	const CHANNEL_UNIFORM_NAMES = ['uChannel0', 'uChannel1', 'uChannel2', 'uChannel3'];
 	let quadBuffer: WebGLBuffer | null = null;
 	let fboWidth = 0;
 	let fboHeight = 0;
@@ -253,7 +265,6 @@ void main() {
 
 	// Buffer texture bindings
 	// User buffers are exposed as uBufferA, uBufferB, … (by declaration position, not ID)
-	// User buffers are exposed as uBufferA, uBufferB, … (by declaration position, not ID)
 	const BUFFER_UNIFORM_NAMES = ['uBufferA','uBufferB','uBufferC','uBufferD','uBufferE','uBufferF','uBufferG','uBufferH'];
 
 	function bindBufferTextures(prog: WebGLProgram) {
@@ -270,6 +281,84 @@ void main() {
 			}
 		}
 	}
+
+	// Channel textures: uChannel0-3 use texture units 8-11
+	function updateChannelTextures() {
+		if (!gl) return;
+		for (const ch of channels) {
+			const existing = channelTexStates.get(ch.id);
+			if (existing && existing.url === (ch.url ?? '')) continue;
+			if (existing) {
+				gl.deleteTexture(existing.texture);
+				if (existing.videoEl) { existing.videoEl.pause(); existing.videoEl.src = ''; }
+				channelTexStates.delete(ch.id);
+			}
+			if (!ch.url || !ch.type) continue;
+			const tex = gl.createTexture();
+			if (!tex) continue;
+			if (ch.type === 'video') {
+				const video = document.createElement('video');
+				video.src = ch.url;
+				video.loop = true;
+				video.muted = true;
+				video.autoplay = true;
+				video.playsInline = true;
+				video.play().catch(() => {});
+				gl.bindTexture(gl.TEXTURE_2D, tex);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+				channelTexStates.set(ch.id, { texture: tex, videoEl: video, url: ch.url });
+			} else {
+				const img = new window.Image();
+				img.crossOrigin = 'anonymous';
+				img.onload = () => {
+					if (!gl) return;
+					gl.bindTexture(gl.TEXTURE_2D, tex);
+					gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+					gl.generateMipmap(gl.TEXTURE_2D);
+					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+					gl.bindTexture(gl.TEXTURE_2D, null);
+				};
+				img.src = ch.url;
+				channelTexStates.set(ch.id, { texture: tex, videoEl: null, url: ch.url });
+			}
+		}
+		// Clean up removed channels
+		for (const [id, state] of channelTexStates.entries()) {
+			const still = channels.find((c) => c.id === id && c.url);
+			if (!still) {
+				gl.deleteTexture(state.texture);
+				if (state.videoEl) { state.videoEl.pause(); state.videoEl.src = ''; }
+				channelTexStates.delete(id);
+			}
+		}
+	}
+
+	function bindChannelTextures(prog: WebGLProgram) {
+		if (!gl) return;
+		for (const [id, state] of channelTexStates.entries()) {
+			if (id >= CHANNEL_UNIFORM_NAMES.length) continue;
+			const loc = gl.getUniformLocation(prog, CHANNEL_UNIFORM_NAMES[id]);
+			if (loc) {
+				const unit = 8 + id;
+				gl.activeTexture(gl.TEXTURE0 + unit);
+				gl.bindTexture(gl.TEXTURE_2D, state.texture);
+				gl.uniform1i(loc, unit);
+			}
+		}
+	}
+
+	$effect(() => {
+		const _channels = channels;
+		if (gl) updateChannelTextures();
+	});
 
 	function drawQuad(prog: WebGLProgram) {
 		if (!gl || !quadBuffer) return;
@@ -344,6 +433,15 @@ void main() {
 			uAspect: (w / h).toFixed(2),
 		};
 
+		// Upload current video frames to their textures
+		for (const [, state] of channelTexStates.entries()) {
+			if (state.videoEl && state.videoEl.readyState >= 2) {
+				gl.bindTexture(gl.TEXTURE_2D, state.texture);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, state.videoEl);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+			}
+		}
+
 		for (const id of [...userBufferOrder(), 'image']) {
 			const state = bufferStates.get(id);
 			if (!state?.program) continue;
@@ -352,6 +450,7 @@ void main() {
 			gl.viewport(0, 0, w, h);
 			gl.useProgram(state.program);
 			bindBufferTextures(state.program);
+			bindChannelTextures(state.program);
 			setStandardUniforms(state.program, elapsed, deltaTime);
 			drawQuad(state.program);
 		}

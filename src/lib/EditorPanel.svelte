@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { Code, Play, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2 } from '@lucide/svelte';
+	import { Code, Play, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2 } from '@lucide/svelte';
 	import GlslEditor from '$lib/GlslEditor.svelte';
 	import BuiltinsPanel, { type UniformEntry } from '$lib/BuiltinsPanel.svelte';
+	import ChannelsPanel, { type ChannelEntry } from '$lib/ChannelsPanel.svelte';
 	import type { ShaderBuffer } from '$lib/ShaderCanvas.svelte';
 
 	interface Props {
@@ -14,12 +15,14 @@
 		buffers: ShaderBuffer[];
 		activeBufferId: string;
 		thumbnails?: Record<string, string>;
+		channels?: ChannelEntry[];
 		onTabChange?: (id: string) => void;
 		onAddBuffer?: () => void;
 		onAddCommon?: () => void;
 		onRemoveBuffer?: (id: string) => void;
 		onRenameBuffer?: (id: string, label: string) => void;
 		onDuplicateBuffer?: (id: string) => void;
+		onChannelChange?: (ch: ChannelEntry) => void;
 	}
 
 	let {
@@ -31,17 +34,20 @@
 		buffers,
 		activeBufferId,
 		thumbnails = {},
+		channels = [],
 		onTabChange,
 		onAddBuffer,
 		onAddCommon,
 		onRemoveBuffer,
 		onRenameBuffer,
 		onDuplicateBuffer,
+		onChannelChange,
 	}: Props = $props();
 
 	let visible = $state(true);
 	let width = $state(800);
 	let isDragging = $state(false);
+	let channelsOpen = $state(false);
 
 	const hasCommon = $derived(buffers.some((b) => b.id === 'common'));
 
@@ -197,6 +203,15 @@
 		<div class="flex items-center gap-2 px-3 py-1.5 bg-panel border-b border-border shrink-0">
 			<span class="text-xs text-subtle font-mono mr-auto">Ctrl+Enter</span>
 			<button
+				onclick={() => (channelsOpen = !channelsOpen)}
+				class="flex items-center gap-1.5 px-3 py-1 rounded font-mono text-xs font-semibold tracking-wider cursor-pointer transition-colors
+					{channelsOpen ? 'bg-cyan-400/15 text-cyan-400 border border-cyan-400/60' : 'text-muted border border-border hover:text-foreground hover:bg-border'}"
+				title="Toggle channels"
+			>
+				<Tv2 size={12} />
+				Channels
+			</button>
+			<button
 				onclick={onRun}
 				class="flex items-center gap-1.5 px-4 py-1 bg-cyan-400/10 text-cyan-400 border border-cyan-400/60 rounded font-mono text-xs font-semibold tracking-wider cursor-pointer hover:bg-cyan-400/20 transition-colors"
 			>
@@ -212,6 +227,9 @@
 			</button>
 		</div>
 
+		{#if channelsOpen}
+			<ChannelsPanel {channels} {onChannelChange} />
+		{/if}
 		<GlslEditor bind:value {errors} {onRun} />
 		<BuiltinsPanel {uniforms} bind:open={panelOpen} />
 	</div>
