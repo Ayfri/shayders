@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Play, Code, CircleAlert } from '@lucide/svelte';
-    import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
-	import { language, conf } from '$lib/glsl';
-	import { registerMaterialDarkerTheme } from '$lib/themes/materialDarker';
+	import GlslEditor from '$lib/GlslEditor.svelte';
 
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let gl: WebGLRenderingContext | null = null;
@@ -28,53 +26,8 @@ void main() {
 	let vertexCode = defaultVertexShader;
 	let fragmentCode = $state(defaultFragmentShader);
 
-    let editorContainer = $state<HTMLElement | null>(null);
-	let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
-
 	let program: WebGLProgram | null = null;
 	const startTime = Date.now();
-
-    $effect(() => {
-		if (!editorContainer) return;
-		let isDestroyed = false;
-
-		import('monaco-editor').then(async (monaco) => {
-			if (isDestroyed || !editorContainer) return;
-
-            monaco.languages.register({ id: 'glsl' });
-            monaco.languages.setMonarchTokensProvider('glsl', language);
-            monaco.languages.setLanguageConfiguration('glsl', conf);
-
-			const EditorWorker = await import('monaco-editor/esm/vs/editor/editor.worker?worker');
-			self.MonacoEnvironment = {
-				getWorker: () => new EditorWorker.default(),
-			};
-
-			registerMaterialDarkerTheme(monaco);
-
-			editor = monaco.editor.create(editorContainer, {
-				automaticLayout: true,
-				fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-				fontSize: 14,
-				language: 'glsl',
-				minimap: { enabled: false },
-				padding: { top: 16 },
-				theme: 'material-darker',
-				value: fragmentCode,
-			});
-
-			editor.onDidChangeModelContent(() => {
-				fragmentCode = editor?.getValue() || '';
-			});
-
-			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, run);
-		});
-
-		return () => {
-			isDestroyed = true;
-			editor?.dispose();
-		};
-	});
 
 
 	function compileShader(ctx: WebGLRenderingContext, type: number, source: string): WebGLShader | null {
@@ -145,6 +98,14 @@ void main() {
 		buildProgram();
 		animationId = requestAnimationFrame(render);
 	}
+
+	// ── Auto-compile on code changes (debounced) ──────────────────────────
+	let _compileTimer = 0;
+	$effect(() => {
+		const _code = fragmentCode; // track reactive dependency
+		clearTimeout(_compileTimer);
+		_compileTimer = setTimeout(run, 800) as unknown as number;
+	});
 </script>
 
 <div class="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans">
@@ -183,6 +144,6 @@ void main() {
 			</button>
 		</div>
 
-		<div bind:this={editorContainer} class="flex-1 w-full bg-surface"></div>
+		<GlslEditor bind:value={fragmentCode} errors={error} onRun={run} />
 	</div>
 </div>

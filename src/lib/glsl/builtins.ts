@@ -89,9 +89,9 @@ export const BUILTIN_DOCS: Record<string, GlslDoc> = {
 	// Built-in variables
 	gl_Position:       { signature: 'vec4 gl_Position', description: '*(Vertex)* Clip-space output position. Must be written in every vertex shader.' },
 	gl_PointSize:      { signature: 'float gl_PointSize', description: '*(Vertex)* Diameter of rasterised points in pixels.' },
-	gl_FragCoord:      { signature: 'vec4 gl_FragCoord', description: '*(Fragment — read-only)* Window-space position. `.xy` = pixel coords, `.z` = depth [0,1], `.w` = 1/w_clip.' },
+	gl_FragCoord:      { signature: 'vec4 gl_FragCoord', description: '*(Fragment - read-only)* Window-space position. `.xy` = pixel coords, `.z` = depth [0,1], `.w` = 1/w_clip.' },
 	gl_FragColor:      { signature: 'vec4 gl_FragColor', description: '*(Fragment)* Output colour of the fragment. Alpha determines blending.' },
-	gl_FrontFacing:    { signature: 'bool gl_FrontFacing', description: '*(Fragment — read-only)* `true` if the fragment belongs to a front-facing primitive.' },
-	gl_PointCoord:     { signature: 'vec2 gl_PointCoord', description: '*(Fragment — read-only)* Position within a point-sprite quad. Range [0,1] per axis.' },
+	gl_FrontFacing:    { signature: 'bool gl_FrontFacing', description: '*(Fragment - read-only)* `true` if the fragment belongs to a front-facing primitive.' },
+	gl_PointCoord:     { signature: 'vec2 gl_PointCoord', description: '*(Fragment - read-only)* Position within a point-sprite quad. Range [0,1] per axis.' },
 	gl_FragData:       { signature: 'vec4 gl_FragData[n]', description: '*(Fragment)* Output array for MRT (multiple render targets). Use with `GL_EXT_draw_buffers`.' },
 };

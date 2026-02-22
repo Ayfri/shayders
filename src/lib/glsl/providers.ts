@@ -109,7 +109,7 @@ function registerCompletion(monaco: typeof Monaco) {
 				};
 			}
 
-			// General completions — range spans the full word so mid-word replace works
+			// General completions - range spans the full word so mid-word replace works
 			const range = completionRange(monaco, model, position);
 			const suggestions: Monaco.languages.CompletionItem[] = [];
 
