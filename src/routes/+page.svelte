@@ -3,6 +3,7 @@
 	import { Play, Code, CircleAlert } from '@lucide/svelte';
     import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
 	import { language, conf } from '$lib/glsl';
+	import { registerMaterialDarkerTheme } from '$lib/themes/materialDarker';
 
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let gl: WebGLRenderingContext | null = null;
@@ -49,6 +50,8 @@ void main() {
 				getWorker: () => new EditorWorker.default(),
 			};
 
+			registerMaterialDarkerTheme(monaco);
+
 			editor = monaco.editor.create(editorContainer, {
 				automaticLayout: true,
 				fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
@@ -56,7 +59,7 @@ void main() {
 				language: 'glsl',
 				minimap: { enabled: false },
 				padding: { top: 16 },
-				theme: 'vs-dark',
+				theme: 'material-darker',
 				value: fragmentCode,
 			});
 
