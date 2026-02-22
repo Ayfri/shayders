@@ -53,6 +53,7 @@ void main() {
 	let lastFrameTime = 0;
 	let frameCount = 0;
 	let fps = 0;
+	let buildTime = $state(0);
 
 	let mouseX = $state(0);
 	let mouseY = $state(0);
@@ -73,6 +74,7 @@ void main() {
 
 	function buildProgram() {
 		if (!gl) return;
+		const buildStart = performance.now();
 		error = '';
 		const vert = compileShader(gl, gl.VERTEX_SHADER, vertexCode);
 		const frag = compileShader(gl, gl.FRAGMENT_SHADER, fragmentCode);
@@ -89,6 +91,7 @@ void main() {
 		}
 		if (program) gl.deleteProgram(program);
 		program = newProgram;
+		buildTime = performance.now() - buildStart;
 	}
 
 	function render() {
@@ -239,6 +242,8 @@ void main() {
 		<div class="flex items-center gap-3 px-6 py-2 bg-panel border-b border-border text-xs text-muted shrink-0">
 			<span class="size-3 bg-green-400 rounded-full"></span>
 			<span class="font-medium tracking-wider">Preview</span>
+			<span class="text-muted-foreground">•</span>
+			<span>Build: {buildTime.toFixed(2)}ms</span>
 		</div>
 	{/if}
 
