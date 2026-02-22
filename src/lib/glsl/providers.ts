@@ -22,6 +22,141 @@ const NON_FUNCTION_KEYWORDS = new Set([
 	'discard', 'break', 'continue', 'struct',
 ]);
 
+// Abstract GLSL genType aliases used in builtin signatures → their scalar family
+const GENTYPE_FAMILY: Record<string, string> = {
+	genType:  'float',
+	genIType: 'int',
+	genUType: 'uint',
+	genBType: 'bool',
+	// Abstract return-type shorthands used in builtin signatures
+	vecN:     'float',
+	ivecN:    'int',
+	uvecN:    'uint',
+	bvecN:    'bool',
+	matN:     'float',
+	matNxM:   'float',
+};
+
+// Returns the scalar component family for a concrete GLSL type
+function getScalarFamily(type: string): 'float' | 'int' | 'uint' | 'bool' | null {
+	if (type === 'float' || /^vec\d$/.test(type) || /^mat\d/.test(type) || /^mat\dx\d$/.test(type)) return 'float';
+	if (type === 'int'   || /^ivec\d$/.test(type)) return 'int';
+	if (type === 'uint'  || /^uvec\d$/.test(type)) return 'uint';
+	if (type === 'bool'  || /^bvec\d$/.test(type)) return 'bool';
+	return null; // sampler2D, void, etc. → exact match only
+}
+
+// Extract GLSL type from a parameter string like "inout vec3 color" → "vec3"
+function parseParamType(paramStr: string): string | null {
+	const qualifiers = new Set(['in', 'out', 'inout', 'lowp', 'mediump', 'highp', 'const', 'precision']);
+	const parts = paramStr.trim().split(/\s+/).filter(Boolean);
+	const filtered = parts.filter((p) => !qualifiers.has(p));
+	return filtered.length >= 2 ? filtered[0] : null;
+}
+
+// Detect the enclosing function/constructor call and the 0-based argument index at cursor col
+function inferCallContext(
+	lineText: string,
+	col: number,
+): { fnName: string; argIndex: number } | null {
+	let depth = 0;
+	for (let i = col - 1; i >= 0; i--) {
+		const ch = lineText[i];
+		if (ch === ')' || ch === ']') { depth++; continue; }
+		if (ch === '[') {
+			if (depth > 0) { depth--; continue; }
+			return null; // inside array index → not a call argument
+		}
+		if (ch === '(') {
+			if (depth > 0) { depth--; continue; }
+			// Count commas at this nesting level from opening paren to cursor
+			let commaCount = 0;
+			let d = 0;
+			for (let j = i + 1; j < col; j++) {
+				const c = lineText[j];
+				if (c === '(' || c === '[') d++;
+				else if (c === ')' || c === ']') d--;
+				else if (c === ',' && d === 0) commaCount++;
+			}
+			const before = lineText.slice(0, i).trimEnd();
+			const fnMatch = before.match(/([a-zA-Z_]\w*)$/);
+			if (!fnMatch) return null;
+			const fnName = fnMatch[1];
+			if (NON_FUNCTION_KEYWORDS.has(fnName)) return null;
+			return { fnName, argIndex: commaCount };
+		}
+	}
+	return null;
+}
+
+// Returns the set of acceptable types for the n-th argument of a call (null = no restriction)
+function getCallArgTypes(
+	fnName: string,
+	argIndex: number,
+	docInfo: ReturnType<typeof analyzeDocument>,
+): Set<string> | null {
+	// Vector constructors: accept the scalar component type and shorter same-family vectors
+	const vecMatch = fnName.match(/^([biu]?vec)(\d)$/);
+	if (vecMatch) {
+		const prefix = vecMatch[1];
+		const n = parseInt(vecMatch[2], 10);
+		const scalar = prefix === 'ivec' ? 'int' : prefix === 'uvec' ? 'uint' : prefix === 'bvec' ? 'bool' : 'float';
+		const types = new Set<string>([scalar]);
+		for (let k = 2; k <= n; k++) types.add(`${prefix}${k}`);
+		return types;
+	}
+	// Matrix constructors: accept float scalars and all float vectors/matrices
+	if (/^mat\d/.test(fnName)) {
+		return new Set(['float', 'vec2', 'vec3', 'vec4', 'mat2', 'mat3', 'mat4',
+			'mat2x2', 'mat2x3', 'mat2x4', 'mat3x2', 'mat3x3', 'mat3x4', 'mat4x2', 'mat4x3', 'mat4x4']);
+	}
+	// Scalar constructors: accept any scalar type (implicit cast)
+	if (fnName === 'float' || fnName === 'int' || fnName === 'uint' || fnName === 'bool') {
+		return new Set(['float', 'int', 'uint', 'bool']);
+	}
+	// User-defined function
+	const fn = docInfo.functions.find((f) => f.name === fnName);
+	if (fn && argIndex < fn.params.length) {
+		return new Set([fn.params[argIndex].type]);
+	}
+	// Built-in function: collect parameter types from all overloads
+	const builtin = BUILTIN_DOCS[fnName];
+	if (builtin) {
+		const types = new Set<string>();
+		for (const sig of builtin.signature.split('\n')) {
+			const inner = sig.slice(sig.indexOf('(') + 1, sig.lastIndexOf(')'));
+			if (!inner.trim()) continue;
+			const params = inner.split(',');
+			if (argIndex < params.length) {
+				const t = parseParamType(params[argIndex]);
+				if (t) types.add(t);
+			}
+		}
+		return types.size > 0 ? types : null;
+	}
+	return null;
+}
+
+// Check whether a concrete candidate type satisfies a set of expected types
+function isTypeAcceptable(candidateType: string, expected: Set<string>): boolean {
+	if (expected.has(candidateType)) return true;
+	// If the candidate is itself an abstract alias (e.g. genType return type of sin)
+	const candidateFamily = GENTYPE_FAMILY[candidateType] ?? getScalarFamily(candidateType);
+	if (candidateFamily === null) return false; // sampler/void → exact match only
+	for (const et of expected) {
+		const etFamily = GENTYPE_FAMILY[et] ?? getScalarFamily(et);
+		if (etFamily === candidateFamily) return true;
+	}
+	return false;
+}
+
+// Extract the return type from a builtin signature: "vec4 texture2D(...)" or "vec4 gl_FragCoord"
+function builtinReturnType(signature: string): string | null {
+	const firstLine = signature.split('\n')[0];
+	const m = firstLine.match(/^([a-zA-Z_]\w*)\s+[a-zA-Z_]/);
+	return m ? m[1] : null;
+}
+
 // Extract parameter names from the first overload of a BUILTIN_DOCS signature string
 function extractParamNames(signature: string): string[] {
 	const inner = signature.slice(signature.indexOf('(') + 1, signature.lastIndexOf(')'));
@@ -113,6 +248,16 @@ function registerCompletion(monaco: typeof Monaco) {
 			const range = completionRange(monaco, model, position);
 			const suggestions: Monaco.languages.CompletionItem[] = [];
 
+			// Detect if cursor is inside a function/constructor call argument
+			const lineText    = model.getLineContent(position.lineNumber);
+			const callCtx     = inferCallContext(lineText, position.column - 1);
+			const docInfo     = analyzeDocument(model.getValue());
+			const expectedTypes = callCtx
+				? getCallArgTypes(callCtx.fnName, callCtx.argIndex, docInfo)
+				: null;
+			const inCallCtx = expectedTypes !== null;
+
+			// Types and keywords are always shown (they define structure / constructors)
 			for (const t of GLSL_TYPES) {
 				const td = TYPE_DOCS[t];
 				suggestions.push({
@@ -129,8 +274,18 @@ function registerCompletion(monaco: typeof Monaco) {
 				suggestions.push({ label: kw, kind: CIK.Keyword, insertText: kw, range });
 			}
 
+			// Builtins: filter by return type (or variable type for gl_* vars) when in a call context
 			for (const [name, doc] of Object.entries(BUILTIN_DOCS)) {
 				const isVar = name.startsWith('gl_');
+				if (inCallCtx) {
+					if (isVar) {
+						const varType = builtinReturnType(doc.signature);
+						if (varType && !isTypeAcceptable(varType, expectedTypes!)) continue;
+					} else {
+						const retType = builtinReturnType(doc.signature);
+						if (retType && retType !== 'void' && !isTypeAcceptable(retType, expectedTypes!)) continue;
+					}
+				}
 				suggestions.push({
 					label:           name,
 					kind:            isVar ? CIK.Variable : CIK.Function,
@@ -142,10 +297,9 @@ function registerCompletion(monaco: typeof Monaco) {
 				});
 			}
 
-			const docInfo = analyzeDocument(model.getValue());
-
 			for (const v of docInfo.variables) {
 				if (BUILTIN_DOCS[v.name] || GLSL_TYPES.includes(v.name)) continue;
+				if (inCallCtx && !isTypeAcceptable(v.type, expectedTypes!)) continue;
 				suggestions.push({
 					label:         v.name,
 					kind:          v.qualifier === 'uniform'   ? CIK.Constant
@@ -160,6 +314,7 @@ function registerCompletion(monaco: typeof Monaco) {
 
 			for (const fn of docInfo.functions) {
 				if (BUILTIN_DOCS[fn.name]) continue;
+				if (inCallCtx && !isTypeAcceptable(fn.returnType, expectedTypes!)) continue;
 				const paramList = fn.params.map((p) => `${p.type} ${p.name}`).join(', ');
 				suggestions.push({
 					label:           fn.name,
@@ -172,6 +327,7 @@ function registerCompletion(monaco: typeof Monaco) {
 				});
 			}
 
+			// Defines are always shown (their type is unknown at parse time)
 			for (const def of docInfo.defines) {
 				suggestions.push({
 					label:         def.name,
