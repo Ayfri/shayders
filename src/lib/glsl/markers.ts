@@ -74,7 +74,9 @@ export function applyHints(
 	const unused = findUnused(src, doc);
 
 	const markers: Monaco.editor.IMarkerData[] = unused.map((item) => ({
-		severity: monaco.MarkerSeverity.Warning,
+		severity: item.kind === 'uniform'
+			? monaco.MarkerSeverity.Hint
+			: monaco.MarkerSeverity.Warning,
 		// MarkerTag.Unnecessary = 1 → dims / grays out the token
 		tags: [1 as Monaco.MarkerTag],
 		message: item.message,
