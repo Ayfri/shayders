@@ -438,10 +438,18 @@ function registerInlayHints(monaco: typeof Monaco) {
 						let argBuf       = '';   // accumulated text of current arg
 						let argFirstCol  = -1;   // 0-based column of first non-space char
 						let depth        = 1;
+						let argCount     = 0;   // count arguments to know if broadcast applies
 
-						const flushArg = (hintCol: number, buf: string) => {
+						const flushArg = (hintCol: number, buf: string, isOnlyArg: boolean = false) => {
 							if (hintCol < 0 || slotIdx >= components.length) return;
-							const count = argComponentCount(buf, docInfo);
+							let count = argComponentCount(buf, docInfo);
+							const remainingSlots = components.length - slotIdx;
+
+							// If single argument that doesn't fill all slots, broadcast it to fill remaining
+							if (isOnlyArg && count < remainingSlots) {
+								count = remainingSlots;
+							}
+
 							const label = components.slice(slotIdx, slotIdx + count).join('');
 							slotIdx += count;
 							// Suppress redundant "x: x" hints
@@ -462,13 +470,18 @@ function registerInlayHints(monaco: typeof Monaco) {
 
 							if (ch === ')') {
 								depth--;
-								if (depth === 0) { flushArg(argFirstCol, argBuf); break; }
+								if (depth === 0) {
+									if (argFirstCol >= 0) argCount++;
+									flushArg(argFirstCol, argBuf, argCount === 1);
+									break;
+								}
 								argBuf += ch;
 								continue;
 							}
 
 							if (ch === ',' && depth === 1) {
-								flushArg(argFirstCol, argBuf);
+								if (argFirstCol >= 0) argCount++;
+								flushArg(argFirstCol, argBuf, false);
 								argBuf      = '';
 								argFirstCol = -1;
 								continue;
