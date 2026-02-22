@@ -49,7 +49,7 @@ void main() {
 }`;
 
 	let program: WebGLProgram | null = null;
-	const startTime = Date.now();
+	let startTime = Date.now();
 	let lastFrameTime = 0;
 	let frameCount = 0;
 	let fps = 0;
@@ -150,6 +150,10 @@ void main() {
 
 	export function run() {
 		cancelAnimationFrame(animationId);
+		startTime = Date.now();
+		lastFrameTime = 0;
+		frameCount = 0;
+		fps = 0;
 		buildProgram();
 		animationId = requestAnimationFrame(render);
 	}
