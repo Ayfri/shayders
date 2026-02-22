@@ -96,6 +96,9 @@ export function registerMaterialDarkerTheme(monaco: typeof Monaco) {
 			// Attributes
 			{ token: 'attribute.name',          foreground: 'FFCB6B', fontStyle: 'italic' },
 			{ token: 'attribute.value',         foreground: 'C3E88D' },
+			// Preprocessor/macro directives
+			{ token: 'meta.preprocessor',         foreground: 'C792EA', fontStyle: 'italic' },
+			{ token: 'meta.preprocessor.keyword', foreground: 'C792EA', fontStyle: 'italic' },
 			// Annotations
 			{ token: 'annotation',              foreground: 'C792EA' },
 			{ token: 'metatag',                 foreground: '89DDFF' },
