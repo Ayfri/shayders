@@ -2,36 +2,37 @@
 	import { onMount } from 'svelte';
 	import { CircleAlert, Maximize2, Minimize2 } from '@lucide/svelte';
 
+	// 'image' and 'common' are reserved. All other IDs are user buffers (buf1, buf2, …).
+	export type BufferId = string;
+
+	export interface ShaderBuffer {
+		id: BufferId;
+		label: string;
+		code: string;
+	}
+
 	interface Props {
-		fragmentCode: string;
+		buffers: ShaderBuffer[];
 		error?: string;
 		uniformValues?: Record<string, string>;
+		thumbnails?: Record<string, string>;
 	}
 
 	let {
-		fragmentCode,
+		buffers,
 		error = $bindable(''),
 		uniformValues = $bindable({}),
+		thumbnails = $bindable({}),
 	}: Props = $props();
 
+	// Canvas / GL
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let wrapper = $state<HTMLDivElement | null>(null);
 	let gl: WebGLRenderingContext | null = null;
-	let animationId = 0;
 
 	// Fullscreen
 	let isFullscreen = $state(false);
 	let isHovered = $state(false);
-	let fsNotif = $state('');
-	let fsNotifVisible = $state(false);
-	let fsNotifTimer = 0;
-
-	function showFsNotif(text: string) {
-		fsNotif = text;
-		fsNotifVisible = true;
-		clearTimeout(fsNotifTimer);
-		fsNotifTimer = setTimeout(() => { fsNotifVisible = false; }, 2500) as unknown as number;
-	}
 
 	async function toggleFullscreen() {
 		if (!wrapper) return;
@@ -42,129 +43,331 @@
 		}
 	}
 
-	// Vertices shader
+	// Shared vertex shader
 	const vertexCode = `attribute vec4 aPosition;
 void main() {
   gl_Position = aPosition;
 }`;
 
-	let program: WebGLProgram | null = null;
+	// Per-buffer internal state
+	interface InternalBufState {
+		program: WebGLProgram | null;
+		fbo: WebGLFramebuffer | null;
+		texture: WebGLTexture | null;
+	}
+	const bufferStates = new Map<BufferId, InternalBufState>();
+	let quadBuffer: WebGLBuffer | null = null;
+	let fboWidth = 0;
+	let fboHeight = 0;
+
+	// Animation state
+	let animationId = 0;
 	let startTime = Date.now();
 	let lastFrameTime = 0;
 	let frameCount = 0;
 	let fps = 0;
 	let buildTime = $state(0);
-
 	let mouseX = $state(0);
 	let mouseY = $state(0);
 	let isMouseDown = $state(false);
 
-	function compileShader(ctx: WebGLRenderingContext, type: number, source: string): WebGLShader | null {
+	// Thumbnail timing
+	let lastThumbTime = 0;
+	const THUMB_W = 128;
+	const THUMB_H = 72;
+
+	// Compile helpers
+	function compileShaderSrc(ctx: WebGLRenderingContext, type: number, source: string): WebGLShader | null {
 		const shader = ctx.createShader(type);
 		if (!shader) return null;
 		ctx.shaderSource(shader, source);
 		ctx.compileShader(shader);
 		if (!ctx.getShaderParameter(shader, ctx.COMPILE_STATUS)) {
-			error = ctx.getShaderInfoLog(shader) ?? 'Unknown shader error';
 			ctx.deleteShader(shader);
 			return null;
 		}
 		return shader;
 	}
 
-	function buildProgram() {
-		if (!gl) return;
-		const buildStart = performance.now();
-		error = '';
-		const vert = compileShader(gl, gl.VERTEX_SHADER, vertexCode);
-		const frag = compileShader(gl, gl.FRAGMENT_SHADER, fragmentCode);
-		if (!vert || !frag) return;
+	function buildSingleProgram(
+		ctx: WebGLRenderingContext,
+		fragCode: string,
+		label: string,
+	): { program: WebGLProgram | null; err: string } {
+		const vert = compileShaderSrc(ctx, ctx.VERTEX_SHADER, vertexCode);
+		if (!vert) return { program: null, err: `[${label}] vertex compile error` };
 
-		const newProgram = gl.createProgram();
-		if (!newProgram) return;
-		gl.attachShader(newProgram, vert);
-		gl.attachShader(newProgram, frag);
-		gl.linkProgram(newProgram);
-		if (!gl.getProgramParameter(newProgram, gl.LINK_STATUS)) {
-			error = gl.getProgramInfoLog(newProgram) ?? 'Failed to link program';
-			return;
+		const frag = compileShaderSrc(ctx, ctx.FRAGMENT_SHADER, fragCode);
+		if (!frag) {
+			// Re-compile to get the log
+			const tmp = ctx.createShader(ctx.FRAGMENT_SHADER)!;
+			ctx.shaderSource(tmp, fragCode);
+			ctx.compileShader(tmp);
+			const msg = ctx.getShaderInfoLog(tmp) ?? 'Unknown error';
+			ctx.deleteShader(tmp);
+			return { program: null, err: `[${label}] ${msg}` };
 		}
-		if (program) gl.deleteProgram(program);
-		program = newProgram;
-		buildTime = performance.now() - buildStart;
+
+		const prog = ctx.createProgram();
+		if (!prog) return { program: null, err: `[${label}] createProgram failed` };
+		ctx.attachShader(prog, vert);
+		ctx.attachShader(prog, frag);
+		ctx.linkProgram(prog);
+		if (!ctx.getProgramParameter(prog, ctx.LINK_STATUS)) {
+			return { program: null, err: `[${label}] ${ctx.getProgramInfoLog(prog) ?? 'link error'}` };
+		}
+		return { program: prog, err: '' };
 	}
 
-	function render() {
-		if (!gl || !program || !canvas) return;
-		gl.viewport(0, 0, canvas.width, canvas.height);
-		gl.useProgram(program);
+	// FBO helpers
+	function createFbo(
+		ctx: WebGLRenderingContext,
+		w: number,
+		h: number,
+	): { fbo: WebGLFramebuffer; texture: WebGLTexture } | null {
+		const texture = ctx.createTexture();
+		if (!texture) return null;
+		ctx.bindTexture(ctx.TEXTURE_2D, texture);
+		ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, w, h, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, null);
+		ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.LINEAR);
+		ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.LINEAR);
+		ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE);
+		ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE);
+		ctx.bindTexture(ctx.TEXTURE_2D, null);
+
+		const fbo = ctx.createFramebuffer();
+		if (!fbo) { ctx.deleteTexture(texture); return null; }
+		ctx.bindFramebuffer(ctx.FRAMEBUFFER, fbo);
+		ctx.framebufferTexture2D(ctx.FRAMEBUFFER, ctx.COLOR_ATTACHMENT0, ctx.TEXTURE_2D, texture, 0);
+		ctx.bindFramebuffer(ctx.FRAMEBUFFER, null);
+		return { fbo, texture };
+	}
+
+	function ensureFboSize(w: number, h: number) {
+		if (!gl || (fboWidth === w && fboHeight === h)) return;
+		fboWidth = w;
+		fboHeight = h;
+		for (const [id, state] of bufferStates.entries()) {
+			if (id === 'image' || id === 'common' || !state.texture) continue;
+			gl.bindTexture(gl.TEXTURE_2D, state.texture);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+			gl.bindTexture(gl.TEXTURE_2D, null);
+		}
+	}
+
+	// Build all programs
+	// Returns the ordered list of user buffer IDs (excludes 'image' and 'common')
+	function userBufferOrder(): string[] {
+		return buffers.filter((b) => b.id !== 'image' && b.id !== 'common').map((b) => b.id);
+	}
+
+	export function run() {
+		if (!gl) return;
+		cancelAnimationFrame(animationId);
+		startTime = Date.now();
+		lastFrameTime = 0;
+		frameCount = 0;
+		fps = 0;
+		error = '';
+
+		const t0 = performance.now();
+		const errors: string[] = [];
+
+		// Prepend common code (if any) to every shader
+		const commonCode = buffers.find((b) => b.id === 'common')?.code ?? '';
+		const withCommon = (code: string) => (commonCode ? commonCode + '\n' + code : code);
+
+		// Dynamic render order: user buffers first (in declaration order), then image
+		const renderOrder = [...userBufferOrder(), 'image'];
+
+		// Clean up stale GL state for buffers that no longer exist
+		for (const id of bufferStates.keys()) {
+			if (!renderOrder.includes(id)) {
+				const s = bufferStates.get(id)!;
+				if (s.program) gl.deleteProgram(s.program);
+				if (s.fbo) gl.deleteFramebuffer(s.fbo);
+				if (s.texture) gl.deleteTexture(s.texture);
+				bufferStates.delete(id);
+			}
+		}
+
+		for (const id of renderOrder) {
+			const buf = buffers.find((b) => b.id === id);
+			if (!buf) continue;
+
+			const existing = bufferStates.get(id);
+			if (existing?.program) gl.deleteProgram(existing.program);
+
+			const { program, err } = buildSingleProgram(gl, withCommon(buf.code), buf.label);
+			if (err) errors.push(err);
+
+			let fbo = existing?.fbo ?? null;
+			let texture = existing?.texture ?? null;
+
+			if (id !== 'image' && (!fbo || !texture)) {
+				const dims = createFbo(gl, canvas?.width ?? 800, canvas?.height ?? 600);
+				if (dims) { fbo = dims.fbo; texture = dims.texture; }
+			}
+
+			bufferStates.set(id, { program, fbo, texture });
+		}
+
+		buildTime = performance.now() - t0;
+		error = errors.join('\n');
+
+		if (!quadBuffer) {
+			quadBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+			gl.bufferData(
+				gl.ARRAY_BUFFER,
+				new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),
+				gl.STATIC_DRAW,
+			);
+		}
+
+		animationId = requestAnimationFrame(renderFrame);
+	}
+
+	// Uniform helpers
+	function setStandardUniforms(prog: WebGLProgram, elapsed: number, deltaTime: number) {
+		if (!gl || !canvas) return;
+		const now = new Date();
+		const tofDay = now.getHours() * 3600.0 + now.getMinutes() * 60.0 + now.getSeconds();
+		const w = canvas.width, h = canvas.height;
+
+		const u1f = (n: string, v: number) => { const l = gl!.getUniformLocation(prog, n); if (l) gl!.uniform1f(l, v); };
+		const u2f = (n: string, a: number, b: number) => { const l = gl!.getUniformLocation(prog, n); if (l) gl!.uniform2f(l, a, b); };
+		const u3f = (n: string, a: number, b: number, c: number) => { const l = gl!.getUniformLocation(prog, n); if (l) gl!.uniform3f(l, a, b, c); };
+		const u4f = (n: string, a: number, b: number, c: number, d: number) => { const l = gl!.getUniformLocation(prog, n); if (l) gl!.uniform4f(l, a, b, c, d); };
+		const u1i = (n: string, v: number) => { const l = gl!.getUniformLocation(prog, n); if (l) gl!.uniform1i(l, v); };
+
+		u1f('uTime', elapsed);
+		u2f('uResolution', w, h);
+		u3f('uMouse', mouseX, mouseY, isMouseDown ? 1.0 : 0.0);
+		u4f('uDate', now.getFullYear(), now.getMonth() + 1, now.getDate(), tofDay);
+		u1f('uFrameRate', fps);
+		u1f('uDeltaTime', deltaTime);
+		u1i('uFrameCount', frameCount);
+		u1f('uAspect', w / h);
+	}
+
+	// Buffer texture bindings
+	// User buffers are exposed as uBufferA, uBufferB, … (by declaration position, not ID)
+	// User buffers are exposed as uBufferA, uBufferB, … (by declaration position, not ID)
+	const BUFFER_UNIFORM_NAMES = ['uBufferA','uBufferB','uBufferC','uBufferD','uBufferE','uBufferF','uBufferG','uBufferH'];
+
+	function bindBufferTextures(prog: WebGLProgram) {
+		if (!gl) return;
+		const order = userBufferOrder();
+		for (let i = 0; i < order.length && i < BUFFER_UNIFORM_NAMES.length; i++) {
+			const state = bufferStates.get(order[i]);
+			if (!state?.texture) continue;
+			const loc = gl.getUniformLocation(prog, BUFFER_UNIFORM_NAMES[i]);
+			if (loc) {
+				gl.activeTexture(gl.TEXTURE0 + i);
+				gl.bindTexture(gl.TEXTURE_2D, state.texture);
+				gl.uniform1i(loc, i);
+			}
+		}
+	}
+
+	function drawQuad(prog: WebGLProgram) {
+		if (!gl || !quadBuffer) return;
+		gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+		const aPos = gl.getAttribLocation(prog, 'aPosition');
+		gl.enableVertexAttribArray(aPos);
+		gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	}
+
+	// Thumbnail capture (every 500ms)
+	function captureThumbnails() {
+		if (!gl || !canvas) return;
+		const newThumbs: Record<string, string> = {};
+		const w = canvas.width;
+		const h = canvas.height;
+
+		for (const id of userBufferOrder()) {
+			const state = bufferStates.get(id);
+			if (!state?.fbo) continue;
+
+			const pixels = new Uint8Array(w * h * 4);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, state.fbo);
+			gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+			// Flip Y (WebGL is Y-up) and downscale
+			const full = document.createElement('canvas');
+			full.width = w; full.height = h;
+			const fCtx = full.getContext('2d')!;
+			const imgData = fCtx.createImageData(w, h);
+			for (let row = 0; row < h; row++) {
+				const src = (h - 1 - row) * w * 4;
+				imgData.data.set(pixels.subarray(src, src + w * 4), row * w * 4);
+			}
+			fCtx.putImageData(imgData, 0, 0);
+
+			const tmp = document.createElement('canvas');
+			tmp.width = THUMB_W; tmp.height = THUMB_H;
+			tmp.getContext('2d')!.drawImage(full, 0, 0, THUMB_W, THUMB_H);
+			newThumbs[id] = tmp.toDataURL('image/jpeg', 0.8);
+		}
+
+		// Image thumbnail from main canvas
+		newThumbs['image'] = canvas.toDataURL('image/jpeg', 0.8);
+		thumbnails = { ...thumbnails, ...newThumbs };
+	}
+
+	// Main render loop
+	function renderFrame() {
+		if (!gl || !canvas) return;
+		const w = canvas.width;
+		const h = canvas.height;
+		ensureFboSize(w, h);
 
 		const currentTime = Date.now();
 		const elapsed = (currentTime - startTime) / 1000;
 		const deltaTime = lastFrameTime > 0 ? (currentTime - lastFrameTime) / 1000 : 0;
 		lastFrameTime = currentTime;
 		frameCount++;
-
-		if (deltaTime > 0) {
-			fps = fps * 0.9 + (1 / deltaTime) * 0.1;
-		}
+		if (deltaTime > 0) fps = fps * 0.9 + (1 / deltaTime) * 0.1;
 
 		const now = new Date();
-		const timeOfDay = now.getHours() * 3600.0 + now.getMinutes() * 60.0 + now.getSeconds();
+		uniformValues = {
+			uTime: elapsed.toFixed(2) + 's',
+			uResolution: `${w} × ${h}`,
+			uMouse: `${mouseX.toFixed(0)}, ${mouseY.toFixed(0)}`,
+			uFrameRate: fps.toFixed(1) + ' fps',
+			uDeltaTime: (deltaTime * 1000).toFixed(2) + 'ms',
+			uFrameCount: frameCount.toString(),
+			uDate: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
+			uAspect: (w / h).toFixed(2),
+		};
 
-		const uTime = gl.getUniformLocation(program, 'uTime');
-		const uRes = gl.getUniformLocation(program, 'uResolution');
-		const uMouse = gl.getUniformLocation(program, 'uMouse');
-		const uDate = gl.getUniformLocation(program, 'uDate');
-		const uFrameRate = gl.getUniformLocation(program, 'uFrameRate');
-		const uDeltaTime = gl.getUniformLocation(program, 'uDeltaTime');
-		const uFrameCount = gl.getUniformLocation(program, 'uFrameCount');
-		const uAspect = gl.getUniformLocation(program, 'uAspect');
+		for (const id of [...userBufferOrder(), 'image']) {
+			const state = bufferStates.get(id);
+			if (!state?.program) continue;
 
-		if (uTime) gl.uniform1f(uTime, elapsed);
-		if (uRes) gl.uniform2f(uRes, canvas.width, canvas.height);
-		if (uMouse) gl.uniform3f(uMouse, mouseX, mouseY, isMouseDown ? 1.0 : 0.0);
-		if (uDate) gl.uniform4f(uDate, now.getFullYear(), now.getMonth() + 1, now.getDate(), timeOfDay);
-		if (uFrameRate) gl.uniform1f(uFrameRate, fps);
-		if (uDeltaTime) gl.uniform1f(uDeltaTime, deltaTime);
-		if (uFrameCount) gl.uniform1i(uFrameCount, frameCount);
-		if (uAspect) gl.uniform1f(uAspect, canvas.width / canvas.height);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, id === 'image' ? null : (state.fbo ?? null));
+			gl.viewport(0, 0, w, h);
+			gl.useProgram(state.program);
+			bindBufferTextures(state.program);
+			setStandardUniforms(state.program, elapsed, deltaTime);
+			drawQuad(state.program);
+		}
 
-		uniformValues.uTime = elapsed.toFixed(2) + 's';
-		uniformValues.uResolution = `${canvas.width} × ${canvas.height}`;
-		uniformValues.uMouse = `${mouseX.toFixed(0)}, ${mouseY.toFixed(0)}`;
-		uniformValues.uFrameRate = fps.toFixed(1) + ' fps';
-		uniformValues.uDeltaTime = (deltaTime * 1000).toFixed(2) + 'ms';
-		uniformValues.uFrameCount = frameCount.toString();
-		uniformValues.uDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-		uniformValues.uAspect = (canvas.width / canvas.height).toFixed(2);
+		if (currentTime - lastThumbTime > 500) {
+			lastThumbTime = currentTime;
+			captureThumbnails();
+		}
 
-		const buf = gl.createBuffer();
-		gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-
-		const aPos = gl.getAttribLocation(program, 'aPosition');
-		gl.enableVertexAttribArray(aPos);
-		gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
-		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-		animationId = requestAnimationFrame(render);
+		animationId = requestAnimationFrame(renderFrame);
 	}
 
-	export function run() {
-		cancelAnimationFrame(animationId);
-		startTime = Date.now();
-		lastFrameTime = 0;
-		frameCount = 0;
-		fps = 0;
-		buildProgram();
-		animationId = requestAnimationFrame(render);
-	}
-
+	// Mount
 	onMount(() => {
 		if (!canvas || !wrapper) return;
 		gl = canvas.getContext('webgl');
-		buildProgram();
 
 		const handleMouseMove = (e: MouseEvent) => {
 			const rect = canvas!.getBoundingClientRect();
@@ -174,38 +377,35 @@ void main() {
 		const handleMouseDown = () => { isMouseDown = true; };
 		const handleMouseUp = () => { isMouseDown = false; };
 		const handleMouseLeave = () => { isMouseDown = false; };
-
 		canvas.addEventListener('mousemove', handleMouseMove);
 		canvas.addEventListener('mousedown', handleMouseDown);
 		canvas.addEventListener('mouseup', handleMouseUp);
 		canvas.addEventListener('mouseleave', handleMouseLeave);
 
-		// Fullscreen change - browser handles Échap natively
-		const handleFullscreenChange = () => {
-			isFullscreen = !!document.fullscreenElement;
-		};
+		const handleFullscreenChange = () => { isFullscreen = !!document.fullscreenElement; };
 		document.addEventListener('fullscreenchange', handleFullscreenChange);
 
-		// F key to toggle fullscreen (works both when focused and when in fullscreen)
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.key === 'f' || e.key === 'F') {
-				// Don't intercept when typing in an input
-				if (document.activeElement && ['INPUT', 'TEXTAREA'].includes((document.activeElement as HTMLElement).tagName)) return;
+				const elem = document.activeElement as HTMLElement;
+				const isEditingField =
+					elem?.tagName === 'INPUT' ||
+					elem?.tagName === 'TEXTAREA' ||
+					elem?.getAttribute('contenteditable') === 'true' ||
+					elem?.classList.contains('monaco-editor') ||
+					elem?.closest('.monaco-editor') !== null;
+				if (isEditingField) return;
 				e.preventDefault();
 				toggleFullscreen();
 			}
 		};
-		wrapper.addEventListener('keydown', handleKeyDown);
-		// Also listen globally so F works while in fullscreen (wrapper is the fullscreen root)
 		document.addEventListener('keydown', handleKeyDown);
 
-		// Hover tracking via JS (reliable across fullscreen)
 		const handleEnter = () => { isHovered = true; };
 		const handleLeaveWrapper = () => { isHovered = false; };
 		wrapper.addEventListener('mouseenter', handleEnter);
 		wrapper.addEventListener('mouseleave', handleLeaveWrapper);
 
-		// Sync canvas resolution with container
 		const resizeObserver = new ResizeObserver(() => {
 			if (canvas && wrapper) {
 				canvas.width = wrapper.clientWidth;
@@ -214,7 +414,7 @@ void main() {
 		});
 		resizeObserver.observe(wrapper);
 
-		animationId = requestAnimationFrame(render);
+		run();
 
 		return () => {
 			cancelAnimationFrame(animationId);
@@ -223,7 +423,6 @@ void main() {
 			canvas?.removeEventListener('mouseup', handleMouseUp);
 			canvas?.removeEventListener('mouseleave', handleMouseLeave);
 			document.removeEventListener('fullscreenchange', handleFullscreenChange);
-			wrapper?.removeEventListener('keydown', handleKeyDown);
 			document.removeEventListener('keydown', handleKeyDown);
 			wrapper?.removeEventListener('mouseenter', handleEnter);
 			wrapper?.removeEventListener('mouseleave', handleLeaveWrapper);
@@ -232,7 +431,7 @@ void main() {
 	});
 </script>
 
-<!-- Wrapper: tabindex makes it focusable for keyboard events -->
+<!-- Wrapper -->
 <div
 	bind:this={wrapper}
 	role="application"
@@ -250,7 +449,6 @@ void main() {
 	<div class="flex-1 relative overflow-hidden">
 		<canvas bind:this={canvas} class="w-full h-full block" width={800} height={600}></canvas>
 
-		<!-- Fullscreen button -->
 		<button
 			onclick={toggleFullscreen}
 			class="absolute bottom-3 right-3 p-1.5 rounded text-white cursor-pointer transition-opacity duration-200"
@@ -263,15 +461,6 @@ void main() {
 				<Maximize2 size={18} />
 			{/if}
 		</button>
-
-		<!-- YouTube-style toast -->
-		{#if fsNotifVisible}
-			<div
-				class="absolute bottom-14 left-1/2 -translate-x-1/2 bg-black/70 text-white text-xs px-3 py-1.5 rounded whitespace-nowrap pointer-events-none"
-			>
-				{fsNotif}
-			</div>
-		{/if}
 	</div>
 
 	{#if error}

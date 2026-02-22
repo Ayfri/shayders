@@ -16,6 +16,7 @@
 	let editorContainer = $state<HTMLElement | null>(null);
 	let editor = $state<Monaco.editor.IStandaloneCodeEditor | null>(null);
 	let monacoRef = $state<typeof Monaco | null>(null);
+	let _settingExternal = false;
 
 	// Editor lifecycle
 
@@ -69,6 +70,7 @@
 			});
 
 			instance.onDidChangeModelContent(() => {
+				if (_settingExternal) return;
 				value = instance.getValue();
 				const m = instance.getModel();
 				if (m) applyHints(monaco, m);
@@ -95,6 +97,16 @@
 			editor = null;
 			monacoRef = null;
 		};
+	});
+
+	// Sync external value changes into Monaco (e.g. tab switch)
+	$effect(() => {
+		const incoming = value;
+		if (!editor) return;
+		if (editor.getValue() === incoming) return;
+		_settingExternal = true;
+		editor.setValue(incoming);
+		_settingExternal = false;
 	});
 
 	// Reactively update error markers
