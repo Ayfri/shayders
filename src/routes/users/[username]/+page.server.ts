@@ -37,6 +37,7 @@ export const load: PageServerLoad = async ({ params }) => {
 			created: s.created,
 			updated: s.updated,
 			visiblity: s.visiblity ?? 'public',
+			buffers: Array.isArray(s.content) ? (s.content as any[]) : [],
 		})),
 	};
 };
