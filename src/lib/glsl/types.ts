@@ -142,7 +142,6 @@ export function getSwizzles(type: string): string[] {
 	const doc = TYPE_DOCS[type];
 	if (!doc?.components) return [];
 	const comps = doc.components;
-	const n = comps.length; // 2, 3, or 4
 
 	const result: string[] = [];
 
@@ -159,25 +158,21 @@ export function getSwizzles(type: string): string[] {
 			}
 		}
 
-		// 3-component (only if source has ≥ 3 components)
-		if (n >= 3) {
-			for (const a of set) {
-				for (const b of set) {
-					for (const c of set) {
-						result.push(a + b + c);
-					}
+		// 3-component (repeat components allowed, output can have more components than source)
+		for (const a of set) {
+			for (const b of set) {
+				for (const c of set) {
+					result.push(a + b + c);
 				}
 			}
 		}
 
-		// 4-component (only if source has ≥ 4 components)
-		if (n >= 4) {
-			for (const a of set) {
-				for (const b of set) {
-					for (const c of set) {
-						for (const d of set) {
-							result.push(a + b + c + d);
-						}
+		// 4-component
+		for (const a of set) {
+			for (const b of set) {
+				for (const c of set) {
+					for (const d of set) {
+						result.push(a + b + c + d);
 					}
 				}
 			}

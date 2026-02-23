@@ -239,7 +239,7 @@ function registerCompletion(monaco: typeof Monaco) {
 				if (struct) {
 					return {
 						suggestions: struct.fields.map((f, i) => ({
-							label:      f.name,
+							label:      { label: f.name, description: f.type },
 							kind:       CIK.Field,
 							insertText: f.name,
 							sortText:   String(i).padStart(6, '0'),
@@ -255,7 +255,7 @@ function registerCompletion(monaco: typeof Monaco) {
 
 				return {
 					suggestions: swizzles.map((sw, i) => ({
-						label:      sw,
+						label:      { label: sw, description: swizzleResultType(type, sw) },
 						kind:       CIK.Field,
 						insertText: sw,
 						sortText:   String(i).padStart(6, '0'),
@@ -284,12 +284,55 @@ function registerCompletion(monaco: typeof Monaco) {
 				};
 			}
 
+			// Check for member access even when triggerCharacter is not '.' (e.g. Ctrl+Space mid-word)
+			const lineText = model.getLineContent(position.lineNumber);
+			const textBefore = lineText.slice(0, position.column - 1);
+			const memberMatch = textBefore.match(/(\w+)\s*\.\s*(\w*)$/);
+			if (memberMatch && context.triggerCharacter !== '.') {
+				const wordBefore = memberMatch[1];
+				const doc = analyzeDocument(model.getValue());
+				const type = resolveScopedType(doc, wordBefore, position.lineNumber)
+					?? (BUILTIN_DOCS[wordBefore]?.signature.match(/^(\w+)/)?.[1]);
+				if (type) {
+					const range = completionRange(monaco, model, position);
+
+					// Struct field completions
+					const struct = doc.structs.find((s) => s.name === type);
+					if (struct) {
+						return {
+							suggestions: struct.fields.map((f, i) => ({
+								label:      { label: f.name, description: f.type },
+								kind:       CIK.Field,
+								insertText: f.name,
+								sortText:   String(i).padStart(6, '0'),
+								detail:     `${type}.${f.name}: ${f.type}`,
+								range,
+							})),
+						};
+					}
+
+					// Swizzle completions for vector/matrix types
+					const swizzles = getSwizzles(type);
+					if (swizzles.length > 0) {
+						return {
+							suggestions: swizzles.map((sw, i) => ({
+								label:      { label: sw, description: swizzleResultType(type, sw) },
+								kind:       CIK.Field,
+								insertText: sw,
+								sortText:   String(i).padStart(6, '0'),
+								detail:     `${type}.${sw} → ${swizzleResultType(type, sw)}`,
+								range,
+							})),
+						};
+					}
+				}
+			}
+
 			// General completions - range spans the full word so mid-word replace works
 			const range = completionRange(monaco, model, position);
 			const suggestions: Monaco.languages.CompletionItem[] = [];
 
 			// Detect if cursor is inside a function/constructor call argument
-			const lineText    = model.getLineContent(position.lineNumber);
 			const callCtx     = inferCallContext(lineText, position.column - 1);
 			const docInfo     = analyzeDocument(model.getValue());
 			const expectedTypes = callCtx
@@ -317,17 +360,16 @@ function registerCompletion(monaco: typeof Monaco) {
 			// Builtins: filter by return type (or variable type for gl_* vars) when in a call context
 			for (const [name, doc] of Object.entries(BUILTIN_DOCS)) {
 				const isVar = name.startsWith('gl_');
+				const retType = builtinReturnType(doc.signature);
 				if (inCallCtx) {
 					if (isVar) {
-						const varType = builtinReturnType(doc.signature);
-						if (varType && !isTypeAcceptable(varType, expectedTypes!)) continue;
+						if (retType && !isTypeAcceptable(retType, expectedTypes!)) continue;
 					} else {
-						const retType = builtinReturnType(doc.signature);
 						if (retType && retType !== 'void' && !isTypeAcceptable(retType, expectedTypes!)) continue;
 					}
 				}
 				suggestions.push({
-					label:           name,
+					label:           { label: name, description: retType ?? '' },
 					kind:            isVar ? CIK.Variable : CIK.Function,
 					insertText:      isVar ? name : `${name}($0)`,
 					insertTextRules: isVar ? undefined : CITR.InsertAsSnippet,
@@ -341,7 +383,7 @@ function registerCompletion(monaco: typeof Monaco) {
 				if (BUILTIN_DOCS[v.name] || GLSL_TYPES.includes(v.name)) continue;
 				if (inCallCtx && !isTypeAcceptable(v.type, expectedTypes!)) continue;
 				suggestions.push({
-					label:         v.name,
+					label:         { label: v.name, description: v.type },
 					kind:          v.qualifier === 'uniform'   ? CIK.Constant
 					             : v.qualifier === 'attribute' ? CIK.Field
 					             : CIK.Variable,
@@ -357,7 +399,7 @@ function registerCompletion(monaco: typeof Monaco) {
 				if (inCallCtx && !isTypeAcceptable(fn.returnType, expectedTypes!)) continue;
 				const paramList = fn.params.map((p) => `${p.type} ${p.name}`).join(', ');
 				suggestions.push({
-					label:           fn.name,
+					label:           { label: fn.name, description: fn.returnType },
 					kind:            CIK.Function,
 					insertText:      `${fn.name}($0)`,
 					insertTextRules: CITR.InsertAsSnippet,
@@ -410,6 +452,46 @@ function registerHover(monaco: typeof Monaco) {
 				endColumn:       word.endColumn,
 			};
 
+			// Member access: swizzle or struct field after a dot
+			const lineText  = model.getLineContent(position.lineNumber);
+			const charBefore = lineText[word.startColumn - 2];
+			if (charBefore === '.') {
+				const textBeforeDot = lineText.slice(0, word.startColumn - 2);
+				const ownerMatch    = textBeforeDot.match(/(\w+)\s*$/);
+				if (ownerMatch) {
+					const ownerName = ownerMatch[1];
+					const docM      = analyzeDocument(model.getValue());
+					const ownerType = resolveScopedType(docM, ownerName, position.lineNumber)
+						?? (BUILTIN_DOCS[ownerName]?.signature.match(/^(\w+)/)?.[1]);
+					if (ownerType) {
+						// Struct field
+						const structM = docM.structs.find((s) => s.name === ownerType);
+						if (structM) {
+							const field = structM.fields.find((f) => f.name === name);
+							if (field) {
+								return {
+									range,
+									contents: [
+										{ value: `\`\`\`glsl\n${field.type} ${ownerType}.${field.name}\n\`\`\``, isTrusted: true },
+									],
+								};
+							}
+						}
+						// Swizzle
+						const swizzles = getSwizzles(ownerType);
+						if (swizzles.includes(name)) {
+							const resultType = swizzleResultType(ownerType, name);
+							return {
+								range,
+								contents: [
+									{ value: `\`\`\`glsl\n${resultType} ${ownerType}.${name}\n\`\`\``, isTrusted: true },
+								],
+							};
+						}
+					}
+				}
+			}
+
 			// Built-in function or variable
 			const builtin = BUILTIN_DOCS[name];
 			if (builtin) {
@@ -436,6 +518,21 @@ function registerHover(monaco: typeof Monaco) {
 
 			// User-defined symbols
 			const doc = analyzeDocument(model.getValue());
+
+			// Local variable inside a function
+			const enclosingFn = doc.functions.find(
+				(f) => position.lineNumber >= f.line && position.lineNumber <= f.bodyEndLine,
+			);
+			const localVar = enclosingFn?.localVariables.find((v) => v.name === name);
+			if (localVar) {
+				return {
+					range,
+					contents: [
+						{ value: `\`\`\`glsl\n${localVar.type} ${localVar.name}\n\`\`\``, isTrusted: true },
+						{ value: `Local variable declared at line ${localVar.line}.`, isTrusted: true },
+					],
+				};
+			}
 
 			const fn = doc.functions.find((f) => f.name === name);
 			if (fn) {
