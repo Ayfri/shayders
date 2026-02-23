@@ -8,7 +8,7 @@
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"typegen-db": "bunx pocketbase-typegen --db ./pb_schema.json --out ./src/lib/pocketbase-types.ts",
+		"typegen-db": "bunx pocketbase-typegen -j ./pb_schema.json --out ./src/lib/pocketbase-types.ts",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
 	},
