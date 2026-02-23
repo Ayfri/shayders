@@ -47,7 +47,7 @@ export interface GlslDocument {
 
 // Helpers
 
-/** Built-in GLSL type pattern (no struct names — those are added dynamically). */
+/** Built-in GLSL type pattern (no struct names - those are added dynamically). */
 const BUILTIN_TYPE_RE =
 	'(?:u?i?b?vec[234]|mat[234](?:x[234])?|sampler(?:2D|3D|Cube(?:Shadow)?|2DShadow)|float|int|uint|bool|void)';
 
@@ -97,7 +97,7 @@ export function analyzeDocument(src: string): GlslDocument {
 	}
 
 	// Struct declarations: struct Name { type field; ... }
-	// Uses a simple [^}]* body match — nested structs are not valid GLSL so this is safe.
+	// Uses a simple [^}]* body match - nested structs are not valid GLSL so this is safe.
 	const structRe = /\bstruct\s+(\w+)\s*\{([^}]*)\}/g;
 	for (const m of clean.matchAll(structRe)) {
 		const structName = m[1];
@@ -136,7 +136,7 @@ export function analyzeDocument(src: string): GlslDocument {
 		});
 	}
 
-	// Character ranges [start, end) of every function body — used below to exclude
+	// Character ranges [start, end) of every function body - used below to exclude
 	// local variable declarations from the global-scope scan.
 	const funcBodyRanges: Array<{ start: number; end: number }> = [];
 
