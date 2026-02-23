@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { CircleAlert, Maximize2, Minimize2 } from '@lucide/svelte';
-	import type { ChannelEntry } from '$lib/ChannelsPanel.svelte';
+	import type { ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
 
 	// 'image' and 'common' are reserved. All other IDs are user buffers (buf1, buf2, …).
 	export type BufferId = string;

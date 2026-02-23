@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { X, Upload, Image, Video, Layers } from '@lucide/svelte';
-	import type { ShaderBuffer } from '$lib/ShaderCanvas.svelte';
+	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
 
 	export interface ChannelEntry {
 		id: number; // 0–3

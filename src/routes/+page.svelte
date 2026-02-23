@@ -1,8 +1,8 @@
 <script lang="ts">
-	import EditorPanel from '$lib/EditorPanel.svelte';
-	import ShaderCanvas, { type ShaderBuffer } from '$lib/ShaderCanvas.svelte';
-	import { type UniformEntry } from '$lib/BuiltinsPanel.svelte';
-	import { type ChannelEntry } from '$lib/ChannelsPanel.svelte';
+	import EditorPanel from '$lib/components/EditorPanel.svelte';
+	import ShaderCanvas, { type ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
+	import { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
+	import { type ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
 	import { UNIFORM_DOCS } from '$lib/glsl/builtins';
 
 	// Default shaders

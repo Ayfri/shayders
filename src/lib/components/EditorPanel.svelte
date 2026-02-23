@@ -2,10 +2,10 @@
 	import { tick } from 'svelte';
 	import { Code, Play, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
 	import GlslEditor from '$lib/GlslEditor.svelte';
-	import BuiltinsPanel, { type UniformEntry } from '$lib/BuiltinsPanel.svelte';
-	import ChannelsPanel, { type ChannelEntry } from '$lib/ChannelsPanel.svelte';
-	import EditorSettingsModal from '$lib/EditorSettingsModal.svelte';
-	import type { ShaderBuffer } from '$lib/ShaderCanvas.svelte';
+	import BuiltinsPanel, { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
+	import ChannelsPanel, { type ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
+	import EditorSettingsModal from '$lib/components/EditorSettingsModal.svelte';
+	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
 	import { loadSettings, saveSettings, type EditorSettingsData, EDITOR_DEFAULTS } from '$lib/editorSettings';
 
 	interface Props {

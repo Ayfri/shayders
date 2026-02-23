@@ -1,8 +1,8 @@
 <script lang="ts">
 	import type { EditorSettingsData } from '$lib/editorSettings';
 	import { EDITOR_DEFAULTS } from '$lib/editorSettings';
-	import Modal from '$lib/Modal.svelte';
-	import SettingRow from '$lib/SettingRow.svelte';
+	import Modal from '$lib/components/Modal.svelte';
+	import SettingRow from '$lib/components/SettingRow.svelte';
 
 	interface Props {
 		open: boolean;
