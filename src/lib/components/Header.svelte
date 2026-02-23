@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Home, LogOut, User } from '@lucide/svelte';
+	import { Home, LogIn, LogOut, User, UserPlus } from '@lucide/svelte';
 	import { auth, logout } from '$lib/auth.svelte';
 	import { goto } from '$app/navigation';
 
@@ -15,7 +15,7 @@
 		<span>Shayders</span>
 	</a>
 
-	<nav class="flex items-center gap-3 text-sm">
+	<nav class="flex items-center gap-4 text-sm">
 		{#if auth.isLoggedIn}
 			<span class="flex items-center gap-1.5 text-muted">
 				<User size={15} />
@@ -23,7 +23,7 @@
 			</span>
 			<button
 				onclick={handleLogout}
-				class="flex items-center gap-1.5 px-3 py-1 rounded text-muted hover:text-foreground hover:bg-panel transition-colors"
+				class="flex items-center gap-1.5 px-3 py-1 rounded text-red-400 hover:text-red-300 border border-red-current/50 bg-red-950/30 transition-colors cursor-pointer"
 			>
 				<LogOut size={14} />
 				Logout
@@ -31,14 +31,16 @@
 		{:else}
 			<a
 				href="/login"
-				class="px-3 py-1 rounded text-muted hover:text-foreground hover:bg-panel transition-colors"
+				class="flex items-center gap-1.5 px-3 py-1 rounded text-muted hover:text-foreground hover:bg-panel transition-colors"
 			>
+				<LogIn size={14} />
 				Login
 			</a>
 			<a
 				href="/signup"
-				class="px-3 py-1 rounded bg-panel text-foreground hover:bg-border transition-colors"
+				class="flex items-center gap-1.5 px-3 py-1 rounded bg-panel text-cyan-300 hover:bg-cyan-200/10 transition-colors"
 			>
+				<UserPlus size={14} />
 				Sign up
 			</a>
 		{/if}
