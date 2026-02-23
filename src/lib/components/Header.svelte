@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Home, LogIn, LogOut, User, UserPlus } from '@lucide/svelte';
+	import { Home, LogIn, LogOut, Plus, User, UserPlus } from '@lucide/svelte';
 	import { auth, logout } from '$lib/auth.svelte';
 	import { goto } from '$app/navigation';
 
@@ -9,11 +9,21 @@
 	}
 </script>
 
-<header class="flex items-center justify-between px-4 h-12 bg-surface border-b border-border shrink-0">
-	<a href="/" class="flex items-center gap-2 text-foreground hover:text-white transition-colors font-semibold tracking-wide">
-		<Home size={18} />
-		<span>Shayders</span>
-	</a>
+<header class="flex items-center justify-between px-6 h-12 bg-surface border-b border-border shrink-0">
+	<div class="flex items-center gap-10">
+		<a href="/" class="flex items-center gap-2 text-foreground hover:text-white transition-colors font-semibold tracking-wide">
+			<Home size={18} />
+			<span>Shayders</span>
+		</a>
+		<nav class="flex items-center gap-4">
+			<a
+				href="/new"
+				class="flex items-center gap-1.5 px-5 py-1 rounded text-foreground hover:bg-panel transition-colors"
+			>
+				New
+			</a>
+		</nav>
+	</div>
 
 	<nav class="flex items-center gap-4 text-sm">
 		{#if auth.isLoggedIn}

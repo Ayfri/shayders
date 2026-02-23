@@ -20,6 +20,7 @@
 		error?: string;
 		uniformValues?: Record<string, string>;
 		thumbnails?: Record<string, string>;
+		readonly?: boolean;
 	}
 
 	let {
@@ -28,6 +29,7 @@
 		error = $bindable(''),
 		uniformValues = $bindable({}),
 		thumbnails = $bindable({}),
+		readonly = false,
 	}: Props = $props();
 
 	// Canvas / GL
@@ -199,7 +201,7 @@ void main() {
 		// Dynamic render order: user buffers first (in declaration order), then image
 		const renderOrder = [...userBufferOrder(), 'image'];
 
-		// Fully destroy all stale and existing GL state — always recreate FBOs fresh
+		// Fully destroy all stale and existing GL state - always recreate FBOs fresh
 		// so there is no risk of a detached or incomplete framebuffer from a previous run.
 		for (const id of bufferStates.keys()) {
 			const s = bufferStates.get(id)!;
@@ -270,7 +272,7 @@ void main() {
 	// User buffers are exposed as uBufferA, uBufferB, … (by declaration position, not ID)
 	const BUFFER_UNIFORM_NAMES = ['uBufferA','uBufferB','uBufferC','uBufferD','uBufferE','uBufferF','uBufferG','uBufferH'];
 
-	// currentTarget: the buffer currently being rendered — never bind its own texture as input
+	// currentTarget: the buffer currently being rendered - never bind its own texture as input
 	function bindBufferTextures(prog: WebGLProgram, currentTarget: string) {
 		if (!gl) return;
 		const order = userBufferOrder();
@@ -582,22 +584,24 @@ void main() {
 			<span class="font-medium tracking-wider shrink-0">Preview</span>
 			<span class="text-muted-foreground shrink-0">•</span>
 			<span class="shrink-0">Build: {buildTime.toFixed(2)}ms</span>
-			<div class="flex items-center gap-2 ml-auto min-w-0">
-				<input
-					type="text"
-					bind:value={shaderState.name}
-					placeholder="Untitled Shader"
-					class="bg-transparent border-none outline-none text-xs font-semibold text-foreground text-right w-40 placeholder:text-subtle hover:bg-surface focus:bg-surface rounded px-2 py-0.5 transition-colors min-w-0"
-				/>
-				<button
-					onclick={() => { descDraft = shaderState.description; descOpen = true; }}
-					class="flex items-center gap-1 px-2 py-0.5 rounded text-subtle border border-border hover:text-foreground hover:bg-border transition-colors cursor-pointer shrink-0"
-					title="Edit description"
-				>
-					<FileText size={11} />
-					<span>Desc</span>
-				</button>
-			</div>
+			{#if !readonly}
+				<div class="flex items-center gap-2 ml-auto min-w-0">
+					<input
+						type="text"
+						bind:value={shaderState.name}
+						placeholder="Untitled Shader"
+						class="bg-transparent border-none outline-none text-xs font-semibold text-foreground text-right w-40 placeholder:text-subtle hover:bg-surface focus:bg-surface rounded px-2 py-0.5 transition-colors min-w-0"
+					/>
+					<button
+						onclick={() => { descDraft = shaderState.description; descOpen = true; }}
+						class="flex items-center gap-1 px-2 py-0.5 rounded text-subtle border border-border hover:text-foreground hover:bg-border transition-colors cursor-pointer shrink-0"
+						title="Edit description"
+					>
+						<FileText size={11} />
+						<span>Desc</span>
+					</button>
+				</div>
+			{/if}
 		</div>
 	{/if}
 

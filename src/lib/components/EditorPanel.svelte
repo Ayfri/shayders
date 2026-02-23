@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { Code, Play, Save, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
+	import { Code, Play, Save, Eye, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
 	import GlslEditor from '$lib/components/GlslEditor.svelte';
 	import BuiltinsPanel, { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
 	import ChannelsPanel, { type ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
 	import EditorSettingsModal from '$lib/components/EditorSettingsModal.svelte';
 	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
 	import { loadSettings, saveSettings, type EditorSettingsData, EDITOR_DEFAULTS } from '$lib/editorSettings';
+	import { shaderState } from '$lib/shaderState.svelte';
 
 	interface Props {
 		value: string;
@@ -251,6 +252,18 @@
 				<Save size={12} />
 				{isSaving ? 'Saving…' : 'Save'}
 			</button>
+			{#if shaderState.currentShaderId}
+				<a
+					href="/shader/{shaderState.currentShaderId}"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="flex items-center gap-1.5 px-4 py-1 bg-surface text-muted border border-border rounded font-mono text-xs font-semibold tracking-wider cursor-pointer hover:text-foreground hover:bg-border transition-colors"
+					title="View published shader"
+				>
+					<Eye size={12} />
+					View
+				</a>
+			{/if}
 			<button
 				onclick={() => (visible = false)}
 				class="flex items-center justify-center size-6 rounded text-muted hover:text-foreground hover:bg-border transition-colors cursor-pointer"
