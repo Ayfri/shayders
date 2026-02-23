@@ -29,17 +29,5 @@
 		initialBuffers={buffers}
 	/>
 {:else}
-	<div class="flex flex-col h-full bg-background text-foreground">
-		<div class="flex items-center gap-4 px-5 h-11 border-b border-border bg-surface shrink-0">
-			<div class="flex flex-col min-w-0">
-				<span class="text-sm font-semibold text-foreground truncate">{data.shader.name || 'Untitled Shader'}</span>
-				{#if data.shader.description}
-					<span class="text-xs text-muted truncate max-w-xl">{data.shader.description}</span>
-				{/if}
-			</div>
-		</div>
-		<div class="flex-1 overflow-hidden">
-			<ShaderCanvas {buffers} readonly />
-		</div>
-	</div>
+	<ShaderCanvas {buffers} readonly />
 {/if}
