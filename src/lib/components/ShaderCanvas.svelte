@@ -698,11 +698,11 @@ void main() {
 	class="flex flex-col bg-black relative min-w-0 flex-1 outline-none"
 >
 	{#if !isFullscreen}
-		<div class="flex items-center gap-3 px-3 py-2 bg-panel border-b border-border text-xs text-muted shrink-0">
+		<div class="flex items-center gap-2 sm:gap-3 px-2 py-1 sm:px-3 sm:py-2 bg-panel border-b border-border text-xs text-muted shrink-0">
 			<span class="size-3 bg-green-400 rounded-full shrink-0"></span>
-			<span class="font-medium tracking-wider shrink-0">Preview</span>
+			<span class="hidden sm:inline font-medium tracking-wider shrink-0">Preview</span>
 			<span class="text-muted-foreground shrink-0">•</span>
-			<span class="shrink-0">Build: {buildTime.toFixed(2)}ms</span>
+			<span class="shrink-0"><span class="hidden sm:inline">Build: </span>{buildTime.toFixed(2)}ms</span>
 			{#if isSavingLocally}
 				<span class="ml-auto text-xs px-2 py-1 rounded border border-yellow-600/60 bg-yellow-950/40 text-yellow-400">
 					Saved locally
@@ -762,7 +762,7 @@ void main() {
 		</div>
 	{/if}
 
-	<div class="flex-1 relative overflow-hidden">
+	<div class="flex-1 relative overflow-hidden min-h-0">
 		<canvas bind:this={canvas} class="w-full h-full block" width={800} height={600}></canvas>
 
 		<button

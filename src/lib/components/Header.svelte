@@ -9,13 +9,13 @@
 	}
 </script>
 
-<header class="flex items-center justify-between px-6 h-12 bg-surface border-b border-border shrink-0">
-	<div class="flex items-center gap-10">
+<header class="flex items-center justify-between px-4 sm:px-6 h-12 bg-surface border-b border-border shrink-0">
+	<div class="flex items-center gap-4 sm:gap-10">
 		<a href="/" class="flex items-center gap-2 text-foreground hover:text-white transition-colors font-semibold tracking-wide">
 			<Home size={18} />
 			<span>Shayders</span>
 		</a>
-		<nav class="flex items-center gap-4">
+		<nav class="flex items-center gap-2 sm:gap-4">
 			<a
 				href="/new"
 				class="flex items-center gap-1.5 px-5 py-1 rounded text-foreground hover:bg-panel transition-colors"
@@ -25,7 +25,7 @@
 		</nav>
 	</div>
 
-	<nav class="flex items-center gap-4 text-sm">
+	<nav class="flex items-center gap-2 sm:gap-4 text-sm">
 		{#if auth.isLoggedIn}
 			<a
 				href="/users/{auth.user?.id}"
@@ -36,7 +36,7 @@
 			</a>
 			<button
 				onclick={handleLogout}
-				class="flex items-center gap-1.5 px-3 py-1 rounded text-red-400 hover:text-red-300 border border-red-current/50 bg-red-950/30 transition-colors cursor-pointer"
+				class="flex items-center gap-1.5 px-2 py-1 sm:px-3 rounded text-red-400 hover:text-red-300 border border-red-current/50 bg-red-950/30 transition-colors cursor-pointer"
 			>
 				<LogOut size={14} />
 				Logout
@@ -44,14 +44,14 @@
 		{:else}
 			<a
 				href="/login"
-				class="flex items-center gap-1.5 px-3 py-1 rounded text-muted hover:text-foreground hover:bg-panel transition-colors"
+				class="flex items-center gap-1.5 px-2 py-1 sm:px-3 rounded text-muted hover:text-foreground hover:bg-panel transition-colors"
 			>
 				<LogIn size={14} />
 				Login
 			</a>
 			<a
 				href="/signup"
-				class="flex items-center gap-1.5 px-3 py-1 rounded bg-panel text-cyan-300 hover:bg-cyan-200/10 transition-colors"
+				class="flex items-center gap-1.5 px-2 py-1 sm:px-3 rounded bg-panel text-cyan-300 hover:bg-cyan-200/10 transition-colors"
 			>
 				<UserPlus size={14} />
 				Sign up

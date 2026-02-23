@@ -332,19 +332,21 @@
 	});
 </script>
 
-<div class="flex h-full w-full bg-background text-foreground overflow-hidden font-sans">
-	<ShaderCanvas
-		bind:this={shaderCanvas}
-		{buffers}
-		{channels}
-		bind:error
-		bind:uniformValues
-		bind:thumbnails
-		isSavingLocally={!viewOnly && !auth.isLoggedIn}
-		{viewOnly}
-		{authorId}
-		{authorName}
-	/>
+<div class="flex flex-col lg:flex-row h-full w-full min-h-0 bg-background text-foreground overflow-auto lg:overflow-hidden font-sans">
+	<div class="flex-1 min-w-0 min-h-0">
+		<ShaderCanvas
+			bind:this={shaderCanvas}
+			{buffers}
+			{channels}
+			bind:error
+			bind:uniformValues
+			bind:thumbnails
+			isSavingLocally={!viewOnly && !auth.isLoggedIn}
+			{viewOnly}
+			{authorId}
+			{authorName}
+		/>
+	</div>
 
 	<EditorPanel
 		bind:value={editorValue}

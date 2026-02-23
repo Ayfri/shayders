@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, onMount } from 'svelte';
 	import { Code, Play, Save, Eye, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
 	import { isShadertoyShader, convertFromShadertoy } from '$lib/shadertoyConverter';
 	import GlslEditor from '$lib/components/GlslEditor.svelte';
@@ -61,13 +61,33 @@
 	}: Props = $props();
 
 	let visible = $state(true);
-	let width = $state(800);
+	// Panel size (width when horizontal layout, height when vertical)
+	// will be initialized on mount to a percentage of the viewport
+	let width = $state(0);
 	let isDragging = $state(false);
+	let vertical = $state(false); // true when viewport narrow (mobile)
 	let channelsOpen = $state(false);
 	let settings = $state<EditorSettingsData>(loadSettings());
 	let showSettings = $state(false);
 	let showConvertModal = $state(false);
 	let detectedShadertoyOnce = $state(false);
+
+	// initial layout adjustments for narrow viewports
+	onMount(() => {
+		const updateOrientation = () => {
+			vertical = window.innerWidth < 640;
+			const max = vertical ? window.innerHeight * 0.75 : window.innerWidth * 0.75;
+			if (width === 0) {
+				// first run: start with roughly half of the viewport
+				width = vertical ? window.innerHeight * 0.5 : window.innerWidth * 0.5;
+			}
+			width = Math.min(width, max);
+			if (vertical) visible = false;
+		};
+		updateOrientation();
+		window.addEventListener('resize', updateOrientation);
+		return () => window.removeEventListener('resize', updateOrientation);
+	});
 
 	$effect(() => {
 		saveSettings(settings);
@@ -130,40 +150,72 @@
 	function startDrag(e: MouseEvent) {
 		e.preventDefault();
 		isDragging = true;
-		const startX = e.clientX;
-		const startWidth = width;
-		const onMove = (e: MouseEvent) => {
-			const delta = startX - e.clientX;
-			width = Math.max(240, Math.min(window.innerWidth * 0.75, startWidth + delta));
-		};
-		const onUp = () => {
-			isDragging = false;
-			window.removeEventListener('mousemove', onMove);
-			window.removeEventListener('mouseup', onUp);
-		};
-		window.addEventListener('mousemove', onMove);
-		window.addEventListener('mouseup', onUp);
+		if (vertical) {
+			const startY = e.clientY;
+			const startSize = width;
+			const onMove = (e: MouseEvent) => {
+				const delta = startY - e.clientY;
+				const max = window.innerHeight * 0.75;
+				width = Math.max(100, Math.min(max, startSize + delta));
+			};
+			const onUp = () => {
+				isDragging = false;
+				window.removeEventListener('mousemove', onMove);
+				window.removeEventListener('mouseup', onUp);
+			};
+			window.addEventListener('mousemove', onMove);
+			window.addEventListener('mouseup', onUp);
+		} else {
+			const startX = e.clientX;
+			const startWidth = width;
+			const onMove = (e: MouseEvent) => {
+				const delta = startX - e.clientX;
+				const max = window.innerWidth * 0.75;
+				width = Math.max(240, Math.min(max, startWidth + delta));
+			};
+			const onUp = () => {
+				isDragging = false;
+				window.removeEventListener('mousemove', onMove);
+				window.removeEventListener('mouseup', onUp);
+			};
+			window.addEventListener('mousemove', onMove);
+			window.addEventListener('mouseup', onUp);
+		}
 	}
 </script>
 
 {#if !visible}
 	<button
 		onclick={() => (visible = true)}
-		class="flex items-center justify-center w-8 h-full bg-panel border-l border-border text-muted hover:text-cyan-400 hover:bg-surface transition-colors shrink-0 cursor-pointer"
+		class="flex items-center justify-center w-full h-8 lg:w-8 lg:h-full bg-panel border-t border-border lg:border-l lg:border-t-0 text-muted hover:text-cyan-400 hover:bg-surface transition-colors shrink-0 cursor-pointer"
 		title="Show editor"
 	>
-		<ChevronLeft size={16} />
+		<!-- rotate the icon when vertical so it points up -->
+		<ChevronLeft size={16} class="transform lg:rotate-0 rotate-90" />
 	</button>
 {:else}
-	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-	<div
-		class="w-1.5 shrink-0 cursor-col-resize transition-colors bg-border hover:bg-cyan-400/50 {isDragging ? 'bg-cyan-400/70' : ''}"
-		onmousedown={startDrag}
-		role="separator"
-		aria-label="Resize editor panel"
-	></div>
+	<!-- horizontal gutter shown only when not vertical/mobile -->
+	{#if !vertical}
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+		<div
+			class="hidden lg:block w-1.5 shrink-0 cursor-col-resize transition-colors bg-border hover:bg-cyan-400/50 {isDragging ? 'bg-cyan-400/70' : ''}"
+			onmousedown={startDrag}
+			role="separator"
+			aria-label="Resize editor panel"
+		></div>
+	{/if}
+	{#if vertical && visible}
+		<!-- vertical gutter for mobile resizing -->
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+		<div
+			class="h-1.5 w-full shrink-0 cursor-row-resize transition-colors bg-border hover:bg-cyan-400/50 {isDragging ? 'bg-cyan-400/70' : ''}"
+			onmousedown={startDrag}
+			role="separator"
+			aria-label="Resize editor panel"
+		></div>
+	{/if}
 
-	<div class="flex flex-col min-w-0 bg-surface shrink-0 overflow-hidden" style="width: {width}px">
+	<div class="flex flex-col min-w-0 bg-surface shrink-0 overflow-hidden max-w-full" style={vertical ? `height: ${width}px` : `width: ${width}px`}>
 
 		<!-- Tab bar -->
 		<div class="flex items-stretch shrink-0 bg-panel border-b border-border overflow-x-auto">
@@ -178,7 +230,7 @@
 					onclick={() => onTabChange?.(buf.id)}
 					oncontextmenu={(e) => openContextMenu(e, buf)}
 					onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTabChange?.(buf.id); } }}
-					class="relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-r border-border cursor-pointer transition-colors shrink-0 group select-none
+					class="relative flex items-center gap-1 sm:gap-1.5 px-2 py-1 sm:px-3 sm:py-1.5 text-xs font-medium border-r border-border cursor-pointer transition-colors shrink-0 group select-none
 						{isActive ? 'bg-surface text-cyan-400 border-b-2 border-b-cyan-400 -mb-px' : 'text-muted hover:text-foreground hover:bg-surface/50'}"
 					title={editingTabId === buf.id ? '' : buf.label}
 				>
@@ -233,7 +285,7 @@
 			<!-- Add Buffer -->
 			<button
 				onclick={() => onAddBuffer?.()}
-				class="flex items-center gap-1 px-3 py-1.5 text-xs text-subtle hover:text-cyan-400 hover:bg-surface/50 transition-colors cursor-pointer border-r border-border shrink-0"
+				class="flex items-center gap-1 sm:gap-1.5 px-2 py-1 sm:px-3 sm:py-1.5 text-xs text-subtle hover:text-cyan-400 hover:bg-surface/50 transition-colors cursor-pointer border-r border-border shrink-0"
 				title="Add buffer"
 			>
 				<Plus size={12} />
@@ -242,7 +294,7 @@
 		</div>
 
 		<!-- Run bar -->
-		<div class="flex items-center gap-2 px-3 py-1.5 bg-panel border-b border-border shrink-0">
+		<div class="flex items-center gap-1 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1.5 bg-panel border-b border-border shrink-0">
 			<button
 				onclick={() => (showSettings = true)}
 				title="Editor settings"
@@ -251,7 +303,7 @@
 			>
 				<Settings size={14} />
 			</button>
-			<span class="text-xs text-subtle font-mono mr-auto">Ctrl+Enter</span>
+			<span class="hidden sm:inline text-xs text-subtle font-mono mr-auto">Ctrl+Enter</span>
 			<button
 				onclick={() => (channelsOpen = !channelsOpen)}
 				class="flex items-center gap-1.5 px-3 py-1 rounded font-mono text-xs font-semibold tracking-wider cursor-pointer transition-colors
@@ -263,7 +315,7 @@
 			</button>
 			<button
 				onclick={onRun}
-				class="flex items-center gap-1.5 px-4 py-1 bg-cyan-400/10 text-cyan-400 border border-cyan-400/60 rounded font-mono text-xs font-semibold tracking-wider cursor-pointer hover:bg-cyan-400/20 transition-colors"
+				class="flex items-center gap-1.5 px-2 py-0.5 sm:px-4 sm:py-1 bg-cyan-400/10 text-cyan-400 border border-cyan-400/60 rounded font-mono text-xs font-semibold tracking-wider cursor-pointer hover:bg-cyan-400/20 transition-colors"
 			>
 				<Play size={12} />
 				Run
@@ -272,7 +324,7 @@
 			<button
 				onclick={onSave}
 				disabled={isSaving}
-				class="flex items-center gap-1.5 px-4 py-1 bg-surface text-muted border border-border rounded font-mono text-xs font-semibold tracking-wider cursor-pointer hover:text-foreground hover:bg-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+				class="flex items-center gap-1.5 px-2 py-0.5 sm:px-4 sm:py-1 bg-surface text-muted border border-border rounded font-mono text-xs font-semibold tracking-wider cursor-pointer hover:text-foreground hover:bg-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
 				title={auth.isLoggedIn ? 'Save shader (Ctrl+S)' : 'Save to localhost (Ctrl+S)'}
 			>
 				<Save size={12} />
@@ -284,7 +336,7 @@
 					href="/shader/{shaderState.currentShaderId}"
 					target="_blank"
 					rel="noopener noreferrer"
-					class="flex items-center gap-1.5 px-4 py-1 bg-surface text-muted border border-border rounded font-mono text-xs font-semibold tracking-wider cursor-pointer hover:text-foreground hover:bg-border transition-colors"
+					class="flex items-center gap-1.5 px-2 py-0.5 sm:px-4 sm:py-1 bg-surface text-muted border border-border rounded font-mono text-xs font-semibold tracking-wider cursor-pointer hover:text-foreground hover:bg-border transition-colors"
 					title="View published shader"
 				>
 					<Eye size={12} />
@@ -296,7 +348,7 @@
 				class="flex items-center justify-center size-6 rounded text-muted hover:text-foreground hover:bg-border transition-colors cursor-pointer"
 				title="Hide editor"
 			>
-				<ChevronRight size={14} />
+				<ChevronRight size={14} class="transform lg:rotate-0 rotate-90" />
 			</button>
 		</div>
 
