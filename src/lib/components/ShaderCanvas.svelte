@@ -67,10 +67,14 @@ void main() {
 }`;
 
 	// Per-buffer internal state
+	// fbo/texture are ping-pong pairs: index 0 and 1 alternate each frame.
+	// prevIdx points to the FBO that holds the PREVIOUS frame's result (safe to sample).
+	// The current frame is always written into fbo[1 - prevIdx].
 	interface InternalBufState {
 		program: WebGLProgram | null;
-		fbo: WebGLFramebuffer | null;
-		texture: WebGLTexture | null;
+		fbo: [WebGLFramebuffer | null, WebGLFramebuffer | null];
+		texture: [WebGLTexture | null, WebGLTexture | null];
+		prevIdx: number;
 	}
 	const bufferStates = new Map<BufferId, InternalBufState>();
 
@@ -85,6 +89,9 @@ void main() {
 	let quadBuffer: WebGLBuffer | null = null;
 	let fboWidth = 0;
 	let fboHeight = 0;
+	// FLOAT if OES_texture_float is available (preserves sub-unit values for diffusion/feedback),
+	// falls back to UNSIGNED_BYTE on devices that don't support it.
+	let fboTexType: number = 0x1401; // UNSIGNED_BYTE
 
 	// Animation state
 	let animationId = 0;
@@ -154,7 +161,7 @@ void main() {
 		const texture = ctx.createTexture();
 		if (!texture) return null;
 		ctx.bindTexture(ctx.TEXTURE_2D, texture);
-		ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, w, h, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, null);
+		ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, w, h, 0, ctx.RGBA, fboTexType, null);
 		ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.LINEAR);
 		ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.LINEAR);
 		ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE);
@@ -174,10 +181,13 @@ void main() {
 		fboWidth = w;
 		fboHeight = h;
 		for (const [id, state] of bufferStates.entries()) {
-			if (id === 'image' || !state.texture) continue;
-			gl.bindTexture(gl.TEXTURE_2D, state.texture);
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-			gl.bindTexture(gl.TEXTURE_2D, null);
+			if (id === 'image') continue;
+			for (let i = 0; i < 2; i++) {
+				if (!state.texture[i]) continue;
+				gl.bindTexture(gl.TEXTURE_2D, state.texture[i]);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, fboTexType, null);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+			}
 		}
 	}
 
@@ -214,8 +224,10 @@ void main() {
 		for (const id of bufferStates.keys()) {
 			const s = bufferStates.get(id)!;
 			if (s.program) gl.deleteProgram(s.program);
-			if (s.fbo) gl.deleteFramebuffer(s.fbo);
-			if (s.texture) gl.deleteTexture(s.texture);
+			for (let i = 0; i < 2; i++) {
+				if (s.fbo[i]) gl.deleteFramebuffer(s.fbo[i]!);
+				if (s.texture[i]) gl.deleteTexture(s.texture[i]!);
+			}
 			bufferStates.delete(id);
 		}
 
@@ -226,15 +238,19 @@ void main() {
 			const { program, err } = buildSingleProgram(gl, withCommon(buf.code), buf.label);
 			if (err) errors.push(err);
 
-			let fbo: WebGLFramebuffer | null = null;
-			let texture: WebGLTexture | null = null;
+			let fbo: [WebGLFramebuffer | null, WebGLFramebuffer | null] = [null, null];
+			let texture: [WebGLTexture | null, WebGLTexture | null] = [null, null];
 
 			if (id !== 'image') {
-				const dims = createFbo(gl, canvas?.width ?? 800, canvas?.height ?? 600);
-				if (dims) { fbo = dims.fbo; texture = dims.texture; }
+				const w = canvas?.width ?? 800;
+				const h = canvas?.height ?? 600;
+				const dims0 = createFbo(gl, w, h);
+				const dims1 = createFbo(gl, w, h);
+				if (dims0) { fbo[0] = dims0.fbo; texture[0] = dims0.texture; }
+				if (dims1) { fbo[1] = dims1.fbo; texture[1] = dims1.texture; }
 			}
 
-			bufferStates.set(id, { program, fbo, texture });
+			bufferStates.set(id, { program, fbo, texture, prevIdx: 0 });
 		}
 
 		buildTime = performance.now() - t0;
@@ -292,11 +308,13 @@ void main() {
 				continue;
 			}
 			const state = bufferStates.get(order[i]);
-			if (!state?.texture) continue;
+			// Expose the texture written this frame (1 - prevIdx = current write target)
+			const tex = state?.texture[1 - (state?.prevIdx ?? 0)] ?? null;
+			if (!tex) continue;
 			const loc = gl.getUniformLocation(prog, BUFFER_UNIFORM_NAMES[i]);
 			if (loc) {
 				gl.activeTexture(gl.TEXTURE0 + i);
-				gl.bindTexture(gl.TEXTURE_2D, state.texture);
+				gl.bindTexture(gl.TEXTURE_2D, tex);
 				gl.uniform1i(loc, i);
 			}
 		}
@@ -384,24 +402,21 @@ void main() {
 				gl.uniform1i(loc, unit);
 			}
 		}
-		// Buffer channels: bind the buffer's FBO texture (skip if it would be the current render target)
+		// Buffer channels: always bind the PREVIOUS frame's texture (prevIdx).
+		// This safely handles self-referencing buffers (ping-pong diffusion/feedback).
 		for (const ch of channels) {
 			if (ch.type !== 'buffer' || !ch.bufferId) continue;
 			if (ch.id >= CHANNEL_UNIFORM_NAMES.length) continue;
 			const unit = 8 + ch.id;
-			if (ch.bufferId === currentTarget) {
-				// Explicitly unbind this unit to clear any stale binding from the previous frame
-				gl.activeTexture(gl.TEXTURE0 + unit);
-				gl.bindTexture(gl.TEXTURE_2D, null);
-				continue;
-			}
 			const bufState = bufferStates.get(ch.bufferId);
-			if (!bufState?.texture) continue;
+			const prevTex = bufState?.texture[bufState.prevIdx] ?? null;
 			const loc = gl.getUniformLocation(prog, CHANNEL_UNIFORM_NAMES[ch.id]);
-			if (loc) {
-				gl.activeTexture(gl.TEXTURE0 + unit);
-				gl.bindTexture(gl.TEXTURE_2D, bufState.texture);
+			gl.activeTexture(gl.TEXTURE0 + unit);
+			if (loc && prevTex) {
+				gl.bindTexture(gl.TEXTURE_2D, prevTex);
 				gl.uniform1i(loc, unit);
+			} else {
+				gl.bindTexture(gl.TEXTURE_2D, null);
 			}
 		}
 	}
@@ -429,10 +444,12 @@ void main() {
 
 		for (const id of userBufferOrder()) {
 			const state = bufferStates.get(id);
-			if (!state?.fbo) continue;
+			// After the ping-pong flip, prevIdx now points to the most recently written FBO
+			const readFbo = state?.fbo[state.prevIdx] ?? null;
+			if (!readFbo) continue;
 
 			const pixels = new Uint8Array(w * h * 4);
-			gl.bindFramebuffer(gl.FRAMEBUFFER, state.fbo);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, readFbo);
 			gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
 			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
@@ -496,13 +513,21 @@ void main() {
 			const state = bufferStates.get(id);
 			if (!state?.program) continue;
 
-			gl.bindFramebuffer(gl.FRAMEBUFFER, id === 'image' ? null : (state.fbo ?? null));
+			// Write into fbo[1 - prevIdx]; fbo[prevIdx] holds the previous frame (readable by channels)
+			const writeFbo = id === 'image' ? null : (state.fbo[1 - state.prevIdx] ?? null);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, writeFbo);
 			gl.viewport(0, 0, w, h);
 			gl.useProgram(state.program);
 			bindBufferTextures(state.program, id);
 			bindChannelTextures(state.program, id);
 			setStandardUniforms(state.program, elapsed, deltaTime);
 			drawQuad(state.program);
+		}
+
+		// Flip ping-pong index: what was just written becomes the new "previous" frame for channels
+		for (const id of userBufferOrder()) {
+			const s = bufferStates.get(id);
+			if (s) s.prevIdx = 1 - s.prevIdx;
 		}
 
 		if (currentTime - lastThumbTime > 500) {
@@ -517,6 +542,13 @@ void main() {
 	onMount(() => {
 		if (!canvas || !wrapper) return;
 		gl = canvas.getContext('webgl');
+		if (gl) {
+			const floatExt = gl.getExtension('OES_texture_float');
+			if (floatExt) {
+				gl.getExtension('OES_texture_float_linear');
+				fboTexType = 0x1406; // FLOAT
+			}
+		}
 
 		const handleMouseMove = (e: MouseEvent) => {
 			const rect = canvas!.getBoundingClientRect();
