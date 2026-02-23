@@ -1,42 +1,73 @@
-# sv
+# Shayders
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+A modern, web-based GLSL shader editor for creating and experimenting with fragment shaders in real-time. Built with SvelteKit, featuring multi-buffer rendering, texture channels, and community shader sharing.
 
-## Creating a project
+![Shayders](https://img.shields.io/badge/Shayders-GLSL%20Editor-blue)
+![License](https://img.shields.io/badge/License-GPL--3.0-green)
+![Svelte](https://img.shields.io/badge/Svelte-5-orange)
+![Cloudflare](https://img.shields.io/badge/Deployed%20on-Cloudflare%20Workers-f38020)
 
-If you're seeing this, you've probably already done this step. Congrats!
+## Features
 
-```sh
-# create a new project
-npx sv create my-app
-```
+### 🎨 Shader Editing
+- **Real-time GLSL editing** with Monaco Editor (same as VS Code)
+- **Syntax highlighting** and error detection for GLSL
+- **Multi-buffer rendering** - create complex effects with up to 4 render passes
+- **Live preview** with WebGL canvas
 
-To recreate this project with the same configuration:
+### 🎯 Built-in Uniforms
+Access these uniforms in your shaders:
+- `uAspect` (float) - Canvas aspect ratio
+- `uDate` (vec4) - Current date (year, month, day, timeOfDay)
+- `uDeltaTime` (float) - Time since last frame
+- `uFrameCount` (int) - Total frames rendered
+- `uFrameRate` (float) - Current FPS
+- `uMouse` (vec3) - Mouse position (x, y) and button state
+- `uResolution` (vec2) - Canvas resolution
+- `uTime` (float) - Current time in seconds
 
-```sh
-# recreate this project
-bun x sv create --template minimal --types ts --add tailwindcss="plugins:none" mcp="ide:vscode+setup:remote" --install bun ./
-```
+### 🖼️ Texture Channels
+- **4 texture channels** (uChannel0-uChannel3) for images and videos
+- Support for PNG, JPG, GIF, and video files
+- Automatic texture binding and sampling
 
-## Developing
+### 🌐 Community Features
+- **Shader sharing** - Publish and discover community shaders
+- **User profiles** - View shaders by author
+- **Live previews** on shader cards
+- **Authentication** with email verification
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+### 🚀 Performance
+- **WebGL optimized** rendering
+- **Thumbnail generation** for quick previews
+- **Efficient multi-pass** rendering pipeline
+- **Cloudflare Workers** deployment for global CDN
 
-```sh
-npm run dev
 
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
+## Technologies Used
 
-## Building
+- Built with [SvelteKit](https://svelte.dev/docs/kit/introduction) and [Svelte 5](https://svelte.dev/blog/svelte-5)
+- Uses [Monaco Editor](https://microsoft.github.io/monaco-editor/) for code editing
+- [PocketBase](https://pocketbase.io/) for database/backend services
+- [Tailwind CSS](https://tailwindcss.com/) for styling
+- [Lucide](https://lucide.dev/) for icons
+- Inspired by Shadertoy
 
-To create a production version of your app:
+### Key Components
 
-```sh
-npm run build
-```
+- **ShaderCanvas**: Handles WebGL rendering, uniform binding, and multi-buffer pipeline
+- **GlslEditor**: Monaco-based editor with GLSL syntax highlighting
+- **ChannelsPanel**: Texture channel management
+- **BuiltinsPanel**: Uniform documentation and controls
+- **ShaderPreview**: Live thumbnail generation for shader cards
 
-You can preview the production build with `npm run preview`.
+### Environment Setup
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+Make sure to configure these environment variables in your Cloudflare Workers environment:
+
+- `POCKETBASE_URL` - Your PocketBase instance URL
+- Database connection settings for PocketBase
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
