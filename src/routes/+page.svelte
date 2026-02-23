@@ -3,6 +3,7 @@
 	import ShaderCanvas, { type ShaderBuffer } from '$lib/ShaderCanvas.svelte';
 	import { type UniformEntry } from '$lib/BuiltinsPanel.svelte';
 	import { type ChannelEntry } from '$lib/ChannelsPanel.svelte';
+	import { UNIFORM_DOCS } from '$lib/glsl/builtins';
 
 	// Default shaders
 	const defaultImageShader = `precision mediump float;
@@ -217,20 +218,6 @@ void main() {
 		{ name: 'uChannel3', type: 'sampler2D' },
 	];
 
-	const BASE_UNIFORM_DESCS: Record<string, string> = {
-		uAspect: 'Canvas aspect ratio (width / height).',
-		uDate: 'Date and time as (year, month, day, hours * 3600.0 + minutes * 60.0 + seconds)',
-		uDeltaTime: 'Time elapsed since last frame in seconds.',
-		uFrameCount: 'Total number of frames rendered since start.',
-		uFrameRate: 'Frames per second (calculated from delta time).',
-		uMouse: 'Mouse position (x, y) in pixels. Z is 1.0 if mouse is pressed, 0.0 otherwise.',
-		uResolution: 'Canvas dimensions in pixels (width x height).',
-		uTime: 'Elapsed time in seconds since shader start.',
-		uChannel0: 'Channel 0 texture input (sampler2D - image or video).',
-		uChannel1: 'Channel 1 texture input (sampler2D - image or video).',
-		uChannel2: 'Channel 2 texture input (sampler2D - image or video).',
-		uChannel3: 'Channel 3 texture input (sampler2D - image or video).',
-	};
 	const BUFFER_UNIFORM_NAMES = ['uBufferA','uBufferB','uBufferC','uBufferD','uBufferE','uBufferF','uBufferG','uBufferH'];
 
 	const allUniforms = $derived<UniformEntry[]>((() => {
@@ -256,7 +243,7 @@ void main() {
 		return catalog.map(({ name, type, description }) => ({
 			name,
 			type,
-			description: description ?? BASE_UNIFORM_DESCS[name],
+			description: description ?? UNIFORM_DOCS[name]?.description,
 			value: uniformValues[name],
 		}));
 	})());

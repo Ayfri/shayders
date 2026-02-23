@@ -95,3 +95,23 @@ export const BUILTIN_DOCS: Record<string, GlslDoc> = {
 	gl_PointCoord:     { signature: 'vec2 gl_PointCoord', description: '*(Fragment - read-only)* Position within a point-sprite quad. Range [0,1] per axis.' },
 	gl_FragData:       { signature: 'vec4 gl_FragData[n]', description: '*(Fragment)* Output array for MRT (multiple render targets). Use with `GL_EXT_draw_buffers`.' },
 };
+
+// Shayders-specific built-in uniforms injected automatically into every shader.
+export const UNIFORM_DOCS: Record<string, { signature: string; description: string }> = {
+	uTime:       { signature: 'uniform float uTime',          description: 'Elapsed time in seconds since shader start.' },
+	uResolution: { signature: 'uniform vec2 uResolution',    description: 'Canvas dimensions in pixels (width × height).' },
+	uMouse:      { signature: 'uniform vec3 uMouse',          description: 'Mouse position (x, y) in pixels. Z is 1.0 while the mouse button is pressed, 0.0 otherwise.' },
+	uDate:       { signature: 'uniform vec4 uDate',           description: 'Date/time as (year, month, day, hours × 3600 + minutes × 60 + seconds).' },
+	uFrameRate:  { signature: 'uniform float uFrameRate',    description: 'Frames per second (calculated from delta time).' },
+	uDeltaTime:  { signature: 'uniform float uDeltaTime',    description: 'Time elapsed since the last frame, in seconds.' },
+	uFrameCount: { signature: 'uniform int uFrameCount',     description: 'Total number of frames rendered since shader start.' },
+	uAspect:     { signature: 'uniform float uAspect',       description: 'Canvas aspect ratio (width / height).' },
+	uChannel0:   { signature: 'uniform sampler2D uChannel0', description: 'Channel 0 texture input (image or video).' },
+	uChannel1:   { signature: 'uniform sampler2D uChannel1', description: 'Channel 1 texture input (image or video).' },
+	uChannel2:   { signature: 'uniform sampler2D uChannel2', description: 'Channel 2 texture input (image or video).' },
+	uChannel3:   { signature: 'uniform sampler2D uChannel3', description: 'Channel 3 texture input (image or video).' },
+	uBufferA:    { signature: 'uniform sampler2D uBufferA',  description: 'Buffer A offscreen texture. Sample: `texture2D(uBufferA, gl_FragCoord.xy / uResolution)`' },
+	uBufferB:    { signature: 'uniform sampler2D uBufferB',  description: 'Buffer B offscreen texture. Sample: `texture2D(uBufferB, gl_FragCoord.xy / uResolution)`' },
+	uBufferC:    { signature: 'uniform sampler2D uBufferC',  description: 'Buffer C offscreen texture. Sample: `texture2D(uBufferC, gl_FragCoord.xy / uResolution)`' },
+	uBufferD:    { signature: 'uniform sampler2D uBufferD',  description: 'Buffer D offscreen texture. Sample: `texture2D(uBufferD, gl_FragCoord.xy / uResolution)`' },
+};

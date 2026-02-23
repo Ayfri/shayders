@@ -87,7 +87,27 @@
 		})
 		.sort((a, b) => a.name.localeCompare(b.name));
 
-	const total = $derived(uniforms.length + glBuiltins.length);
+	// Extract all non-gl_* functions from builtins doc
+	const glslFunctions = Object.entries(BUILTIN_DOCS)
+		.filter(([k]) => !k.startsWith('gl_'))
+		.map(([name, doc]) => {
+			const firstLine = doc.signature.split('\n')[0];
+			const match = firstLine.match(/^(\S+)\s+(\w+)/);
+			const returnType = match ? match[1] : '';
+			return { name, returnType, signature: firstLine, description: doc.description };
+		})
+		.sort((a, b) => a.name.localeCompare(b.name));
+
+	const groupedFunctions = $derived(() => {
+		const groups: Record<string, typeof glslFunctions> = {};
+		for (const fn of glslFunctions) {
+			if (!groups[fn.returnType]) groups[fn.returnType] = [];
+			groups[fn.returnType].push(fn);
+		}
+		return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+	});
+
+	const total = $derived(uniforms.length + glBuiltins.length + glslFunctions.length);
 
 	function toggle() {
 		open = !open;
@@ -166,7 +186,34 @@
 					</span>
 				</div>
 			{/each}
+
+			<!-- GLSL built-in functions -->
+			<div class="px-4 pt-2 pb-0.5 text-[10px] uppercase tracking-widest text-subtle font-semibold">
+				Functions
+			</div>
+			{#each groupedFunctions as [returnType, functions] (returnType)}
+				<div class="px-4 pt-1 pb-0.5 text-[10px] uppercase tracking-widest text-cyan-400 font-semibold">
+					{returnType}
+				</div>
+				{#each functions as fn (fn.name)}
+					<div class="flex items-baseline gap-1 px-4 py-1 hover:bg-panel group">
+						<span class="text-blue-300 font-mono shrink-0 font-semibold text-[11px] whitespace-nowrap">{fn.signature}</span>
+						<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-[11px]">
+							{#each parseMarkdown(fn.description) as part}
+								{#if typeof part === 'string'}
+									{part}
+								{:else if part.type === 'italic'}
+									<em class="not-italic text-cyan-300">{part.content}</em>
+								{:else if part.type === 'bold'}
+									<strong class="font-semibold text-cyan-200">{part.content}</strong>
+								{:else if part.type === 'code'}
+									<code class="bg-background px-0.5 rounded text-amber-300">{part.content}</code>
+								{/if}
+							{/each}
+						</span>
+					</div>
+				{/each}
+			{/each}
 		</div>
 	{/if}
 </div>
-
