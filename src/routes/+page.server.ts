@@ -10,6 +10,7 @@ export const load: PageServerLoad = async () => {
 		const result = await pb.collection('shaders').getList(1, 50, {
 			filter: 'visiblity = "public"',
 			sort: '-created',
+			expand: 'user_id',
 		});
 
 		const allShaders = result.items;
@@ -31,6 +32,8 @@ export const load: PageServerLoad = async () => {
 				visiblity: s.visiblity ?? 'public',
 				buffers: Array.isArray(s.content) ? (s.content as any[]) : [],
 				userId: s.user_id,
+				authorId: s.user_id,
+				authorName: ((s.expand as any)?.user_id as any)?.name ?? 'Unknown',
 			})),
 		};
 	} catch (err) {

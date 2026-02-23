@@ -9,7 +9,7 @@ export const load: PageServerLoad = async ({ params }) => {
 
 	let shader: ShadersResponse;
 	try {
-		shader = await pb.collection('shaders').getOne(params.id);
+		shader = await pb.collection('shaders').getOne(params.id, { expand: 'user_id' });
 	} catch {
 		error(404, 'Shader not found');
 	}
@@ -22,6 +22,8 @@ export const load: PageServerLoad = async ({ params }) => {
 			content: shader.content,
 			user_id: shader.user_id,
 			visiblity: shader.visiblity ?? 'public',
+			authorId: shader.user_id,
+			authorName: ((shader.expand as any)?.user_id as any)?.name ?? 'Unknown',
 		},
 	};
 };

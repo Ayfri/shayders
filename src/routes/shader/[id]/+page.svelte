@@ -36,5 +36,7 @@
 		initialVisiblity={data.shader.visiblity}
 		initialBuffers={buffers}
 		viewOnly
+		authorId={data.shader.authorId}
+		authorName={data.shader.authorName}
 	/>
 {/if}

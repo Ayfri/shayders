@@ -15,6 +15,8 @@
 		visiblity: string;
 		buffers?: ShaderBuffer[];
 		userId: string;
+		authorId: string;
+		authorName: string;
 	};
 
 	const shaders = $derived<ShaderItem[]>(data.shaders);
@@ -61,12 +63,18 @@
 							{/if}
 						</a>
 						<div class="p-3 flex flex-col gap-1 flex-1">
-							<div class="flex items-start justify-between gap-2">
+							<div class="flex items-start justify-between gap-2 flex-row">
 								<a
 									href="/shader/{shader.id}"
 									class="font-medium text-sm text-foreground hover:text-white transition-colors truncate"
 								>
 									{shader.name}
+								</a>
+								<a
+									href="/users/{shader.authorId}"
+									class="text-xs text-muted hover:text-foreground transition-colors"
+								>
+									{shader.authorName}
 								</a>
 							</div>
 
