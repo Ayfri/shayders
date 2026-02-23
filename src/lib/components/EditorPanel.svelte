@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { tick, onMount } from 'svelte';
-	import { Code, Play, Save, Eye, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
+	import { Code, Play, Save, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
 	import { isShadertoyShader, convertFromShadertoy } from '$lib/shadertoyConverter';
 	import GlslEditor from '$lib/components/GlslEditor.svelte';
 	import BuiltinsPanel, { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
@@ -330,18 +330,6 @@
 				<Save size={12} />
 				{isSaving ? 'Saving…' : 'Save'}
 			</button>
-			{/if}
-			{#if shaderState.currentShaderId}
-				<a
-					href="/shader/{shaderState.currentShaderId}"
-					target="_blank"
-					rel="noopener noreferrer"
-					class="flex items-center gap-1.5 px-2 py-0.5 sm:px-4 sm:py-1 bg-surface text-muted border border-border rounded font-mono text-xs font-semibold tracking-wider cursor-pointer hover:text-foreground hover:bg-border transition-colors"
-					title="View published shader"
-				>
-					<Eye size={12} />
-					View
-				</a>
 			{/if}
 			<button
 				onclick={() => (visible = false)}
