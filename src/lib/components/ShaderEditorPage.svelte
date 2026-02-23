@@ -18,9 +18,11 @@
 		initialVisiblity?: keyof typeof ShadersVisiblityOptions;
 		initialBuffers?: ShaderBuffer[];
 		viewOnly?: boolean;
+		authorId?: string;
+		authorName?: string;
 	}
 
-	let { initialId, initialName, initialDescription, initialVisiblity, initialBuffers, viewOnly = false }: Props = $props();
+	let { initialId, initialName, initialDescription, initialVisiblity, initialBuffers, viewOnly = false, authorId, authorName }: Props = $props();
 
 	// State - initialized with defaults, overridden from props in $effect.pre below
 	let buffers = $state<ShaderBuffer[]>([{ id: 'image', label: 'Image', code: defaultImageShader }]);
@@ -340,6 +342,8 @@
 		bind:thumbnails
 		isSavingLocally={!viewOnly && !auth.isLoggedIn}
 		{viewOnly}
+		{authorId}
+		{authorName}
 	/>
 
 	<EditorPanel

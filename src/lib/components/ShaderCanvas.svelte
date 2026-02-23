@@ -24,6 +24,8 @@
 		readonly?: boolean;
 		viewOnly?: boolean;
 		isSavingLocally?: boolean;
+		authorId?: string;
+		authorName?: string;
 	}
 
 	let {
@@ -35,6 +37,8 @@
 		readonly = false,
 		viewOnly = false,
 		isSavingLocally = false,
+		authorId = undefined,
+		authorName = undefined,
 	}: Props = $props();
 
 	// Canvas / GL
@@ -597,7 +601,18 @@ void main() {
 				</span>
 			{:else if viewOnly}
 				<div class="flex items-center gap-2 ml-auto min-w-0">
-					<span class="text-xs font-semibold text-foreground px-2 py-0.5 truncate max-w-40">{shaderState.name || 'Untitled Shader'}</span>
+					<div class="flex items-center gap-1 text-xs text-muted shrink-0">
+						{#if authorId && authorName}
+							<a
+								href="/users/{authorId}"
+								class="hover:text-foreground transition-colors"
+							>
+								{authorName}
+							</a>
+							<span>/</span>
+						{/if}
+						<span class="text-xs font-semibold text-foreground truncate max-w-40">{shaderState.name || 'Untitled Shader'}</span>
+					</div>
 					<button
 						onclick={() => (infosOpen = true)}
 						class="flex items-center gap-1 px-2 py-0.5 rounded text-cyan-400/80 border border-cyan-400/40 bg-cyan-400/5 hover:text-cyan-400 hover:bg-cyan-400/15 transition-colors cursor-pointer shrink-0"
@@ -609,12 +624,23 @@ void main() {
 				</div>
 			{:else if !readonly && auth.isLoggedIn}
 				<div class="flex items-center gap-2 ml-auto min-w-0">
-					<input
-						type="text"
-						bind:value={shaderState.name}
-						placeholder="Untitled Shader"
-						class="bg-transparent border-none outline-none text-xs font-semibold text-foreground text-right w-40 placeholder:text-subtle hover:bg-surface focus:bg-surface rounded px-2 py-0.5 transition-colors min-w-0"
-					/>
+					<div class="flex items-center gap-1">
+						{#if authorId && authorName && authorId !== auth.user?.id}
+							<a
+								href="/users/{authorId}"
+								class="text-xs text-muted hover:text-foreground transition-colors"
+							>
+								{authorName}
+							</a>
+							<span class="text-xs text-muted">/</span>
+						{/if}
+						<input
+							type="text"
+							bind:value={shaderState.name}
+							placeholder="Untitled Shader"
+							class="bg-transparent border-none outline-none text-xs font-semibold text-foreground text-right w-40 placeholder:text-subtle hover:bg-surface focus:bg-surface rounded px-2 py-0.5 transition-colors min-w-0"
+						/>
+					</div>
 					<button
 						onclick={() => (infosOpen = true)}
 						class="flex items-center gap-1 px-2 py-0.5 rounded text-cyan-400/80 border border-cyan-400/40 bg-cyan-400/5 hover:text-cyan-400 hover:bg-cyan-400/15 transition-colors cursor-pointer shrink-0"
