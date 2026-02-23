@@ -27,11 +27,23 @@
 	);
 
 	let fileInputs = $state<(HTMLInputElement | null)[]>([null, null, null, null]);
+	let webcamVideos = $state<(HTMLVideoElement | null)[]>([null, null, null, null]);
+	let webcamStreams = $state<(MediaStream | null)[]>([null, null, null, null]);
 
 	function startWebcam(id: number) {
 		const existing = channels.find((c) => c.id === id);
 		if (existing?.url) URL.revokeObjectURL(existing.url);
-		onChannelChange?.({ id, type: 'webcam', url: 'webcam', name: 'Webcam', bufferId: null });
+
+		navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+			.then(stream => {
+				if (webcamVideos[id]) {
+					webcamVideos[id]!.srcObject = stream;
+					webcamVideos[id]!.play().catch(err => console.error('Error playing webcam:', err));
+				}
+				webcamStreams[id] = stream;
+				onChannelChange?.({ id, type: 'webcam', url: 'webcam', name: 'Webcam', bufferId: null });
+			})
+			.catch(err => console.error('Webcam access denied:', err));
 	}
 
 	function handleFile(id: number, e: Event) {
@@ -54,6 +66,10 @@
 	function clearChannel(id: number) {
 		const ch = channels.find((c) => c.id === id);
 		if (ch?.url) URL.revokeObjectURL(ch.url);
+		if (webcamStreams[id]) {
+			webcamStreams[id]!.getTracks().forEach(t => t.stop());
+			webcamStreams[id] = null;
+		}
 		onChannelChange?.({ id, type: null, url: null, name: null, bufferId: null });
 	}
 
@@ -65,7 +81,7 @@
 	}
 </script>
 
-<div class="grid grid-cols-2 gap-2 p-3 bg-panel border-b border-border shrink-0">
+<div class="grid grid-cols-2 gap-2 p-3 bg-panel border-b border-border shrink-0 max-h-96 overflow-y-auto">
 	{#each [0, 1, 2, 3] as id (id)}
 		{@const ch = channels.find((c) => c.id === id) ?? null}
 		<div class="flex flex-col gap-1">
@@ -79,28 +95,32 @@
 			<div
 				role="button"
 				tabindex="0"
-				class="relative w-full overflow-hidden rounded border border-border bg-background cursor-pointer hover:border-cyan-400/40 transition-colors group"
-				style="aspect-ratio: 16/9;"
+				class="relative w-full h-24 overflow-hidden rounded border border-border bg-background cursor-pointer hover:border-cyan-400/40 transition-colors group"
 				onclick={() => fileInputs[id]?.click()}
 				onkeydown={(e) => onSlotKeydown(id, e)}
 			>
 				{#if ch?.type === 'image' && ch.url}
-					<img src={ch.url} alt={ch.name ?? ''} class="w-full h-full object-cover" />
+					<img src={ch.url} alt={ch.name ?? ''} class="w-full h-full object-cover" style="transform: {ch.vflip ? 'scaleY(-1)' : ''};" />
 				{:else if ch?.type === 'video' && ch.url}
 					<!-- svelte-ignore a11y_media_has_caption -->
 					<video
 						src={ch.url}
 						class="w-full h-full object-cover"
+						style="transform: {ch.vflip ? 'scaleY(-1)' : ''};"
 						autoplay
 						loop
 						muted
 						playsinline
 					></video>
 				{:else if ch?.type === 'webcam'}
-					<div class="flex items-center justify-center h-full gap-1 text-cyan-400/60">
-						<Webcam size={13} />
-						<span class="text-xs leading-none">Webcam</span>
-					</div>
+					<!-- svelte-ignore a11y_media_has_caption -->
+					<video
+						bind:this={webcamVideos[id]}
+						class="w-full h-full object-cover"
+						autoplay
+						muted
+						playsinline
+					></video>
 				{:else if ch?.type === 'buffer' && ch.bufferId && thumbnails[ch.bufferId]}
 					<img src={thumbnails[ch.bufferId]} alt={ch.name ?? ''} class="w-full h-full object-cover" />
 				{:else if ch?.type === 'buffer'}
@@ -151,13 +171,69 @@
 					<span class="text-xs text-subtle">-</span>
 					<button
 						onclick={() => startWebcam(id)}
-						class="ml-auto shrink-0 text-subtle hover:text-cyan-400 cursor-pointer transition-colors p-0.5"
+						class="ml-auto shrink-0 text-subtle hover:text-cyan-400 cursor-pointer transition-colors p-1"
 						title="Use webcam"
 					>
-						<Webcam size={10} />
+						<Webcam size={14} />
 					</button>
 				{/if}
 			</div>
+
+			<!-- Texture options -->
+			{#if ch?.type && ch.type !== 'buffer' && ch.type !== null}
+				<div class="space-y-1 px-0.5 py-1">
+					<!-- Filter -->
+					<div class="flex items-center gap-1">
+						<label for="filter-{id}" class="text-xs text-subtle w-12">Filter:</label>
+						<select
+							id="filter-{id}"
+							value={ch.filter ?? 'linear'}
+							onchange={(e) => {
+								const target = e.target as HTMLSelectElement;
+								const newCh = { ...ch, filter: target.value as 'linear' | 'nearest' | 'linear-mipmap' };
+								onChannelChange?.(newCh);
+							}}
+							class="text-xs flex-1 px-1.5 py-0.5 rounded bg-background border border-border text-foreground cursor-pointer"
+						>
+							<option value="nearest">Nearest</option>
+							<option value="linear">Linear</option>
+							<option value="linear-mipmap">Mipmap</option>
+						</select>
+					</div>
+					<!-- Wrap -->
+					<div class="flex items-center gap-1">
+						<label for="wrap-{id}" class="text-xs text-subtle w-12">Wrap:</label>
+						<select
+							id="wrap-{id}"
+							value={ch.wrap ?? 'clamp'}
+							onchange={(e) => {
+								const target = e.target as HTMLSelectElement;
+								const newCh = { ...ch, wrap: target.value as 'repeat' | 'clamp' };
+								onChannelChange?.(newCh);
+							}}
+							class="text-xs flex-1 px-1.5 py-0.5 rounded bg-background border border-border text-foreground cursor-pointer"
+						>
+							<option value="clamp">Clamp</option>
+							<option value="repeat">Repeat</option>
+						</select>
+					</div>
+					<!-- VFlip -->
+					<label for="vflip-{id}" class="flex items-center gap-2 text-xs text-subtle cursor-pointer">
+						<input
+							id="vflip-{id}"
+							type="checkbox"
+							checked={ch.vflip ?? false}
+							onchange={(e) => {
+								const target = e.target as HTMLInputElement;
+								const newCh = { ...ch, vflip: target.checked };
+								onChannelChange?.(newCh);
+							}}
+							class="w-3 h-3 rounded cursor-pointer"
+						/>
+						<span>Flip V</span>
+					</label>
+				</div>
+			{/if}
 
 			<!-- Buffer picker -->
 			{#if assignableBuffers.length > 0}
