@@ -352,14 +352,19 @@ export function findUnused(src: string, doc: GlslDocument): UnusedItem[] {
 	}
 
 	// Void expression statements
-	// Matches lines whose only statement is a type-constructor call (result discarded).
-	// e.g.  vec3(1.0, 0.5, 0.0);   float(x);   mat2(1.0);
-	const voidStmtRe = new RegExp(
-		`^\\s*(${CONSTRUCTOR_TYPE_RE})\\s*\\(.*\\)\\s*;\\s*$`,
-	);
+	// Matches lines whose only statement is:
+	// 1. A type-constructor call (result discarded)
+	//    e.g. vec3(1.0, 0.5, 0.0);   float(x);   mat2(1.0);
+	// 2. An identifier with member access or array access (but not function calls,
+	//    which might have side effects)
+	//    e.g. a.test;   a[0];   a.b.c;
+	const voidStmtPatterns = [
+		new RegExp(`^\\s*(${CONSTRUCTOR_TYPE_RE})\\s*\\(.*\\)\\s*;\\s*$`),
+		/^\s*[a-zA-Z_]\w*(?:\.\w+|\[.*?\])*\s*;\s*$/,
+	];
 
 	for (let i = 0; i < cleanLines.length; i++) {
-		if (!voidStmtRe.test(cleanLines[i])) continue;
+		if (!voidStmtPatterns.some(re => re.test(cleanLines[i]))) continue;
 
 		const originalLine = srcLines[i];
 		const colStart = originalLine.search(/\S/); // first non-whitespace
@@ -373,6 +378,54 @@ export function findUnused(src: string, doc: GlslDocument): UnusedItem[] {
 			kind: 'void-expression',
 			message: 'Expression statement has no effect - the computed value is immediately discarded.',
 		});
+	}
+
+	// Analyze user-defined function calls that might have no effect
+	// (functions that are empty or don't access global variables)
+	const fnCallRe = /\b([a-zA-Z_]\w*)\s*\(\s*[^)]*\s*\)\s*;/g;
+	for (let i = 0; i < cleanLines.length; i++) {
+		const line = cleanLines[i];
+		let match: RegExpExecArray | null;
+		fnCallRe.lastIndex = 0;
+		while ((match = fnCallRe.exec(line)) !== null) {
+			const fnName = match[1];
+
+			// Only analyze user-defined functions (skip main and built-ins)
+			const fn = doc.functions.find((f) => f.name === fnName);
+			if (!fn || fn.name === 'main') continue;
+
+			// Check if function body accesses any global variables
+			const fnBodyStart = clean.indexOf(`${fn.returnType} ${fn.name}`);
+			const fnBodyBraceStart = clean.indexOf('{', fnBodyStart);
+			const fnBodyBraceEnd = (() => {
+				let depth = 1;
+				let idx = fnBodyBraceStart + 1;
+				while (depth > 0 && idx < clean.length) {
+					if (clean[idx] === '{') depth++;
+					else if (clean[idx] === '}') depth--;
+					idx++;
+				}
+				return idx - 1;
+			})();
+			const fnBody = clean.slice(fnBodyBraceStart, fnBodyBraceEnd + 1);
+			const hasGlobalVarAccess = doc.variables.some((v) =>
+				new RegExp(`\\b${escapeRe(v.name)}\\b`).test(fnBody),
+			);
+			const isEmptyBody = /\{\s*\}/.test(fnBody);
+
+			if (isEmptyBody || !hasGlobalVarAccess) {
+				const originalLine = srcLines[i];
+				const colStartInOriginal = originalLine.search(/\S/);
+				result.push({
+					name: match[0].trim(),
+					line: i + 1,
+					startColumn: colStartInOriginal + 1,
+					endColumn: originalLine.trimEnd().length + 1,
+					kind: 'void-expression',
+					message: `Function '${fnName}' returns a value that is immediately discarded.`,
+				});
+			}
+		}
 	}
 
 	return result;
