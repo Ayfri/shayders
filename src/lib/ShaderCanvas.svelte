@@ -173,10 +173,10 @@ void main() {
 		return buffers.filter((b) => b.id !== 'image' && b.id !== 'common').map((b) => b.id);
 	}
 
-	export function run() {
+	export function run(resetTime = true) {
 		if (!gl) return;
 		cancelAnimationFrame(animationId);
-		startTime = Date.now();
+		if (resetTime) startTime = Date.now();
 		lastFrameTime = 0;
 		frameCount = 0;
 		fps = 0;

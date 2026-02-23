@@ -170,11 +170,6 @@ void main() {
 		const userBufs = saved.filter((b) => b.id !== 'image' && b.id !== 'common');
 		const removedIdx = userBufs.findIndex((b) => b.id === id);
 		const removedUniform = removedIdx >= 0 ? BUFFER_UNIFORM_NAMES[removedIdx] : null;
-		// Build rename map for buffers that shift down
-		const renames: { from: string; to: string }[] = [];
-		for (let i = removedIdx + 1; i < userBufs.length; i++) {
-			renames.push({ from: BUFFER_UNIFORM_NAMES[i], to: BUFFER_UNIFORM_NAMES[i - 1] });
-		}
 		const newActiveId = activeBufferId === id ? 'image' : activeBufferId;
 		const updatedBufs = saved
 			.filter((b) => b.id !== id)
@@ -182,9 +177,6 @@ void main() {
 				if (b.id === 'common') return b;
 				let code = b.code;
 				if (removedUniform) code = removeUniformLine(code, removedUniform);
-				for (const { from, to } of renames) {
-					code = code.replace(new RegExp(`\\b${from}\\b`, 'g'), to);
-				}
 				return { ...b, code };
 			});
 		buffers = updatedBufs;
@@ -297,7 +289,7 @@ void main() {
 	$effect(() => {
 		const _code = editorValue;
 		clearTimeout(_compileTimer);
-		_compileTimer = setTimeout(run, 800) as unknown as number;
+		_compileTimer = setTimeout(() => run(), 800);
 	});
 </script>
 
@@ -314,7 +306,7 @@ void main() {
 	<EditorPanel
 		bind:value={editorValue}
 		errors={error}
-		onRun={run}
+		onRun={() => run()}
 		uniforms={allUniforms}
 		{presentNames}
 		onToggleUniform={toggleUniform}
