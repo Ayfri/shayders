@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { MailCheck, CircleAlert } from '@lucide/svelte';
+	import SeoHead from '$lib/components/SeoHead.svelte';
 
 	let { params } = $props();
 
@@ -21,6 +22,11 @@
 		}
 	});
 </script>
+
+<SeoHead
+	title="Confirm Email - Shayders"
+	description="Confirming your email verification for your Shayders account."
+/>
 
 <div class="min-h-screen flex flex-col items-center justify-center bg-background">
 	<div class="w-full max-w-sm px-8 py-10 bg-surface border border-border rounded-lg shadow-lg">

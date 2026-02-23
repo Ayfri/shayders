@@ -2,6 +2,7 @@
 	import type { PageData } from './$types';
 	import { CodeXml, Globe } from '@lucide/svelte';
 	import ShaderPreview from '$lib/components/ShaderPreview.svelte';
+	import SeoHead from '$lib/components/SeoHead.svelte';
 	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
 
 	let { data }: { data: PageData } = $props();
@@ -29,6 +30,11 @@
 		});
 	}
 </script>
+
+<SeoHead
+	title="Shayders - GLSL Shader Editor"
+	description="Discover amazing WebGL shaders created by the community. A modern GLSL shader editor for creating and experimenting with fragment shaders in real-time."
+/>
 
 <div class="min-h-full overflow-y-auto bg-background text-foreground p-6 lg:p-10">
 	<div class="max-w-6xl mx-auto">

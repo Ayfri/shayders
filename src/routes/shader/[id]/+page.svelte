@@ -1,6 +1,7 @@
 <script lang="ts">
 	import ShaderCanvas, { type ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
 	import ShaderEditorPage from '$lib/components/ShaderEditorPage.svelte';
+	import SeoHead from '$lib/components/SeoHead.svelte';
 	import { auth } from '$lib/auth.svelte';
 	import { Lock } from '@lucide/svelte';
 	import type { PageData } from './$types';
@@ -13,7 +14,15 @@
 	const buffers = $derived<ShaderBuffer[]>(
 		Array.isArray(data.shader.content) ? (data.shader.content as ShaderBuffer[]) : []
 	);
+
+	const title = $derived(`${data.shader.name} - Shayders`);
+	const description = $derived(data.shader.description?.slice(0, 155) || 'A shader created with Shayders GLSL editor');
 </script>
+
+<SeoHead
+	{title}
+	{description}
+/>
 
 {#if isPrivate}
 	<div class="flex flex-col items-center justify-center h-full gap-3 text-muted bg-background">

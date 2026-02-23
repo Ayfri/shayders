@@ -5,10 +5,14 @@
 	import { goto } from '$app/navigation';
 	import { User, Trash2, Globe, Link, Lock, CodeXml, MailCheck, RefreshCw } from '@lucide/svelte';
 	import ShaderPreview from '$lib/components/ShaderPreview.svelte';
+	import SeoHead from '$lib/components/SeoHead.svelte';
 	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
 	import type { ShadersVisiblityOptions } from '$lib/pocketbase-types';
 
 	let { data }: { data: PageData } = $props();
+
+	const title = $derived(`${data.profileUser.name}'s Shaders - Shayders`);
+	const description = $derived(`Explore GLSL shader creations by ${data.profileUser.name}. ${data.shaders.length} public shader${data.shaders.length !== 1 ? 's' : ''} available.`);
 
 	const isOwner = $derived(auth.isLoggedIn && auth.user?.id === data.profileUser.id);
 
@@ -116,6 +120,12 @@
 		}
 	}
 </script>
+
+<SeoHead
+	{title}
+	{description}
+	ogType="profile"
+/>
 
 <div class="min-h-full overflow-y-auto bg-background text-foreground p-6 lg:p-10">
 	<div class="max-w-5xl mx-auto">

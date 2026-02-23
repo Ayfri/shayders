@@ -3,6 +3,7 @@
 	import { MailCheck, RefreshCw } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import SeoHead from '$lib/components/SeoHead.svelte';
 
 	let email = $state(page.url.searchParams.get('email') ?? '');
 
@@ -41,6 +42,11 @@
 		}
 	}
 </script>
+
+<SeoHead
+	title="Verify Email - Shayders"
+	description="Verify your email address to complete your Shayders account registration."
+/>
 
 <div class="min-h-screen flex flex-col items-center justify-center bg-background">
 	<div class="w-full max-w-sm px-8 py-10 bg-surface border border-border rounded-lg shadow-lg">

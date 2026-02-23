@@ -2,6 +2,7 @@
 	import { login } from '$lib/auth.svelte';
 	import { LogIn, Home } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
+	import SeoHead from '$lib/components/SeoHead.svelte';
 
 	let email = $state('');
 	let password = $state('');
@@ -22,6 +23,11 @@
 		}
 	}
 </script>
+
+<SeoHead
+	title="Login - Shayders"
+	description="Sign in to your Shayders account to create and share GLSL shaders."
+/>
 
 <div class="min-h-screen flex flex-col items-center justify-center bg-background">
 	<div class="w-full max-w-sm px-8 py-10 bg-surface border border-border rounded-lg shadow-lg">
