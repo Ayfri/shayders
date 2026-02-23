@@ -17,7 +17,7 @@ export const load: PageServerLoad = async ({ params }) => {
 	let shaders: ShadersResponse[] = [];
 	try {
 		const result = await pb.collection('shaders').getList(1, 100, {
-			filter: pb.filter('user_id = {:userId}', { userId: profileUser.id }),
+			filter: pb.filter("user_id = {:userId} && visiblity = 'public'", { userId: profileUser.id }),
 			sort: '-created',
 		});
 		shaders = result.items;
@@ -36,6 +36,7 @@ export const load: PageServerLoad = async ({ params }) => {
 			description: s.description ?? '',
 			created: s.created,
 			updated: s.updated,
+			visiblity: s.visiblity ?? 'public',
 		})),
 	};
 };
