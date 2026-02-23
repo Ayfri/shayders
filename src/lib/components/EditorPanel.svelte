@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { Code, Play, Save, Eye, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
+	import { isShadertoyShader, convertFromShadertoy } from '$lib/shadertoyConverter';
 	import GlslEditor from '$lib/components/GlslEditor.svelte';
 	import BuiltinsPanel, { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
 	import ChannelsPanel, { type ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
 	import EditorSettingsModal from '$lib/components/EditorSettingsModal.svelte';
+	import Modal from '$lib/components/Modal.svelte';
 	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
 	import { loadSettings, saveSettings, type EditorSettingsData, EDITOR_DEFAULTS } from '$lib/editorSettings';
 	import { shaderState } from '$lib/shaderState.svelte';
@@ -64,6 +66,8 @@
 	let channelsOpen = $state(false);
 	let settings = $state<EditorSettingsData>(loadSettings());
 	let showSettings = $state(false);
+	let showConvertModal = $state(false);
+	let detectedShadertoyOnce = $state(false);
 
 	$effect(() => {
 		saveSettings(settings);
@@ -103,6 +107,24 @@
 			onRenameBuffer?.(editingTabId, editingLabel.trim());
 		}
 		editingTabId = null;
+	}
+
+	const isShadertoy = $derived(isShadertoyShader(value));
+
+	$effect(() => {
+		if (isShadertoy && !detectedShadertoyOnce) {
+			showConvertModal = true;
+			detectedShadertoyOnce = true;
+		}
+	});
+
+	function handleConvert() {
+		if (isShadertoy) value = convertFromShadertoy(value);
+		showConvertModal = false;
+	}
+
+	function handleCancelConvert() {
+		showConvertModal = false;
 	}
 
 	function startDrag(e: MouseEvent) {
@@ -335,3 +357,22 @@
 		showSettings = false;
 	}}
 />
+<Modal open={showConvertModal} onClose={handleCancelConvert} title="Convert from Shadertoy?">
+	<div class="px-5 py-4">
+		<p class="text-sm text-foreground mb-6">We detected that this shader is in Shadertoy format. Would you like to convert it to WebGL shader format?</p>
+		<div class="flex items-center justify-end gap-2">
+			<button
+				onclick={handleCancelConvert}
+				class="px-4 py-2 rounded font-mono text-xs font-semibold border border-border text-muted hover:text-foreground hover:bg-border transition-colors cursor-pointer"
+			>
+				Cancel
+			</button>
+			<button
+				onclick={handleConvert}
+				class="px-4 py-2 rounded font-mono text-xs font-semibold bg-cyan-400/10 text-cyan-400 border border-cyan-400/60 hover:bg-cyan-400/20 transition-colors cursor-pointer"
+			>
+				Convert
+			</button>
+		</div>
+	</div>
+</Modal>
