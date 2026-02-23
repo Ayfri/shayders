@@ -1,5 +1,8 @@
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
 
+// Shared type pattern reused across tokenizer rules
+const T = 'float|int|uint|bool|void|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234](?:x[234])?|sampler\\w*';
+
 export const conf = {
 	comments: {
 		lineComment: '//',
@@ -31,7 +34,7 @@ export const conf = {
 	wordPattern: /(-?\d*\.\d\w*)|([a-zA-Z_]\w*)/,
 } satisfies Monaco.languages.LanguageConfiguration;
 
-export function buildLanguage(extraTypes: string[] = []): Monaco.languages.IMonarchLanguage {
+export function buildLanguage(extraTypes: string[] = [], uniforms: string[] = []): Monaco.languages.IMonarchLanguage {
 	return {
 		tokenPostfix: '.glsl',
 		defaultToken: 'invalid',
@@ -60,6 +63,8 @@ export function buildLanguage(extraTypes: string[] = []): Monaco.languages.IMona
 			'sampler2DShadow', 'samplerCubeShadow',
 			...extraTypes,
 		],
+
+		uniforms,
 
 		builtins: [
 			'radians', 'degrees', 'sin', 'cos', 'tan',
@@ -98,14 +103,14 @@ export function buildLanguage(extraTypes: string[] = []): Monaco.languages.IMona
 				// Qualified declarations WITH precision qualifier
 				// uniform|attribute|varying  lowp|mediump|highp  <type>  <name>
 				[
-					/(uniform|attribute|varying)(\s+)(lowp|mediump|highp)(\s+)(float|int|uint|bool|void|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234](?:x[234])?|sampler\w*)(\s+)([a-zA-Z_]\w*)/,
+					new RegExp(`(uniform|attribute|varying)(\\s+)(lowp|mediump|highp)(\\s+)(${T})(\\s+)([a-zA-Z_]\\w*)`),
 					['keyword', 'white', 'keyword', 'white', 'keyword.type', 'white', 'variable.uniform'],
 				],
 
 				// Qualified declarations WITHOUT precision qualifier
 				// uniform|attribute|varying  <type>  <name>
 				[
-					/(uniform|attribute|varying)(\s+)(float|int|uint|bool|void|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234](?:x[234])?|sampler\w*)(\s+)([a-zA-Z_]\w*)/,
+					new RegExp(`(uniform|attribute|varying)(\\s+)(${T})(\\s+)([a-zA-Z_]\\w*)`),
 					['keyword', 'white', 'keyword.type', 'white', 'variable.uniform'],
 				],
 
@@ -114,7 +119,7 @@ export function buildLanguage(extraTypes: string[] = []): Monaco.languages.IMona
 
 				// Function declarations: <type> <name>(
 				[
-					/(float|int|uint|bool|void|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234](?:x[234])?)(\s+)([a-zA-Z_]\w*)(?=\s*\()/,
+					new RegExp(`(${T})(\\s+)([a-zA-Z_]\\w*)(?=\\s*\\()`),
 					['keyword.type', 'white', 'entity.name.function'],
 				],
 				// Function calls: identifier immediately followed by '(' (not a keyword/type/builtin)
@@ -122,10 +127,11 @@ export function buildLanguage(extraTypes: string[] = []): Monaco.languages.IMona
 					/[a-zA-Z_]\w*(?=\s*\()/,
 					{
 						cases: {
-							'@keywords': 'keyword',
-							'@types':    'keyword.type',
-							'@builtins': 'predefined',
-							'@default':  'entity.name.function',
+							'@keywords':  'keyword',
+							'@types':     'keyword.type',
+							'@builtins':  'predefined',
+							'@uniforms':  'variable.uniform',
+							'@default':   'entity.name.function',
 						},
 					},
 				],
@@ -134,10 +140,11 @@ export function buildLanguage(extraTypes: string[] = []): Monaco.languages.IMona
 					/[a-zA-Z_]\w*/,
 					{
 						cases: {
-							'@keywords': 'keyword',
-							'@types':    'keyword.type',
-							'@builtins': 'predefined',
-							'@default':  'identifier',
+							'@keywords':  'keyword',
+							'@types':     'keyword.type',
+							'@builtins':  'predefined',
+							'@uniforms':  'variable.uniform',
+							'@default':   'identifier',
 						},
 					},
 				],

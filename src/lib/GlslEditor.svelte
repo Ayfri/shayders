@@ -18,16 +18,20 @@
 	let editor = $state<Monaco.editor.IStandaloneCodeEditor | null>(null);
 	let monacoRef = $state<typeof Monaco | null>(null);
 	let _settingExternal = false;
-	let _lastStructSig = '';
+	let _lastTokenSig = '';
 
-	function refreshStructTokens(src: string) {
+	function refreshDynamicTokens(src: string) {
 		const m = monacoRef;
 		if (!m) return;
 		const doc = analyzeDocument(src);
-		const sig = doc.structs.map((s) => s.name).join(',');
-		if (sig === _lastStructSig) return;
-		_lastStructSig = sig;
-		m.languages.setMonarchTokensProvider('glsl', buildLanguage(doc.structs.map((s) => s.name)));
+		const structNames  = doc.structs.map((s) => s.name);
+		const uniformNames = doc.variables
+			.filter((v) => v.qualifier === 'uniform')
+			.map((v) => v.name);
+		const sig = structNames.join(',') + '|' + uniformNames.join(',');
+		if (sig === _lastTokenSig) return;
+		_lastTokenSig = sig;
+		m.languages.setMonarchTokensProvider('glsl', buildLanguage(structNames, uniformNames));
 	}
 
 	// Editor lifecycle
@@ -44,10 +48,12 @@
 			if (!monaco.languages.getLanguages().find((l) => l.id === 'glsl')) {
 				monaco.languages.register({ id: 'glsl' });
 			}
-			// Build tokenizer with any structs already present in the initial value
-			const initialDoc = analyzeDocument(value);
-			_lastStructSig = initialDoc.structs.map((s) => s.name).join(',');
-			monaco.languages.setMonarchTokensProvider('glsl', buildLanguage(initialDoc.structs.map((s) => s.name)));
+			// Build tokenizer with any structs/uniforms already present in the initial value
+			const initialDoc     = analyzeDocument(value);
+			const initialStructs  = initialDoc.structs.map((s) => s.name);
+			const initialUniforms = initialDoc.variables.filter((v) => v.qualifier === 'uniform').map((v) => v.name);
+			_lastTokenSig = initialStructs.join(',') + '|' + initialUniforms.join(',');
+			monaco.languages.setMonarchTokensProvider('glsl', buildLanguage(initialStructs, initialUniforms));
 			monaco.languages.setLanguageConfiguration('glsl', conf);
 
 			const EditorWorker = await import('monaco-editor/esm/vs/editor/editor.worker?worker');
@@ -89,7 +95,7 @@
 				value = instance.getValue();
 				const m = instance.getModel();
 				if (m) applyHints(monaco, m);
-				refreshStructTokens(instance.getValue());
+				refreshDynamicTokens(instance.getValue());
 			});
 
 			if (onRun) {
@@ -112,7 +118,7 @@
 			editor?.dispose();
 			editor = null;
 			monacoRef = null;
-			_lastStructSig = '';
+			_lastTokenSig = '';
 		};
 	});
 
@@ -128,7 +134,7 @@
 		const m = monacoRef;
 		const model = editor.getModel();
 		if (m && model) applyHints(m, model);
-		refreshStructTokens(incoming);
+		refreshDynamicTokens(incoming);
 	});
 
 	// Reactively update error markers
