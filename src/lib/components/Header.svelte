@@ -27,10 +27,13 @@
 
 	<nav class="flex items-center gap-4 text-sm">
 		{#if auth.isLoggedIn}
-			<span class="flex items-center gap-1.5 text-muted">
+			<a
+				href="/users/{auth.user?.id}"
+				class="flex items-center gap-1.5 text-muted hover:text-foreground transition-colors"
+			>
 				<User size={15} />
-				{auth.user?.name || auth.user?.email}
-			</span>
+				{auth.user?.name || auth.user?.username}
+			</a>
 			<button
 				onclick={handleLogout}
 				class="flex items-center gap-1.5 px-3 py-1 rounded text-red-400 hover:text-red-300 border border-red-current/50 bg-red-950/30 transition-colors cursor-pointer"
