@@ -72,8 +72,22 @@ export function convertFromShadertoy(code: string): string {
 		result = result.trim();
 	}
 
-	// Append a void main() wrapper that calls mainImage
-	result += '\n\nvoid main() {\n  mainImage(gl_FragColor, gl_FragCoord.xy);\n}\n';
+	// Replace mainImage function signature and parameters
+	// Extract parameter names: void mainImage(out vec4 fragColor, in vec2 fragCoord)
+	const mainImageRegex = /void\s+mainImage\s*\(\s*out\s+vec4\s+(\w+)\s*,\s*in\s+vec2\s+(\w+)\s*\)/;
+	const match = result.match(mainImageRegex);
+
+	if (match) {
+		const fragColorVar = match[1];
+		const fragCoordVar = match[2];
+
+		// Replace function signature
+		result = result.replace(mainImageRegex, 'void main()');
+
+		// Replace all occurrences of the parameter names with the built-in variables
+		result = result.replace(new RegExp(`\\b${fragColorVar}\\b`, 'g'), 'gl_FragColor');
+		result = result.replace(new RegExp(`\\b${fragCoordVar}\\b`, 'g'), 'gl_FragCoord.xy');
+	}
 
 	return result;
 }
