@@ -14,10 +14,11 @@
 		initialId?: string;
 		initialName?: string;
 		initialDescription?: string;
+		initialVisiblity?: 'public' | 'unlisted' | 'private';
 		initialBuffers?: ShaderBuffer[];
 	}
 
-	let { initialId, initialName, initialDescription, initialBuffers }: Props = $props();
+	let { initialId, initialName, initialDescription, initialVisiblity, initialBuffers }: Props = $props();
 
 	// State - initialized with defaults, overridden from props in $effect.pre below
 	let buffers = $state<ShaderBuffer[]>([{ id: 'image', label: 'Image', code: defaultImageShader }]);
@@ -46,6 +47,7 @@
 		shaderState.currentShaderId = initialId ?? null;
 		shaderState.name = initialName ?? 'Untitled Shader';
 		shaderState.description = initialDescription ?? '';
+		shaderState.visiblity = initialVisiblity ?? 'public';
 	});
 
 	const BUFFER_UNIFORM_NAMES = ['uBufferA','uBufferB','uBufferC','uBufferD','uBufferE','uBufferF','uBufferG','uBufferH'];
@@ -271,8 +273,7 @@
 				body: JSON.stringify({
 					shaderId: shaderState.currentShaderId,
 					name: shaderState.name,
-					description: shaderState.description,
-					userId: auth.user.id,
+					description: shaderState.description,				visiblity: shaderState.visiblity,					userId: auth.user.id,
 					buffers: buffersWithLatestCode(),
 				}),
 			});
