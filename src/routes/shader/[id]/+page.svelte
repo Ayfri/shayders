@@ -29,5 +29,12 @@
 		initialBuffers={buffers}
 	/>
 {:else}
-	<ShaderCanvas {buffers} readonly />
+	<ShaderEditorPage
+		initialId={data.shader.id}
+		initialName={data.shader.name}
+		initialDescription={data.shader.description}
+		initialVisiblity={data.shader.visiblity}
+		initialBuffers={buffers}
+		viewOnly
+	/>
 {/if}

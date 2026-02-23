@@ -17,9 +17,10 @@
 		initialDescription?: string;
 		initialVisiblity?: keyof typeof ShadersVisiblityOptions;
 		initialBuffers?: ShaderBuffer[];
+		viewOnly?: boolean;
 	}
 
-	let { initialId, initialName, initialDescription, initialVisiblity, initialBuffers }: Props = $props();
+	let { initialId, initialName, initialDescription, initialVisiblity, initialBuffers, viewOnly = false }: Props = $props();
 
 	// State - initialized with defaults, overridden from props in $effect.pre below
 	let buffers = $state<ShaderBuffer[]>([{ id: 'image', label: 'Image', code: defaultImageShader }]);
@@ -317,6 +318,7 @@
 	}
 
 	$effect(() => {
+		if (viewOnly) return;
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if ((e.ctrlKey || e.metaKey) && e.key === 's') {
 				e.preventDefault();
@@ -336,7 +338,8 @@
 		bind:error
 		bind:uniformValues
 		bind:thumbnails
-		isSavingLocally={!auth.isLoggedIn}
+		isSavingLocally={!viewOnly && !auth.isLoggedIn}
+		{viewOnly}
 	/>
 
 	<EditorPanel
@@ -360,5 +363,6 @@
 		onDuplicateBuffer={duplicateBuffer}
 		onSave={saveProject}
 		isSaving={shaderState.isSaving}
+		{viewOnly}
 	/>
 </div>

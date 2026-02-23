@@ -22,6 +22,7 @@
 		uniformValues?: Record<string, string>;
 		thumbnails?: Record<string, string>;
 		readonly?: boolean;
+		viewOnly?: boolean;
 		isSavingLocally?: boolean;
 	}
 
@@ -32,6 +33,7 @@
 		uniformValues = $bindable({}),
 		thumbnails = $bindable({}),
 		readonly = false,
+		viewOnly = false,
 		isSavingLocally = false,
 	}: Props = $props();
 
@@ -550,12 +552,15 @@ void main() {
 		wrapper.addEventListener('mouseleave', handleLeaveWrapper);
 
 		const resizeObserver = new ResizeObserver(() => {
-			if (canvas && wrapper) {
-				canvas.width = wrapper.clientWidth;
-				canvas.height = wrapper.clientHeight;
+			if (!canvas) return;
+			const w = canvas.offsetWidth;
+			const h = canvas.offsetHeight;
+			if (w > 0 && h > 0 && (canvas.width !== w || canvas.height !== h)) {
+				canvas.width = w;
+				canvas.height = h;
 			}
 		});
-		resizeObserver.observe(wrapper);
+		resizeObserver.observe(canvas);
 
 		run();
 
@@ -590,6 +595,18 @@ void main() {
 				<span class="ml-auto text-xs px-2 py-1 rounded border border-yellow-600/60 bg-yellow-950/40 text-yellow-400">
 					Saved locally
 				</span>
+			{:else if viewOnly}
+				<div class="flex items-center gap-2 ml-auto min-w-0">
+					<span class="text-xs font-semibold text-foreground px-2 py-0.5 truncate max-w-40">{shaderState.name || 'Untitled Shader'}</span>
+					<button
+						onclick={() => (infosOpen = true)}
+						class="flex items-center gap-1 px-2 py-0.5 rounded text-cyan-400/80 border border-cyan-400/40 bg-cyan-400/5 hover:text-cyan-400 hover:bg-cyan-400/15 transition-colors cursor-pointer shrink-0"
+						title="Shader info"
+					>
+						<Info size={11} />
+						<span>Informations</span>
+					</button>
+				</div>
 			{:else if !readonly && auth.isLoggedIn}
 				<div class="flex items-center gap-2 ml-auto min-w-0">
 					<input
@@ -636,4 +653,4 @@ void main() {
 	{/if}
 </div>
 
-<ShaderInfoModal bind:open={infosOpen} />
+<ShaderInfoModal bind:open={infosOpen} readonly={viewOnly} />

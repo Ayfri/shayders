@@ -31,6 +31,7 @@
 		onChannelChange?: (ch: ChannelEntry) => void;
 		onSave?: () => void;
 		isSaving?: boolean;
+		viewOnly?: boolean;
 	}
 
 	let {
@@ -54,6 +55,7 @@
 		onChannelChange,
 		onSave,
 		isSaving = false,
+		viewOnly = false,
 	}: Props = $props();
 
 	let visible = $state(true);
@@ -244,6 +246,7 @@
 				<Play size={12} />
 				Run
 			</button>
+			{#if !viewOnly}
 			<button
 				onclick={onSave}
 				disabled={isSaving}
@@ -253,6 +256,7 @@
 				<Save size={12} />
 				{isSaving ? 'Saving…' : 'Save'}
 			</button>
+			{/if}
 			{#if shaderState.currentShaderId}
 				<a
 					href="/shader/{shaderState.currentShaderId}"

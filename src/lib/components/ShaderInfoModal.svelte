@@ -6,9 +6,10 @@
 
 	interface Props {
 		open?: boolean;
+		readonly?: boolean;
 	}
 
-	let { open = $bindable(false) }: Props = $props();
+	let { open = $bindable(false), readonly = false }: Props = $props();
 
 	let nameDraft = $state('');
 	let descDraft = $state<string | undefined>('');
@@ -39,6 +40,34 @@
 <Modal {open} onClose={() => (open = false)} title="Shader Info">
 	<div class="p-5 flex flex-col gap-5">
 
+		{#if readonly}
+			<div class="flex flex-col gap-1.5">
+				<span class="text-xs font-semibold text-muted uppercase tracking-wider">Name</span>
+				<p class="text-sm text-foreground">{shaderState.name || 'Untitled Shader'}</p>
+			</div>
+
+			<div class="flex flex-col gap-1.5">
+				<span class="text-xs font-semibold text-muted uppercase tracking-wider">Description</span>
+				{#if shaderState.description}
+					<p class="text-sm text-foreground whitespace-pre-wrap">{shaderState.description}</p>
+				{:else}
+					<p class="text-sm text-subtle italic">No description.</p>
+				{/if}
+			</div>
+
+			<div class="flex flex-col gap-1.5">
+				<span class="text-xs font-semibold text-muted uppercase tracking-wider">Visibility</span>
+				{#each visibilityOptions.filter((o) => o.value === (shaderState.visiblity ?? 'public')) as vis}
+					<div class="flex items-center gap-2 text-sm text-foreground">
+						{#if vis.value === 'public'}<Globe size={14} class="text-muted" />
+						{:else if vis.value === 'unlisted'}<Link size={14} class="text-muted" />
+						{:else}<Lock size={14} class="text-muted" />{/if}
+						<span>{vis.label}</span>
+						<span class="text-subtle">- {vis.desc}</span>
+					</div>
+				{/each}
+			</div>
+		{:else}
 		<div class="flex flex-col gap-1.5">
 			<label for="shader-name" class="text-xs font-semibold text-muted uppercase tracking-wider">Name</label>
 			<input
@@ -109,5 +138,6 @@
 				Apply
 			</button>
 		</div>
+		{/if}
 	</div>
 </Modal>
