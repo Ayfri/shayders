@@ -11,6 +11,7 @@ export enum Collections {
 	Mfas = "_mfas",
 	Otps = "_otps",
 	Superusers = "_superusers",
+	Shaders = "shaders",
 	Users = "users",
 }
 
@@ -92,6 +93,16 @@ export type SuperusersRecord = {
 	verified?: boolean
 }
 
+export type ShadersRecord<Tcontent = unknown> = {
+	content: null | Tcontent
+	created: IsoAutoDateString
+	description?: HTMLString
+	id: string
+	name: string
+	updated: IsoAutoDateString
+	user_id: RecordIdString
+}
+
 export type UsersRecord = {
 	avatar?: FileNameString
 	created: IsoAutoDateString
@@ -111,6 +122,7 @@ export type ExternalauthsResponse<Texpand = unknown> = Required<ExternalauthsRec
 export type MfasResponse<Texpand = unknown> = Required<MfasRecord> & BaseSystemFields<Texpand>
 export type OtpsResponse<Texpand = unknown> = Required<OtpsRecord> & BaseSystemFields<Texpand>
 export type SuperusersResponse<Texpand = unknown> = Required<SuperusersRecord> & AuthSystemFields<Texpand>
+export type ShadersResponse<Tcontent = unknown, Texpand = unknown> = Required<ShadersRecord<Tcontent>> & BaseSystemFields<Texpand>
 export type UsersResponse<Texpand = unknown> = Required<UsersRecord> & AuthSystemFields<Texpand>
 
 // Types containing all Records and Responses, useful for creating typing helper functions
@@ -121,6 +133,7 @@ export type CollectionRecords = {
 	_mfas: MfasRecord
 	_otps: OtpsRecord
 	_superusers: SuperusersRecord
+	shaders: ShadersRecord
 	users: UsersRecord
 }
 
@@ -130,6 +143,7 @@ export type CollectionResponses = {
 	_mfas: MfasResponse
 	_otps: OtpsResponse
 	_superusers: SuperusersResponse
+	shaders: ShadersResponse
 	users: UsersResponse
 }
 
