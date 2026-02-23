@@ -19,10 +19,22 @@ export interface GlslDefine {
 	line: number;
 }
 
+export interface GlslStructField {
+	name: string;
+	type: string;
+}
+
+export interface GlslStruct {
+	name: string;
+	fields: GlslStructField[];
+	line: number;
+}
+
 export interface GlslDocument {
 	variables: GlslVariable[];
 	functions: GlslFunction[];
 	defines: GlslDefine[];
+	structs: GlslStruct[];
 }
 
 // Helpers
@@ -53,6 +65,7 @@ export function analyzeDocument(src: string): GlslDocument {
 	const variables: GlslVariable[] = [];
 	const functions: GlslFunction[] = [];
 	const defines: GlslDefine[] = [];
+	const structs: GlslStruct[] = [];
 	const seen = new Set<string>();
 
 	function addVar(v: GlslVariable) {
@@ -60,6 +73,21 @@ export function analyzeDocument(src: string): GlslDocument {
 			seen.add(v.name);
 			variables.push(v);
 		}
+	}
+
+	// Struct declarations: struct Name { type field; ... }
+	const structRe = /\bstruct\s+(\w+)\s*\{([^}]*)\}/g;
+	for (const m of clean.matchAll(structRe)) {
+		const structName = m[1];
+		const body = m[2];
+		const fields: GlslStructField[] = [];
+		const fieldRe = /\b(\w+)\s+(\w+)\s*(?:\[\s*\d+\s*\])?\s*;/g;
+		for (const fm of body.matchAll(fieldRe)) {
+			fields.push({ name: fm[2], type: fm[1] });
+		}
+		structs.push({ name: structName, fields, line: lineOf(clean, m.index!) });
+		// Register struct name as a known type so variables of that type are recognised
+		seen.add(structName);
 	}
 
 	// #define
@@ -125,7 +153,7 @@ export function analyzeDocument(src: string): GlslDocument {
 		}
 	}
 
-	return { variables, functions, defines };
+	return { variables, functions, defines, structs };
 }
 
 /** Look up the type of a symbol by name within a GlslDocument. */

@@ -327,6 +327,18 @@ function registerCompletion(monaco: typeof Monaco) {
 				});
 			}
 
+			for (const st of docInfo.structs) {
+				const fieldList = st.fields.map((f) => `  ${f.type} ${f.name};`).join('\n');
+				suggestions.push({
+					label:         st.name,
+					kind:          CIK.Struct,
+					insertText:    st.name,
+					detail:        `struct ${st.name}`,
+					documentation: { value: `\`\`\`glsl\nstruct ${st.name} {\n${fieldList}\n}\n\`\`\`\n\nUser-defined struct at line ${st.line}` },
+					range,
+				});
+			}
+
 			// Defines are always shown (their type is unknown at parse time)
 			for (const def of docInfo.defines) {
 				suggestions.push({
@@ -395,6 +407,18 @@ function registerHover(monaco: typeof Monaco) {
 					contents: [
 						{ value: `\`\`\`glsl\n${fn.returnType} ${fn.name}(${params})\n\`\`\``, isTrusted: true },
 						{ value: `User-defined function at line ${fn.line}.`, isTrusted: true },
+					],
+				};
+			}
+
+			const struct = doc.structs.find((s) => s.name === name);
+			if (struct) {
+				const fields = struct.fields.map((f) => `  ${f.type} ${f.name};`).join('\n');
+				return {
+					range,
+					contents: [
+						{ value: `\`\`\`glsl\nstruct ${struct.name} {\n${fields}\n}\n\`\`\``, isTrusted: true },
+						{ value: `User-defined struct at line ${struct.line}.`, isTrusted: true },
 					],
 				};
 			}
