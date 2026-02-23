@@ -588,7 +588,7 @@ void main() {
 			onclick={toggleFullscreen}
 			class="absolute bottom-3 right-3 p-1.5 rounded text-white cursor-pointer transition-opacity duration-200"
 			style="filter: drop-shadow(0 1px 4px rgba(0,0,0,0.95)); opacity: {isHovered ? 0.5 : 0.1};"
-			title={isFullscreen ? 'Quitter le plein écran (F)' : 'Plein écran (F)'}
+			title={isFullscreen ? 'Quit fullscreen (F)' : 'Fullscreen (F)'}
 		>
 			{#if isFullscreen}
 				<Minimize2 size={18} />
