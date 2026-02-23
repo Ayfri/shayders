@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { Code, Play, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2 } from '@lucide/svelte';
+	import { Code, Play, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
 	import GlslEditor from '$lib/GlslEditor.svelte';
 	import BuiltinsPanel, { type UniformEntry } from '$lib/BuiltinsPanel.svelte';
 	import ChannelsPanel, { type ChannelEntry } from '$lib/ChannelsPanel.svelte';
+	import EditorSettingsModal from '$lib/EditorSettingsModal.svelte';
 	import type { ShaderBuffer } from '$lib/ShaderCanvas.svelte';
+	import { loadSettings, saveSettings, type EditorSettingsData, EDITOR_DEFAULTS } from '$lib/editorSettings';
 
 	interface Props {
 		value: string;
@@ -52,6 +54,12 @@
 	let width = $state(800);
 	let isDragging = $state(false);
 	let channelsOpen = $state(false);
+	let settings = $state<EditorSettingsData>(loadSettings());
+	let showSettings = $state(false);
+
+	$effect(() => {
+		saveSettings(settings);
+	});
 
 	const hasCommon = $derived(buffers.some((b) => b.id === 'common'));
 
@@ -205,6 +213,14 @@
 
 		<!-- Run bar -->
 		<div class="flex items-center gap-2 px-3 py-1.5 bg-panel border-b border-border shrink-0">
+			<button
+				onclick={() => (showSettings = true)}
+				title="Editor settings"
+				aria-label="Editor settings"
+				class="flex items-center justify-center w-6 h-6 rounded text-muted hover:text-foreground hover:bg-border transition-colors cursor-pointer"
+			>
+				<Settings size={14} />
+			</button>
 			<span class="text-xs text-subtle font-mono mr-auto">Ctrl+Enter</span>
 			<button
 				onclick={() => (channelsOpen = !channelsOpen)}
@@ -234,7 +250,7 @@
 		{#if channelsOpen}
 			<ChannelsPanel {channels} {onChannelChange} {buffers} {thumbnails} />
 		{/if}
-		<GlslEditor bind:value {errors} {onRun} />
+		<GlslEditor bind:value {errors} {onRun} {settings} />
 		<BuiltinsPanel {uniforms} {presentNames} onToggle={onToggleUniform} bind:open={panelOpen} />
 	</div>
 {/if}
@@ -278,3 +294,13 @@
 		</button>
 	</div>
 {/if}
+
+<EditorSettingsModal
+	bind:settings
+	open={showSettings}
+	onClose={() => (showSettings = false)}
+	onReset={() => {
+		settings = { ...EDITOR_DEFAULTS };
+		showSettings = false;
+	}}
+/>

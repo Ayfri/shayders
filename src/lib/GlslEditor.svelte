@@ -5,14 +5,17 @@
 	import { registerGlslProviders } from '$lib/glsl/providers';
 	import { applyErrors, applyHints } from '$lib/glsl/markers';
 	import { registerMaterialDarkerTheme } from '$lib/themes/materialDarker';
+	import { loadSettings, saveSettings, settingsToMonaco, EDITOR_DEFAULTS } from '$lib/editorSettings';
+	import type { EditorSettingsData } from '$lib/editorSettings';
 
 	interface Props {
 		value: string;
 		errors?: string;
 		onRun?: () => void;
+		settings: EditorSettingsData;
 	}
 
-	let { value = $bindable(), errors = '', onRun }: Props = $props();
+	let { value = $bindable(), errors = '', onRun, settings }: Props = $props();
 
 	let editorContainer = $state<HTMLElement | null>(null);
 	let editor = $state<Monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -67,27 +70,10 @@
 				language: 'glsl',
 				theme: 'material-darker',
 				automaticLayout: true,
-				fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-				fontSize: 14,
-				lineHeight: 22,
-				minimap: { enabled: false },
-				padding: { top: 16 },
-				// Intellisense
-				hover: { enabled: true },
-				suggest: { showWords: true, showSnippets: true },
-				quickSuggestions: { other: true, comments: false, strings: false },
-				parameterHints: { enabled: true },
-				inlayHints: { enabled: 'on' },
-				wordBasedSuggestions: 'off',
-				// UX
-				smoothScrolling: true,
-				cursorSmoothCaretAnimation: 'on',
-				bracketPairColorization: { enabled: true },
-				renderLineHighlight: 'gutter',
-				folding: true,
-				foldingStrategy: 'indentation',
-				scrollBeyondLastLine: false,
 				fixedOverflowWidgets: true,
+				padding: { top: 16 },
+				wordBasedSuggestions: 'off',
+				...settingsToMonaco(settings),
 			});
 
 			instance.onDidChangeModelContent(() => {
@@ -147,6 +133,26 @@
 		if (!model) return;
 		applyErrors(m, model, errors);
 	});
+
+	// Apply settings changes to editor + persist
+
+	$effect(() => {
+		const s = { ...settings };
+		saveSettings(s);
+		editor?.updateOptions(settingsToMonaco(s));
+	});
 </script>
 
-<div bind:this={editorContainer} class="flex-1 w-full min-h-0"></div>
+<div class="editor-root">
+	<div bind:this={editorContainer} class="flex-1 w-full min-h-0"></div>
+</div>
+
+<style>
+	.editor-root {
+		position: relative;
+		display: flex;
+		flex: 1;
+		width: 100%;
+		min-height: 0;
+	}
+</style>
