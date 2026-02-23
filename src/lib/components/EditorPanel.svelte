@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { Code, Play, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
+	import { Code, Play, Save, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
 	import GlslEditor from '$lib/components/GlslEditor.svelte';
 	import BuiltinsPanel, { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
 	import ChannelsPanel, { type ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
@@ -27,6 +27,8 @@
 		onRenameBuffer?: (id: string, label: string) => void;
 		onDuplicateBuffer?: (id: string) => void;
 		onChannelChange?: (ch: ChannelEntry) => void;
+		onSave?: () => void;
+		isSaving?: boolean;
 	}
 
 	let {
@@ -48,6 +50,8 @@
 		onRenameBuffer,
 		onDuplicateBuffer,
 		onChannelChange,
+		onSave,
+		isSaving = false,
 	}: Props = $props();
 
 	let visible = $state(true);
@@ -237,6 +241,15 @@
 			>
 				<Play size={12} />
 				Run
+			</button>
+			<button
+				onclick={onSave}
+				disabled={isSaving}
+				class="flex items-center gap-1.5 px-4 py-1 bg-surface text-muted border border-border rounded font-mono text-xs font-semibold tracking-wider cursor-pointer hover:text-foreground hover:bg-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+				title="Save shader (Ctrl+S)"
+			>
+				<Save size={12} />
+				{isSaving ? 'Saving…' : 'Save'}
 			</button>
 			<button
 				onclick={() => (visible = false)}

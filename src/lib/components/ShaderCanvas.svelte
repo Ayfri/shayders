@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { CircleAlert, Maximize2, Minimize2 } from '@lucide/svelte';
+	import { CircleAlert, Maximize2, Minimize2, FileText } from '@lucide/svelte';
 	import type { ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
+	import { shaderState } from '$lib/shaderState.svelte';
+	import Modal from '$lib/components/Modal.svelte';
 
 	// 'image' and 'common' are reserved. All other IDs are user buffers (buf1, buf2, …).
 	export type BufferId = string;
@@ -36,6 +38,8 @@
 	// Fullscreen
 	let isFullscreen = $state(false);
 	let isHovered = $state(false);
+	let descOpen = $state(false);
+	let descDraft = $state<string>();
 
 	async function toggleFullscreen() {
 		if (!wrapper) return;
@@ -573,11 +577,27 @@ void main() {
 	class="flex flex-col bg-black relative min-w-0 flex-1 outline-none"
 >
 	{#if !isFullscreen}
-		<div class="flex items-center gap-3 px-6 py-2 bg-panel border-b border-border text-xs text-muted shrink-0">
-			<span class="size-3 bg-green-400 rounded-full"></span>
-			<span class="font-medium tracking-wider">Preview</span>
-			<span class="text-muted-foreground">•</span>
-			<span>Build: {buildTime.toFixed(2)}ms</span>
+		<div class="flex items-center gap-3 px-3 py-2 bg-panel border-b border-border text-xs text-muted shrink-0">
+			<span class="size-3 bg-green-400 rounded-full shrink-0"></span>
+			<span class="font-medium tracking-wider shrink-0">Preview</span>
+			<span class="text-muted-foreground shrink-0">•</span>
+			<span class="shrink-0">Build: {buildTime.toFixed(2)}ms</span>
+			<div class="flex items-center gap-2 ml-auto min-w-0">
+				<input
+					type="text"
+					bind:value={shaderState.name}
+					placeholder="Untitled Shader"
+					class="bg-transparent border-none outline-none text-xs font-semibold text-foreground text-right w-40 placeholder:text-subtle hover:bg-surface focus:bg-surface rounded px-2 py-0.5 transition-colors min-w-0"
+				/>
+				<button
+					onclick={() => { descDraft = shaderState.description; descOpen = true; }}
+					class="flex items-center gap-1 px-2 py-0.5 rounded text-subtle border border-border hover:text-foreground hover:bg-border transition-colors cursor-pointer shrink-0"
+					title="Edit description"
+				>
+					<FileText size={11} />
+					<span>Desc</span>
+				</button>
+			</div>
 		</div>
 	{/if}
 
@@ -605,3 +625,28 @@ void main() {
 		</div>
 	{/if}
 </div>
+
+<Modal open={descOpen} onClose={() => (descOpen = false)} title="Shader Description">
+	<div class="p-5 flex flex-col gap-4">
+		<textarea
+			bind:value={descDraft}
+			rows={6}
+			placeholder="Describe your shader..."
+			class="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground placeholder:text-subtle resize-none outline-none focus:border-cyan-400/60 transition-colors"
+		></textarea>
+		<div class="flex justify-end gap-2">
+			<button
+				onclick={() => (descOpen = false)}
+				class="px-4 py-1.5 rounded text-xs text-muted border border-border hover:bg-border transition-colors cursor-pointer"
+			>
+				Cancel
+			</button>
+			<button
+				onclick={() => { shaderState.description = descDraft; descOpen = false; }}
+				class="px-4 py-1.5 rounded text-xs bg-cyan-400/10 text-cyan-400 border border-cyan-400/60 hover:bg-cyan-400/20 transition-colors cursor-pointer"
+			>
+				Save
+			</button>
+		</div>
+	</div>
+</Modal>
