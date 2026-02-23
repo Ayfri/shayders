@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { Code, Play, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
-	import GlslEditor from '$lib/GlslEditor.svelte';
+	import GlslEditor from '$lib/components/GlslEditor.svelte';
 	import BuiltinsPanel, { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
 	import ChannelsPanel, { type ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
 	import EditorSettingsModal from '$lib/components/EditorSettingsModal.svelte';

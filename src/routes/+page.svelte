@@ -280,7 +280,7 @@ void main() {
 	});
 </script>
 
-<div class="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans">
+<div class="flex h-full w-full bg-background text-foreground overflow-hidden font-sans">
 	<ShaderCanvas
 		bind:this={shaderCanvas}
 		{buffers}
