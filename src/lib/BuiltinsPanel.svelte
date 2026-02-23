@@ -22,14 +22,12 @@
 		[...uniforms].sort((a, b) => a.name.localeCompare(b.name))
 	);
 
-	// Parse simple markdown: *italic*, **bold**, `code`
 	function parseMarkdown(text: string) {
 		const parts: (string | { type: 'italic' | 'bold' | 'code'; content: string })[] = [];
 		let remainder = text;
 		let i = 0;
 
 		while (i < remainder.length) {
-			// Check for **bold**
 			if (remainder[i] === '*' && remainder[i + 1] === '*') {
 				const endIdx = remainder.indexOf('**', i + 2);
 				if (endIdx !== -1) {
@@ -39,7 +37,6 @@
 					continue;
 				}
 			}
-			// Check for *italic*
 			if (remainder[i] === '*') {
 				const endIdx = remainder.indexOf('*', i + 1);
 				if (endIdx !== -1 && endIdx > i + 1) {
@@ -49,7 +46,6 @@
 					continue;
 				}
 			}
-			// Check for `code`
 			if (remainder[i] === '`') {
 				const endIdx = remainder.indexOf('`', i + 1);
 				if (endIdx !== -1) {
@@ -59,7 +55,6 @@
 					continue;
 				}
 			}
-			// Regular text
 			const nextSpecial = Math.min(...[
 				remainder.indexOf('*', i),
 				remainder.indexOf('`', i),
@@ -75,6 +70,51 @@
 		}
 
 		return parts;
+	}
+
+	interface ParsedParam {
+		type: string;
+		name: string;
+	}
+
+	interface ParsedSignature {
+		returnType: string;
+		functionName: string;
+		params: ParsedParam[];
+	}
+
+	function parseSignature(signature: string): ParsedSignature | null {
+		const match = signature.match(/^(\S+)\s+(\w+)\s*\((.*)\)$/);
+		if (!match) return null;
+
+		const returnType = match[1];
+		const functionName = match[2];
+		const paramsString = match[3];
+
+		const params: ParsedParam[] = [];
+		if (paramsString.trim()) {
+			const paramParts = paramsString.split(',');
+			for (const part of paramParts) {
+				const trimmed = part.trim();
+				if (!trimmed) continue;
+				const tokens = trimmed.split(/\s+/);
+				if (tokens.length >= 2) {
+					const name = tokens[tokens.length - 1];
+					const type = tokens.slice(0, -1).join(' ');
+					params.push({ type, name });
+				}
+			}
+		}
+
+		return { returnType, functionName, params };
+	}
+
+	function getTypeColor(type: string): string {
+		if (type.match(/^[ud]?vec[234]$/) || type.match(/^[iu]?vec$/)) return 'text-cyan-400';
+		if (type.match(/^[d]?mat[234](x[234])?$/)) return 'text-amber-400';
+		if (type.match(/^(float|int|bool|uint|double)$/)) return 'text-emerald-400';
+		if (type.match(/^image/) || type.match(/^sampler/)) return 'text-rose-400';
+		return 'text-cyan-400';
 	}
 
 	// Extract gl_* built-in variables from builtins doc
@@ -98,14 +138,14 @@
 		})
 		.sort((a, b) => a.name.localeCompare(b.name));
 
-	const groupedFunctions = $derived(() => {
+	const groupedFunctions = (() => {
 		const groups: Record<string, typeof glslFunctions> = {};
 		for (const fn of glslFunctions) {
 			if (!groups[fn.returnType]) groups[fn.returnType] = [];
 			groups[fn.returnType].push(fn);
 		}
 		return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
-	});
+	})();
 
 	const total = $derived(uniforms.length + glBuiltins.length + glslFunctions.length);
 
@@ -140,7 +180,6 @@
 				{#each sortedUniforms as u (u.name)}
 					{@const present = presentNames.has(u.name)}
 					<div class="flex items-baseline gap-1 px-4 py-1 hover:bg-panel group">
-						<!-- Indicator / toggle button -->
 						<button
 							onclick={() => onToggle?.(u.name, u.type)}
 							title={present ? `Remove uniform ${u.name}` : `Add uniform ${u.name}`}
@@ -149,7 +188,7 @@
 							<span class="block group-hover:hidden w-1.5 h-1.5 rounded-full {present ? 'bg-green-400/70' : 'bg-border'}"></span>
 							<span class="hidden group-hover:block text-[11px] font-bold leading-none {present ? 'text-red-400' : 'text-cyan-400'}">{present ? '−' : '+'}</span>
 						</button>
-						<span class="{present ? 'text-cyan-400' : 'text-subtle'} font-mono shrink-0 text-[11px]">{u.type}</span>
+						<span class="{present ? getTypeColor(u.type) : 'text-subtle'} font-mono shrink-0 text-[11px]">{u.type}</span>
 						<span class="{present ? 'text-foreground' : 'text-muted'} font-mono shrink-0 font-semibold text-[11px]">{u.name}</span>
 						{#if u.description}
 							<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-[11px]">
@@ -169,7 +208,7 @@
 			</div>
 			{#each glBuiltins as v (v.name)}
 				<div class="flex items-baseline gap-1 px-4 py-1 hover:bg-panel group">
-					<span class="text-purple-400 font-mono shrink-0 text-[11px] whitespace-nowrap">{v.type}</span>
+					<span class="{getTypeColor(v.type)} font-mono shrink-0 text-[11px] whitespace-nowrap">{v.type}</span>
 					<span class="text-foreground font-mono shrink-0 font-semibold text-[11px] whitespace-nowrap">{v.name}</span>
 					<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-[11px]">
 						{#each parseMarkdown(v.description) as part}
@@ -192,12 +231,19 @@
 				Functions
 			</div>
 			{#each groupedFunctions as [returnType, functions] (returnType)}
-				<div class="px-4 pt-1 pb-0.5 text-[10px] uppercase tracking-widest text-cyan-400 font-semibold">
+				<div class="px-4 pt-3 pb-0.5 text-[10px] uppercase tracking-widest text-cyan-400 font-semibold">
 					{returnType}
 				</div>
 				{#each functions as fn (fn.name)}
+					{@const parsed = parseSignature(fn.signature)}
 					<div class="flex items-baseline gap-1 px-4 py-1 hover:bg-panel group">
-						<span class="text-blue-300 font-mono shrink-0 font-semibold text-[11px] whitespace-nowrap">{fn.signature}</span>
+						<span class="font-mono shrink-0 text-[11px] whitespace-nowrap">
+							{#if parsed}
+								<span class={getTypeColor(parsed.returnType)}>{parsed.returnType}</span><span class="text-foreground">{' '}{parsed.functionName}(</span>{#each parsed.params as param, i}{#if i > 0}<span class="text-foreground">,</span>{ ' '}{/if}<span class={getTypeColor(param.type)}>{param.type}</span><span class="text-white">{' '}{param.name}</span>{/each}<span class="text-foreground">)</span>
+							{:else}
+								<span class="text-blue-300">{fn.signature}</span>
+							{/if}
+						</span>
 						<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-[11px]">
 							{#each parseMarkdown(fn.description) as part}
 								{#if typeof part === 'string'}
