@@ -4,6 +4,9 @@
 	import { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
 	import { type ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
 	import { UNIFORM_DOCS } from '$lib/glsl/builtins';
+	import { auth } from '$lib/auth.svelte';
+	import { pb } from '$lib/pocketbase';
+	import { shaderState } from '$lib/shaderState.svelte';
 
 	// Default shaders
 	const defaultImageShader = `precision mediump float;
@@ -278,6 +281,48 @@ void main() {
 		clearTimeout(_compileTimer);
 		_compileTimer = setTimeout(() => run(), 800);
 	});
+
+	// Save project
+	async function saveProject() {
+		if (shaderState.isSaving || !auth.isLoggedIn || !auth.user?.id) return;
+		shaderState.isSaving = true;
+		try {
+			const res = await fetch('/api/shaders', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${pb.authStore.token}`,
+				},
+				body: JSON.stringify({
+					shaderId: shaderState.currentShaderId,
+					name: shaderState.name,
+					description: shaderState.description,
+					userId: auth.user.id,
+					buffers: buffersWithLatestCode(),
+				}),
+			});
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const data = await res.json();
+			if (data.record) {
+				shaderState.currentShaderId = data.record.id;
+			}
+		} catch (e) {
+			console.error('Crash pendant la save', e);
+		} finally {
+			shaderState.isSaving = false;
+		}
+	}
+
+	$effect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+				e.preventDefault();
+				saveProject();
+			}
+		};
+		window.addEventListener('keydown', handleKeyDown);
+		return () => window.removeEventListener('keydown', handleKeyDown);
+	});
 </script>
 
 <div class="flex h-full w-full bg-background text-foreground overflow-hidden font-sans">
@@ -309,5 +354,7 @@ void main() {
 		onRemoveBuffer={removeBuffer}
 		onRenameBuffer={renameBuffer}
 		onDuplicateBuffer={duplicateBuffer}
+		onSave={saveProject}
+		isSaving={shaderState.isSaving}
 	/>
 </div>
