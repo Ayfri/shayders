@@ -4,17 +4,20 @@ import { TYPE_DOCS, GLSL_TYPES, getSwizzles } from '$lib/glsl/types';
 import { GLSL_KEYWORDS, GLSL_PREPROCESSOR } from '$lib/glsl/keywords';
 import { analyzeDocument, resolveType, resolveScopedType } from '$lib/glsl/analyze';
 
-let registered = false;
+const DISPOSABLES_KEY = '__glslProviderDisposables';
 
 export function registerGlslProviders(monaco: typeof Monaco): void {
-	if (registered) return;
-	registered = true;
+	const g = globalThis as Record<string, unknown>;
+	const prev = g[DISPOSABLES_KEY] as Monaco.IDisposable[] | undefined;
+	if (prev) for (const d of prev) d.dispose();
 
-	registerCompletion(monaco);
-	registerHover(monaco);
-	registerDefinition(monaco);
-	registerSignatureHelp(monaco);
-	registerInlayHints(monaco);
+	g[DISPOSABLES_KEY] = [
+		registerCompletion(monaco),
+		registerHover(monaco),
+		registerDefinition(monaco),
+		registerSignatureHelp(monaco),
+		registerInlayHints(monaco),
+	];
 }
 
 // Keywords that look like function calls but are not
@@ -207,8 +210,8 @@ function swizzleResultType(sourceType: string, swizzle: string): string {
 	return `vec${n}`;
 }
 
-function registerCompletion(monaco: typeof Monaco) {
-	monaco.languages.registerCompletionItemProvider('glsl', {
+function registerCompletion(monaco: typeof Monaco): Monaco.IDisposable {
+	return monaco.languages.registerCompletionItemProvider('glsl', {
 		triggerCharacters: ['.', '#'],
 
 		provideCompletionItems(model, position, context) {
@@ -438,8 +441,8 @@ function registerCompletion(monaco: typeof Monaco) {
 	});
 }
 
-function registerHover(monaco: typeof Monaco) {
-	monaco.languages.registerHoverProvider('glsl', {
+function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
+	return monaco.languages.registerHoverProvider('glsl', {
 		provideHover(model, position): Monaco.languages.Hover | null {
 			const word = model.getWordAtPosition(position);
 			if (!word) return null;
@@ -598,8 +601,8 @@ function registerHover(monaco: typeof Monaco) {
 	});
 }
 
-function registerDefinition(monaco: typeof Monaco) {
-	monaco.languages.registerDefinitionProvider('glsl', {
+function registerDefinition(monaco: typeof Monaco): Monaco.IDisposable {
+	return monaco.languages.registerDefinitionProvider('glsl', {
 		provideDefinition(model, position): Monaco.languages.Definition | null {
 			const word = model.getWordAtPosition(position);
 			if (!word) return null;
@@ -653,8 +656,8 @@ function registerDefinition(monaco: typeof Monaco) {
 	});
 }
 
-function registerSignatureHelp(monaco: typeof Monaco) {
-	monaco.languages.registerSignatureHelpProvider('glsl', {
+function registerSignatureHelp(monaco: typeof Monaco): Monaco.IDisposable {
+	return monaco.languages.registerSignatureHelpProvider('glsl', {
 		signatureHelpTriggerCharacters: ['(', ','],
 
 		provideSignatureHelp(model, position) {
@@ -771,8 +774,8 @@ function argComponentCount(
 	return 1;
 }
 
-function registerInlayHints(monaco: typeof Monaco) {
-	monaco.languages.registerInlayHintsProvider('glsl', {
+function registerInlayHints(monaco: typeof Monaco): Monaco.IDisposable {
+	return monaco.languages.registerInlayHintsProvider('glsl', {
 		provideInlayHints(model): Monaco.languages.InlayHintList {
 			const hints   = [] as Monaco.languages.InlayHint[];
 			const docInfo = analyzeDocument(model.getValue());
