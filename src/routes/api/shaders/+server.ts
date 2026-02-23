@@ -48,7 +48,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		return json({ success: true, record });
 	} catch (err) {
-		console.error('Erreur API shaders :', err);
+		console.error('Shaders API error:', err);
 		return json({ error: 'Failed to save shader' }, { status: 500 });
 	}
 };

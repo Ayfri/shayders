@@ -8,6 +8,7 @@
 	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
 	import { loadSettings, saveSettings, type EditorSettingsData, EDITOR_DEFAULTS } from '$lib/editorSettings';
 	import { shaderState } from '$lib/shaderState.svelte';
+	import { auth } from '$lib/auth.svelte';
 
 	interface Props {
 		value: string;
@@ -247,7 +248,7 @@
 				onclick={onSave}
 				disabled={isSaving}
 				class="flex items-center gap-1.5 px-4 py-1 bg-surface text-muted border border-border rounded font-mono text-xs font-semibold tracking-wider cursor-pointer hover:text-foreground hover:bg-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-				title="Save shader (Ctrl+S)"
+				title={auth.isLoggedIn ? 'Save shader (Ctrl+S)' : 'Save to localhost (Ctrl+S)'}
 			>
 				<Save size={12} />
 				{isSaving ? 'Saving…' : 'Save'}

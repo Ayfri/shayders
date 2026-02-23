@@ -4,6 +4,7 @@
 	import type { ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
 	import { shaderState } from '$lib/shaderState.svelte';
 	import ShaderInfoModal from '$lib/components/ShaderInfoModal.svelte';
+	import { auth } from '$lib/auth.svelte';
 
 	// 'image' and 'common' are reserved. All other IDs are user buffers (buf1, buf2, …).
 	export type BufferId = string;
@@ -21,6 +22,7 @@
 		uniformValues?: Record<string, string>;
 		thumbnails?: Record<string, string>;
 		readonly?: boolean;
+		isSavingLocally?: boolean;
 	}
 
 	let {
@@ -30,6 +32,7 @@
 		uniformValues = $bindable({}),
 		thumbnails = $bindable({}),
 		readonly = false,
+		isSavingLocally = false,
 	}: Props = $props();
 
 	// Canvas / GL
@@ -583,7 +586,11 @@ void main() {
 			<span class="font-medium tracking-wider shrink-0">Preview</span>
 			<span class="text-muted-foreground shrink-0">•</span>
 			<span class="shrink-0">Build: {buildTime.toFixed(2)}ms</span>
-			{#if !readonly}
+			{#if isSavingLocally}
+				<span class="ml-auto text-xs px-2 py-1 rounded border border-yellow-600/60 bg-yellow-950/40 text-yellow-400">
+					Saved locally
+				</span>
+			{:else if !readonly && auth.isLoggedIn}
 				<div class="flex items-center gap-2 ml-auto min-w-0">
 					<input
 						type="text"
@@ -594,7 +601,7 @@ void main() {
 					<button
 						onclick={() => (infosOpen = true)}
 						class="flex items-center gap-1 px-2 py-0.5 rounded text-cyan-400/80 border border-cyan-400/40 bg-cyan-400/5 hover:text-cyan-400 hover:bg-cyan-400/15 transition-colors cursor-pointer shrink-0"
-						title="Infos du shader"
+						title="Shader info"
 					>
 						<Info size={11} />
 						<span>Informations</span>

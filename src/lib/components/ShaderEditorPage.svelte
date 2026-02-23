@@ -262,7 +262,27 @@
 	});
 
 	async function saveProject() {
-		if (shaderState.isSaving || !auth.isLoggedIn || !auth.user?.id) return;
+		if (shaderState.isSaving) return;
+
+		if (!auth.isLoggedIn || !auth.user?.id) {
+			shaderState.isSaving = true;
+			try {
+				const localData = {
+					name: shaderState.name,
+					description: shaderState.description,
+					visiblity: shaderState.visiblity,
+					buffers: buffersWithLatestCode(),
+					savedAt: new Date().toISOString(),
+				};
+				localStorage.setItem('shayders_draft', JSON.stringify(localData));
+			} catch (e) {
+				console.error('Error during local save', e);
+			} finally {
+				shaderState.isSaving = false;
+			}
+			return;
+		}
+
 		shaderState.isSaving = true;
 		try {
 			const res = await fetch('/api/shaders', {
@@ -274,7 +294,9 @@
 				body: JSON.stringify({
 					shaderId: shaderState.currentShaderId,
 					name: shaderState.name,
-					description: shaderState.description,				visiblity: shaderState.visiblity,					userId: auth.user.id,
+					description: shaderState.description,
+					visiblity: shaderState.visiblity,
+					userId: auth.user.id,
 					buffers: buffersWithLatestCode(),
 				}),
 			});
@@ -288,7 +310,7 @@
 				}
 			}
 		} catch (e) {
-			console.error('Crash pendant la save', e);
+			console.error('Crash during save', e);
 		} finally {
 			shaderState.isSaving = false;
 		}
@@ -314,6 +336,7 @@
 		bind:error
 		bind:uniformValues
 		bind:thumbnails
+		isSavingLocally={!auth.isLoggedIn}
 	/>
 
 	<EditorPanel
