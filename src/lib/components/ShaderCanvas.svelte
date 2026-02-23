@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { CircleAlert, Maximize2, Minimize2, FileText } from '@lucide/svelte';
+	import { CircleAlert, Maximize2, Minimize2, Info } from '@lucide/svelte';
 	import type { ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
 	import { shaderState } from '$lib/shaderState.svelte';
-	import Modal from '$lib/components/Modal.svelte';
+	import ShaderInfoModal from '$lib/components/ShaderInfoModal.svelte';
 
 	// 'image' and 'common' are reserved. All other IDs are user buffers (buf1, buf2, …).
 	export type BufferId = string;
@@ -40,8 +40,7 @@
 	// Fullscreen
 	let isFullscreen = $state(false);
 	let isHovered = $state(false);
-	let descOpen = $state(false);
-	let descDraft = $state<string>();
+	let infosOpen = $state(false);
 
 	async function toggleFullscreen() {
 		if (!wrapper) return;
@@ -593,12 +592,12 @@ void main() {
 						class="bg-transparent border-none outline-none text-xs font-semibold text-foreground text-right w-40 placeholder:text-subtle hover:bg-surface focus:bg-surface rounded px-2 py-0.5 transition-colors min-w-0"
 					/>
 					<button
-						onclick={() => { descDraft = shaderState.description; descOpen = true; }}
-						class="flex items-center gap-1 px-2 py-0.5 rounded text-subtle border border-border hover:text-foreground hover:bg-border transition-colors cursor-pointer shrink-0"
-						title="Edit description"
+						onclick={() => (infosOpen = true)}
+						class="flex items-center gap-1 px-2 py-0.5 rounded text-cyan-400/80 border border-cyan-400/40 bg-cyan-400/5 hover:text-cyan-400 hover:bg-cyan-400/15 transition-colors cursor-pointer shrink-0"
+						title="Infos du shader"
 					>
-						<FileText size={11} />
-						<span>Desc</span>
+						<Info size={11} />
+						<span>Informations</span>
 					</button>
 				</div>
 			{/if}
@@ -630,27 +629,4 @@ void main() {
 	{/if}
 </div>
 
-<Modal open={descOpen} onClose={() => (descOpen = false)} title="Shader Description">
-	<div class="p-5 flex flex-col gap-4">
-		<textarea
-			bind:value={descDraft}
-			rows={6}
-			placeholder="Describe your shader..."
-			class="w-full bg-background border border-border rounded px-3 py-2 text-sm text-foreground placeholder:text-subtle resize-none outline-none focus:border-cyan-400/60 transition-colors"
-		></textarea>
-		<div class="flex justify-end gap-2">
-			<button
-				onclick={() => (descOpen = false)}
-				class="px-4 py-1.5 rounded text-xs text-muted border border-border hover:bg-border transition-colors cursor-pointer"
-			>
-				Cancel
-			</button>
-			<button
-				onclick={() => { shaderState.description = descDraft; descOpen = false; }}
-				class="px-4 py-1.5 rounded text-xs bg-cyan-400/10 text-cyan-400 border border-cyan-400/60 hover:bg-cyan-400/20 transition-colors cursor-pointer"
-			>
-				Save
-			</button>
-		</div>
-	</div>
-</Modal>
+<ShaderInfoModal bind:open={infosOpen} />
