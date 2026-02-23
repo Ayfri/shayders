@@ -9,12 +9,13 @@
 	import { shaderState } from '$lib/shaderState.svelte';
 	import { replaceState } from '$app/navigation';
 	import { defaultImageShader, defaultBufferShader, defaultCommonCode } from '$lib/defaultShaders';
+	import type { ShadersVisiblityOptions } from '$lib/pocketbase-types';
 
 	interface Props {
 		initialId?: string;
 		initialName?: string;
 		initialDescription?: string;
-		initialVisiblity?: 'public' | 'unlisted' | 'private';
+		initialVisiblity?: keyof typeof ShadersVisiblityOptions;
 		initialBuffers?: ShaderBuffer[];
 	}
 
@@ -47,7 +48,7 @@
 		shaderState.currentShaderId = initialId ?? null;
 		shaderState.name = initialName ?? 'Untitled Shader';
 		shaderState.description = initialDescription ?? '';
-		shaderState.visiblity = initialVisiblity ?? 'public';
+		shaderState.visiblity = (initialVisiblity ?? 'public') as keyof typeof ShadersVisiblityOptions;
 	});
 
 	const BUFFER_UNIFORM_NAMES = ['uBufferA','uBufferB','uBufferC','uBufferD','uBufferE','uBufferF','uBufferG','uBufferH'];

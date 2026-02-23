@@ -1,8 +1,10 @@
+import type { ShadersVisiblityOptions } from './pocketbase-types';
+
 interface ShaderState {
 	currentShaderId: string | null;
 	name: string;
 	description?: string;
-	visiblity: 'public' | 'unlisted' | 'private';
+	visiblity: keyof typeof ShadersVisiblityOptions;
 	isSaving: boolean;
 }
 

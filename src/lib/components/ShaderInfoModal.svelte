@@ -2,6 +2,7 @@
 	import Modal from '$lib/components/Modal.svelte';
 	import { shaderState } from '$lib/shaderState.svelte';
 	import { Globe, Link, Lock } from '@lucide/svelte';
+	import { ShadersVisiblityOptions } from '$lib/pocketbase-types';
 
 	interface Props {
 		open?: boolean;
@@ -11,7 +12,7 @@
 
 	let nameDraft = $state('');
 	let descDraft = $state<string | undefined>('');
-	let visibilityDraft = $state<'public' | 'unlisted' | 'private'>('public');
+	let visibilityDraft = $state<keyof typeof ShadersVisiblityOptions>('public');
 
 	$effect(() => {
 		if (open) {
@@ -28,7 +29,7 @@
 		open = false;
 	}
 
-	const visibilityOptions: { value: 'public' | 'unlisted' | 'private'; label: string; desc: string }[] = [
+	const visibilityOptions: Array<{ value: keyof typeof ShadersVisiblityOptions; label: string; desc: string }> = [
 		{ value: 'public', label: 'Public', desc: 'Visible to everyone in profiles' },
 		{ value: 'unlisted', label: 'Unlisted', desc: 'Accessible by URL, hidden from profiles' },
 		{ value: 'private', label: 'Private', desc: 'Only accessible to you' },
