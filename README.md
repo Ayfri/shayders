@@ -2,10 +2,7 @@
 
 A modern, web-based GLSL shader editor for creating and experimenting with fragment shaders in real-time. Built with SvelteKit, featuring multi-buffer rendering, texture channels, and community shader sharing.
 
-![Shayders](https://img.shields.io/badge/Shayders-GLSL%20Editor-blue)
-![License](https://img.shields.io/badge/License-GPL--3.0-green)
-![Svelte](https://img.shields.io/badge/Svelte-5-orange)
-![Cloudflare](https://img.shields.io/badge/Deployed%20on-Cloudflare%20Workers-f38020)
+Check out the live demo: [shayders.ayfri.com](https://shayders.ayfri.com)
 
 ## Features
 
