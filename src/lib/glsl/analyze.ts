@@ -1,7 +1,12 @@
+/** Storage / parameter qualifier on a variable declaration */
+export type GlslQualifier = 'uniform' | 'attribute' | 'varying' | 'const' | 'in' | 'out' | 'inout';
+
 export interface GlslVariable {
 	name: string;
 	type: string;
-	qualifier?: 'uniform' | 'attribute' | 'varying' | 'const' | 'in' | 'out' | 'inout';
+	qualifier?: GlslQualifier;
+	/** True when declared as an array, e.g. `float arr[4]` */
+	arraySize?: number;
 	/** Line number (1-based) where the declaration was found */
 	line: number;
 }
@@ -11,6 +16,8 @@ export interface GlslFunction {
 	returnType: string;
 	params: GlslVariable[];
 	line: number;
+	/** Last line (1-based) of the function body closing brace */
+	bodyEndLine: number;
 	localVariables: GlslVariable[];
 }
 
@@ -40,8 +47,21 @@ export interface GlslDocument {
 
 // Helpers
 
-const TYPE_RE_SRC =
+/** Built-in GLSL type pattern (no struct names — those are added dynamically). */
+const BUILTIN_TYPE_RE =
 	'(?:u?i?b?vec[234]|mat[234](?:x[234])?|sampler(?:2D|3D|Cube(?:Shadow)?|2DShadow)|float|int|uint|bool|void)';
+
+/** Escape a string for use inside a RegExp character class or alternation. */
+function escapeReAnalyze(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Build a type-pattern string that includes the given struct names. */
+function buildTypeRe(structNames: string[]): string {
+	if (structNames.length === 0) return BUILTIN_TYPE_RE;
+	// BUILTIN_TYPE_RE starts with `(?:` (3 chars) and ends with `)` (1 char)
+	return `(?:${BUILTIN_TYPE_RE.slice(3, -1)}|${structNames.map(escapeReAnalyze).join('|')})`;
+}
 
 function stripComments(src: string): string {
 	// Replace block comments with equal-length whitespace (preserves line numbers)
@@ -77,19 +97,22 @@ export function analyzeDocument(src: string): GlslDocument {
 	}
 
 	// Struct declarations: struct Name { type field; ... }
+	// Uses a simple [^}]* body match — nested structs are not valid GLSL so this is safe.
 	const structRe = /\bstruct\s+(\w+)\s*\{([^}]*)\}/g;
 	for (const m of clean.matchAll(structRe)) {
 		const structName = m[1];
 		const body = m[2];
 		const fields: GlslStructField[] = [];
-		const fieldRe = /\b(\w+)\s+(\w+)\s*(?:\[\s*\d+\s*\])?\s*;/g;
+		const fieldRe = /\b(\w+)\s+(\w+)\s*(?:\[\s*(\d+)\s*\])?\s*;/g;
 		for (const fm of body.matchAll(fieldRe)) {
 			fields.push({ name: fm[2], type: fm[1] });
 		}
 		structs.push({ name: structName, fields, line: lineOf(clean, m.index!) });
-		// Register struct name as a known type so variables of that type are recognised
-		seen.add(structName);
 	}
+
+	// Build a type-pattern string that includes user-defined struct names so that
+	// variables of struct type (e.g. `uniform MyStruct foo;`) are properly parsed.
+	const TYPE_RE_SRC = buildTypeRe(structs.map((s) => s.name));
 
 	// #define
 	const defineRe = /#define\s+(\w+)(?:\([^)]*\))?\s*([^\n]*)/g;
@@ -98,13 +121,24 @@ export function analyzeDocument(src: string): GlslDocument {
 	}
 
 	// Qualified global declarations (uniform / attribute / varying / const)
+	// Matches optional array suffix for things like `uniform sampler2D uTex[4];`.
 	const qualifiedRe = new RegExp(
-		`\\b(uniform|attribute|varying|const)\\s+(?:(?:lowp|mediump|highp)\\s+)?(${TYPE_RE_SRC})\\s+(\\w+)(?:\\s*\\[\\s*\\d+\\s*\\])?\\s*(?:;|=)`,
+		`\\b(uniform|attribute|varying|const)\\s+(?:(?:lowp|mediump|highp)\\s+)?(${TYPE_RE_SRC})\\s+(\\w+)(?:\\s*\\[\\s*(\\d+)\\s*\\])?\\s*(?:;|=)`,
 		'g',
 	);
 	for (const m of clean.matchAll(qualifiedRe)) {
-		addVar({ name: m[3], type: m[2], qualifier: m[1] as GlslVariable['qualifier'], line: lineOf(clean, m.index!) });
+		addVar({
+			name:      m[3],
+			type:      m[2],
+			qualifier: m[1] as GlslQualifier,
+			arraySize: m[4] !== undefined ? parseInt(m[4], 10) : undefined,
+			line:      lineOf(clean, m.index!),
+		});
 	}
+
+	// Character ranges [start, end) of every function body — used below to exclude
+	// local variable declarations from the global-scope scan.
+	const funcBodyRanges: Array<{ start: number; end: number }> = [];
 
 	// Function declarations with local variable tracking
 	const funcRe = new RegExp(
@@ -115,7 +149,7 @@ export function analyzeDocument(src: string): GlslDocument {
 		const returnType = m[1];
 		const name = m[2];
 		const paramStr = m[3];
-		const funcStartIndex = m.index! + m[0].length - 1; // Position of '{'
+		const funcStartIndex = m.index! + m[0].length - 1; // index of opening '{'
 
 		const params: GlslVariable[] = [];
 		for (const part of paramStr.split(',')) {
@@ -124,15 +158,15 @@ export function analyzeDocument(src: string): GlslDocument {
 			);
 			if (pm) {
 				params.push({
-					name: pm[3],
-					type: pm[2],
-					qualifier: (pm[1] as GlslVariable['qualifier']) ?? 'in',
-					line: lineOf(clean, m.index!),
+					name:      pm[3],
+					type:      pm[2],
+					qualifier: (pm[1] as GlslQualifier) ?? 'in',
+					line:      lineOf(clean, m.index!),
 				});
 			}
 		}
 
-		// Find the matching closing brace to extract function body
+		// Find the matching closing brace of the function body
 		let braceDepth = 1;
 		let funcBodyEndIndex = funcStartIndex + 1;
 		while (braceDepth > 0 && funcBodyEndIndex < clean.length) {
@@ -140,10 +174,14 @@ export function analyzeDocument(src: string): GlslDocument {
 			else if (clean[funcBodyEndIndex] === '}') braceDepth--;
 			funcBodyEndIndex++;
 		}
+
+		funcBodyRanges.push({ start: funcStartIndex, end: funcBodyEndIndex });
+
 		const funcBody = clean.slice(funcStartIndex + 1, funcBodyEndIndex - 1);
+		const bodyEndLine = lineOf(clean, funcBodyEndIndex - 1);
 
 		// Parse local variables within this function
-		const localVariables: GlslVariable[] = [...params]; // Include params in scope
+		const localVariables: GlslVariable[] = [...params];
 		const localVarRe = new RegExp(
 			`\\b(${TYPE_RE_SRC})\\s+(\\w+(?:\\s*,\\s*\\w+)*)\\s*(?:=|;)`,
 			'g',
@@ -153,31 +191,36 @@ export function analyzeDocument(src: string): GlslDocument {
 			const names = lm[2].split(',').map((s) => s.trim());
 			for (const varName of names) {
 				if (!localVariables.find((v) => v.name === varName)) {
-					const varLine = lineOf(clean, funcStartIndex + (lm.index ?? 0));
-					localVariables.push({ name: varName, type, line: varLine });
+					localVariables.push({
+						name: varName,
+						type,
+						line: lineOf(clean, funcStartIndex + (lm.index ?? 0)),
+					});
 				}
 			}
 		}
 
-		functions.push({ name, returnType, params, line: lineOf(clean, m.index!), localVariables });
+		functions.push({ name, returnType, params, line: lineOf(clean, m.index!), bodyEndLine, localVariables });
 
 		for (const p of params) addVar(p);
 	}
 
-	// Local variable declarations (global scope only, not inside functions)
-	// type name; / type name = expr; / type name, name2;
-	// This regex pattern is now only for global-scope locals since function-scoped ones are handled above
-	const localRe = new RegExp(
+	// Top-level (global scope) variable declarations without a qualifier:
+	// e.g. `vec3 myGlobal;`  or  `float a, b = 1.0;`
+	// We must skip any match that falls inside a function body, otherwise local
+	// variables would be incorrectly promoted to the global variables list.
+	const globalVarRe = new RegExp(
 		`\\b(${TYPE_RE_SRC})\\s+(\\w+(?:\\s*,\\s*\\w+)*)\\s*(?:=|;)`,
 		'g',
 	);
-	for (const m of clean.matchAll(localRe)) {
+	for (const m of globalVarRe[Symbol.matchAll](clean)) {
+		const idx = m.index!;
+		if (funcBodyRanges.some((r) => idx >= r.start && idx < r.end)) continue;
 		const type = m[1];
 		const names = m[2].split(',').map((s) => s.trim());
-		// Skip if name matches a function
 		for (const name of names) {
 			if (!functions.find((f) => f.name === name)) {
-				addVar({ name, type, line: lineOf(clean, m.index!) });
+				addVar({ name, type, line: lineOf(clean, idx) });
 			}
 		}
 	}
@@ -185,9 +228,28 @@ export function analyzeDocument(src: string): GlslDocument {
 	return { variables, functions, defines, structs };
 }
 
-/** Look up the type of a symbol by name within a GlslDocument. */
+/** Look up the type of a symbol in the global variables list. */
 export function resolveType(doc: GlslDocument, name: string): string | undefined {
 	return doc.variables.find((v) => v.name === name)?.type;
+}
+
+/**
+ * Look up the type of a symbol considering both local and global scope.
+ * Pass the current cursor line (1-based) to enable function-local variable lookup.
+ */
+export function resolveScopedType(
+	doc: GlslDocument,
+	name: string,
+	cursorLine: number,
+): string | undefined {
+	const fn = doc.functions.find(
+		(f) => cursorLine >= f.line && cursorLine <= f.bodyEndLine,
+	);
+	if (fn) {
+		const local = fn.localVariables.find((v) => v.name === name);
+		if (local) return local.type;
+	}
+	return resolveType(doc, name);
 }
 
 // Unused / no-effect analysis
@@ -207,7 +269,7 @@ function escapeRe(s: string): string {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Pattern for GLSL primitive types used as constructors
+// Pattern for GLSL primitive types used as value-discarding constructors
 const CONSTRUCTOR_TYPE_RE =
 	'(?:u?i?b?vec[234]|mat[234](?:x[234])?|float|int|uint|bool)';
 

@@ -1,7 +1,7 @@
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
 
-// Shared type pattern reused across tokenizer rules
-const T = 'float|int|uint|bool|void|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234](?:x[234])?|sampler\\w*';
+// Shared type pattern reused across tokenizer rules (built-in types only)
+const T_BUILTIN = 'float|int|uint|bool|void|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234](?:x[234])?|sampler\\w*';
 
 export const conf = {
 	comments: {
@@ -35,6 +35,13 @@ export const conf = {
 } satisfies Monaco.languages.LanguageConfiguration;
 
 export function buildLanguage(extraTypes: string[] = [], uniforms: string[] = []): Monaco.languages.IMonarchLanguage {
+	// Extend the type regex with any user-defined struct names so that rules
+	// matching `<type> <name>` also work for struct-typed declarations.
+	const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	const T = extraTypes.length > 0
+		? `${T_BUILTIN}|${extraTypes.map(escRe).join('|')}`
+		: T_BUILTIN;
+
 	return {
 		tokenPostfix: '.glsl',
 		defaultToken: 'invalid',

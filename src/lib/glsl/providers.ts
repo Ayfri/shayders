@@ -2,7 +2,7 @@ import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
 import { BUILTIN_DOCS, UNIFORM_DOCS } from '$lib/glsl/builtins';
 import { TYPE_DOCS, GLSL_TYPES, getSwizzles } from '$lib/glsl/types';
 import { GLSL_KEYWORDS, GLSL_PREPROCESSOR } from '$lib/glsl/keywords';
-import { analyzeDocument, resolveType } from '$lib/glsl/analyze';
+import { analyzeDocument, resolveType, resolveScopedType } from '$lib/glsl/analyze';
 
 let registered = false;
 
@@ -115,6 +115,14 @@ function getCallArgTypes(
 	if (fnName === 'float' || fnName === 'int' || fnName === 'uint' || fnName === 'bool') {
 		return new Set(['float', 'int', 'uint', 'bool']);
 	}
+	// Struct constructors: accept the type of each field in declaration order
+	const struct = docInfo.structs.find((s) => s.name === fnName);
+	if (struct) {
+		if (argIndex < struct.fields.length) {
+			return new Set([struct.fields[argIndex].type]);
+		}
+		return null;
+	}
 	// User-defined function
 	const fn = docInfo.functions.find((f) => f.name === fnName);
 	if (fn && argIndex < fn.params.length) {
@@ -184,6 +192,21 @@ function completionRange(
 	};
 }
 
+/** Returns the result type of a swizzle expression, e.g. `vec3.xy` → `vec2`. */
+function swizzleResultType(sourceType: string, swizzle: string): string {
+	if (swizzle.length === 1) {
+		if (sourceType.startsWith('i')) return 'int';
+		if (sourceType.startsWith('u')) return 'uint';
+		if (sourceType.startsWith('b')) return 'bool';
+		return 'float';
+	}
+	const n = swizzle.length;
+	if (sourceType.startsWith('ivec')) return `ivec${n}`;
+	if (sourceType.startsWith('uvec')) return `uvec${n}`;
+	if (sourceType.startsWith('bvec')) return `bvec${n}`;
+	return `vec${n}`;
+}
+
 function registerCompletion(monaco: typeof Monaco) {
 	monaco.languages.registerCompletionItemProvider('glsl', {
 		triggerCharacters: ['.', '#'],
@@ -192,7 +215,7 @@ function registerCompletion(monaco: typeof Monaco) {
 			const CIK  = monaco.languages.CompletionItemKind;
 			const CITR = monaco.languages.CompletionItemInsertTextRule;
 
-			// Swizzle completions after a dot
+			// Member access completions after a dot
 			if (context.triggerCharacter === '.') {
 				const lineText   = model.getLineContent(position.lineNumber);
 				const before     = lineText.slice(0, position.column - 2);
@@ -200,19 +223,35 @@ function registerCompletion(monaco: typeof Monaco) {
 				if (!wordBefore) return { suggestions: [] };
 
 				const doc  = analyzeDocument(model.getValue());
-				const type = resolveType(doc, wordBefore)
+				const type = resolveScopedType(doc, wordBefore, position.lineNumber)
 					?? (BUILTIN_DOCS[wordBefore]?.signature.match(/^(\w+)/)?.[1]);
 				if (!type) return { suggestions: [] };
 
-				const swizzles = getSwizzles(type);
-				if (swizzles.length === 0) return { suggestions: [] };
-
-				const range: Monaco.IRange = {
+				const dotRange: Monaco.IRange = {
 					startLineNumber: position.lineNumber,
 					endLineNumber:   position.lineNumber,
 					startColumn:     position.column,
 					endColumn:       position.column,
 				};
+
+				// Struct field completions
+				const struct = doc.structs.find((s) => s.name === type);
+				if (struct) {
+					return {
+						suggestions: struct.fields.map((f, i) => ({
+							label:      f.name,
+							kind:       CIK.Field,
+							insertText: f.name,
+							sortText:   String(i).padStart(6, '0'),
+							detail:     `${type}.${f.name}: ${f.type}`,
+							range:      dotRange,
+						})),
+					};
+				}
+
+				// Swizzle completions for vector/matrix types
+				const swizzles = getSwizzles(type);
+				if (swizzles.length === 0) return { suggestions: [] };
 
 				return {
 					suggestions: swizzles.map((sw, i) => ({
@@ -221,7 +260,7 @@ function registerCompletion(monaco: typeof Monaco) {
 						insertText: sw,
 						sortText:   String(i).padStart(6, '0'),
 						detail:     `${type}.${sw} → ${swizzleResultType(type, sw)}`,
-						range,
+						range:      dotRange,
 					})),
 				};
 			}
@@ -472,40 +511,18 @@ function registerDefinition(monaco: typeof Monaco) {
 			const doc  = analyzeDocument(model.getValue());
 			const cursorLine = position.lineNumber;
 
-			// Find which function the cursor is in
-			const currentFunction = doc.functions.find((fn) => {
-				const funcStartLine = fn.line;
-				// Find function end by searching for closing brace at same nesting level
-				const src = model.getValue();
-				const lines = src.split('\n');
-				let braceCount = 0;
-				let foundOpening = false;
-				for (let i = funcStartLine - 1; i < lines.length; i++) {
-					const line = lines[i];
-					for (const ch of line) {
-						if (ch === '{') {
-							braceCount++;
-							foundOpening = true;
-						} else if (ch === '}') {
-							braceCount--;
-							if (foundOpening && braceCount === 0) {
-								return cursorLine >= funcStartLine && cursorLine <= i + 1;
-							}
-						}
-					}
-				}
-				return false;
-			});
-
-			// Helper to find declaration line
+			// Resolve declaration line, preferring function-local scope when applicable
 			const findDeclLine = (): number | null => {
-				// First check function-scoped variables if we're inside a function
-				if (currentFunction) {
-					const localVar = currentFunction.localVariables.find((v) => v.name === name);
-					if (localVar) return localVar.line;
+				// Check local variables of the enclosing function first
+				const enclosingFn = doc.functions.find(
+					(fn) => cursorLine >= fn.line && cursorLine <= fn.bodyEndLine,
+				);
+				if (enclosingFn) {
+					const local = enclosingFn.localVariables.find((v) => v.name === name);
+					if (local) return local.line;
 				}
 
-				// Then check global scope
+				// Fall back to global scope
 				const fn  = doc.functions.find((f) => f.name === name);
 				if (fn) return fn.line;
 				const st  = doc.structs.find((s) => s.name === name);
@@ -520,11 +537,11 @@ function registerDefinition(monaco: typeof Monaco) {
 			const declLine = findDeclLine();
 			if (declLine === null) return null;
 
-			// Column: find the exact column of the identifier on that declaration line
-			const lineText   = model.getLineContent(declLine);
-			const colStart   = lineText.indexOf(name);
-			const startCol   = colStart >= 0 ? colStart + 1 : 1;
-			const endCol     = colStart >= 0 ? colStart + name.length + 1 : Number.MAX_SAFE_INTEGER;
+			// Find the exact column of the identifier on its declaration line
+			const lineText = model.getLineContent(declLine);
+			const colStart = lineText.indexOf(name);
+			const startCol = colStart >= 0 ? colStart + 1 : 1;
+			const endCol   = colStart >= 0 ? colStart + name.length + 1 : Number.MAX_SAFE_INTEGER;
 
 			return {
 				uri:   model.uri,
@@ -673,6 +690,10 @@ function registerInlayHints(monaco: typeof Monaco) {
 			for (const fn of docInfo.functions) {
 				fnParams.set(fn.name, fn.params.map((p) => p.name));
 			}
+			// Struct constructors: hint with field names
+			for (const st of docInfo.structs) {
+				fnParams.set(st.name, st.fields.map((f) => f.name));
+			}
 
 			const lineCount = model.getLineCount();
 
@@ -806,19 +827,4 @@ function registerInlayHints(monaco: typeof Monaco) {
 			return { hints, dispose: () => {} };
 		},
 	});
-}
-
-// Returns the swizzle result type given a source type and swizzle string
-function swizzleResultType(sourceType: string, swizzle: string): string {
-	if (swizzle.length === 1) {
-		if (sourceType.startsWith('i')) return 'int';
-		if (sourceType.startsWith('u')) return 'uint';
-		if (sourceType.startsWith('b')) return 'bool';
-		return 'float';
-	}
-	const n = swizzle.length;
-	if (sourceType.startsWith('ivec')) return `ivec${n}`;
-	if (sourceType.startsWith('uvec')) return `uvec${n}`;
-	if (sourceType.startsWith('bvec')) return `bvec${n}`;
-	return `vec${n}`;
 }
