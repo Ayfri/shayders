@@ -93,6 +93,11 @@ export type SuperusersRecord = {
 	verified?: boolean
 }
 
+export enum ShadersVisiblityOptions {
+	"public" = "public",
+	"unlisted" = "unlisted",
+	"private" = "private",
+}
 export type ShadersRecord<Tcontent = unknown> = {
 	content: null | Tcontent
 	created: IsoAutoDateString
@@ -101,6 +106,7 @@ export type ShadersRecord<Tcontent = unknown> = {
 	name: string
 	updated: IsoAutoDateString
 	user_id: RecordIdString
+	visiblity?: ShadersVisiblityOptions
 }
 
 export type UsersRecord = {
