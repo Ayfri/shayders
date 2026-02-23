@@ -12,9 +12,30 @@ export function registerGlslProviders(monaco: typeof Monaco): void {
 
 	registerCompletion(monaco);
 	registerHover(monaco);
+	registerDefinition(monaco);
 	registerSignatureHelp(monaco);
 	registerInlayHints(monaco);
 }
+
+// Known uniform descriptions (shown with rich hover just like builtins)
+const UNIFORM_DOCS: Record<string, { signature: string; description: string }> = {
+	uTime:       { signature: 'uniform float uTime',         description: 'Elapsed time in seconds since shader start.' },
+	uResolution: { signature: 'uniform vec2 uResolution',   description: 'Canvas dimensions in pixels (width × height).' },
+	uMouse:      { signature: 'uniform vec3 uMouse',         description: 'Mouse position (x, y) in pixels. Z is 1.0 while the mouse button is pressed, 0.0 otherwise.' },
+	uDate:       { signature: 'uniform vec4 uDate',          description: 'Date/time as (year, month, day, hours × 3600 + minutes × 60 + seconds).' },
+	uFrameRate:  { signature: 'uniform float uFrameRate',   description: 'Frames per second (calculated from delta time).' },
+	uDeltaTime:  { signature: 'uniform float uDeltaTime',   description: 'Time elapsed since the last frame, in seconds.' },
+	uFrameCount: { signature: 'uniform int uFrameCount',    description: 'Total number of frames rendered since shader start.' },
+	uAspect:     { signature: 'uniform float uAspect',      description: 'Canvas aspect ratio (width / height).' },
+	uChannel0:   { signature: 'uniform sampler2D uChannel0', description: 'Channel 0 texture input (image or video).' },
+	uChannel1:   { signature: 'uniform sampler2D uChannel1', description: 'Channel 1 texture input (image or video).' },
+	uChannel2:   { signature: 'uniform sampler2D uChannel2', description: 'Channel 2 texture input (image or video).' },
+	uChannel3:   { signature: 'uniform sampler2D uChannel3', description: 'Channel 3 texture input (image or video).' },
+	uBufferA:    { signature: 'uniform sampler2D uBufferA',  description: 'Buffer A offscreen texture (sampler2D). Sample with: texture2D(uBufferA, gl_FragCoord.xy / uResolution)' },
+	uBufferB:    { signature: 'uniform sampler2D uBufferB',  description: 'Buffer B offscreen texture (sampler2D). Sample with: texture2D(uBufferB, gl_FragCoord.xy / uResolution)' },
+	uBufferC:    { signature: 'uniform sampler2D uBufferC',  description: 'Buffer C offscreen texture (sampler2D). Sample with: texture2D(uBufferC, gl_FragCoord.xy / uResolution)' },
+	uBufferD:    { signature: 'uniform sampler2D uBufferD',  description: 'Buffer D offscreen texture (sampler2D). Sample with: texture2D(uBufferD, gl_FragCoord.xy / uResolution)' },
+};
 
 // Keywords that look like function calls but are not
 const NON_FUNCTION_KEYWORDS = new Set([
@@ -425,6 +446,16 @@ function registerHover(monaco: typeof Monaco) {
 
 			const variable = doc.variables.find((v) => v.name === name);
 			if (variable) {
+				const uniformDoc = variable.qualifier === 'uniform' ? UNIFORM_DOCS[variable.name] : undefined;
+				if (uniformDoc) {
+					return {
+						range,
+						contents: [
+							{ value: `\`\`\`glsl\n${uniformDoc.signature}\n\`\`\``, isTrusted: true },
+							{ value: uniformDoc.description, isTrusted: true },
+						],
+					};
+				}
 				const qualifier = variable.qualifier ? `${variable.qualifier} ` : '';
 				return {
 					range,
@@ -447,6 +478,48 @@ function registerHover(monaco: typeof Monaco) {
 			}
 
 			return null;
+		},
+	});
+}
+
+function registerDefinition(monaco: typeof Monaco) {
+	monaco.languages.registerDefinitionProvider('glsl', {
+		provideDefinition(model, position): Monaco.languages.Definition | null {
+			const word = model.getWordAtPosition(position);
+			if (!word) return null;
+
+			const name = word.word;
+			const doc  = analyzeDocument(model.getValue());
+
+			const declLine = (() => {
+				const fn  = doc.functions.find((f) => f.name === name);
+				if (fn) return fn.line;
+				const st  = doc.structs.find((s) => s.name === name);
+				if (st) return st.line;
+				const v   = doc.variables.find((v) => v.name === name);
+				if (v) return v.line;
+				const def = doc.defines.find((d) => d.name === name);
+				if (def) return def.line;
+				return null;
+			})();
+
+			if (declLine === null) return null;
+
+			// Column: find the exact column of the identifier on that declaration line
+			const lineText   = model.getLineContent(declLine);
+			const colStart   = lineText.indexOf(name);
+			const startCol   = colStart >= 0 ? colStart + 1 : 1;
+			const endCol     = colStart >= 0 ? colStart + name.length + 1 : Number.MAX_SAFE_INTEGER;
+
+			return {
+				uri:   model.uri,
+				range: {
+					startLineNumber: declLine,
+					endLineNumber:   declLine,
+					startColumn:     startCol,
+					endColumn:       endCol,
+				},
+			};
 		},
 	});
 }
