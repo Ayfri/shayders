@@ -1,13 +1,16 @@
 <script lang="ts">
-	import { X, Upload, Image, Video, Layers } from '@lucide/svelte';
+	import { X, Upload, Image, Video, Layers, Webcam } from '@lucide/svelte';
 	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
 
 	export interface ChannelEntry {
 		id: number; // 0–3
-		type: 'image' | 'video' | 'buffer' | null;
+		type: 'image' | 'video' | 'webcam' | 'buffer' | null;
 		url: string | null;
 		name: string | null;
 		bufferId?: string | null;
+		filter?: 'linear' | 'nearest' | 'linear-mipmap';
+		wrap?: 'repeat' | 'clamp';
+		vflip?: boolean;
 	}
 
 	interface Props {
@@ -24,6 +27,12 @@
 	);
 
 	let fileInputs = $state<(HTMLInputElement | null)[]>([null, null, null, null]);
+
+	function startWebcam(id: number) {
+		const existing = channels.find((c) => c.id === id);
+		if (existing?.url) URL.revokeObjectURL(existing.url);
+		onChannelChange?.({ id, type: 'webcam', url: 'webcam', name: 'Webcam', bufferId: null });
+	}
 
 	function handleFile(id: number, e: Event) {
 		const file = (e.target as HTMLInputElement).files?.[0];
@@ -87,6 +96,11 @@
 						muted
 						playsinline
 					></video>
+				{:else if ch?.type === 'webcam'}
+					<div class="flex items-center justify-center h-full gap-1 text-cyan-400/60">
+						<Webcam size={13} />
+						<span class="text-xs leading-none">Webcam</span>
+					</div>
 				{:else if ch?.type === 'buffer' && ch.bufferId && thumbnails[ch.bufferId]}
 					<img src={thumbnails[ch.bufferId]} alt={ch.name ?? ''} class="w-full h-full object-cover" />
 				{:else if ch?.type === 'buffer'}
@@ -111,6 +125,10 @@
 					<div class="absolute top-1 left-1 p-0.5 rounded bg-black/50 text-white pointer-events-none">
 						<Video size={10} />
 					</div>
+				{:else if ch?.type === 'webcam'}
+					<div class="absolute top-1 left-1 p-0.5 rounded bg-black/50 text-cyan-400 pointer-events-none">
+						<Webcam size={10} />
+					</div>
 				{:else if ch?.type === 'buffer'}
 					<div class="absolute top-1 left-1 p-0.5 rounded bg-black/50 text-cyan-400 pointer-events-none">
 						<Layers size={10} />
@@ -118,7 +136,7 @@
 				{/if}
 			</div>
 
-			<!-- File name / clear row -->
+			<!-- File name / clear row with webcam button -->
 			<div class="flex items-center gap-1 px-0.5 min-h-4">
 				{#if ch?.name}
 					<span class="text-xs text-muted truncate flex-1" title={ch.name}>{ch.name}</span>
@@ -131,6 +149,13 @@
 					</button>
 				{:else}
 					<span class="text-xs text-subtle">-</span>
+					<button
+						onclick={() => startWebcam(id)}
+						class="ml-auto shrink-0 text-subtle hover:text-cyan-400 cursor-pointer transition-colors p-0.5"
+						title="Use webcam"
+					>
+						<Webcam size={10} />
+					</button>
 				{/if}
 			</div>
 
