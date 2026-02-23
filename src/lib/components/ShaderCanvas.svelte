@@ -66,6 +66,22 @@ void main() {
   gl_Position = aPosition;
 }`;
 
+	// Cached uniform/attrib locations for a compiled program.
+	// Built once at program creation time - never queried during the render loop.
+	interface ProgramLocs {
+		aPosition: number;
+		uTime: WebGLUniformLocation | null;
+		uResolution: WebGLUniformLocation | null;
+		uMouse: WebGLUniformLocation | null;
+		uDate: WebGLUniformLocation | null;
+		uFrameRate: WebGLUniformLocation | null;
+		uDeltaTime: WebGLUniformLocation | null;
+		uFrameCount: WebGLUniformLocation | null;
+		uAspect: WebGLUniformLocation | null;
+		buffers: (WebGLUniformLocation | null)[];
+		channels: (WebGLUniformLocation | null)[];
+	}
+
 	// Per-buffer internal state
 	// fbo/texture are ping-pong pairs: index 0 and 1 alternate each frame.
 	// prevIdx points to the FBO that holds the PREVIOUS frame's result (safe to sample).
@@ -75,6 +91,7 @@ void main() {
 		fbo: [WebGLFramebuffer | null, WebGLFramebuffer | null];
 		texture: [WebGLTexture | null, WebGLTexture | null];
 		prevIdx: number;
+		locs: ProgramLocs | null;
 	}
 	const bufferStates = new Map<BufferId, InternalBufState>();
 
@@ -191,10 +208,27 @@ void main() {
 		}
 	}
 
-	// Build all programs
 	// Returns the ordered list of user buffer IDs (excludes 'image' and 'common')
 	function userBufferOrder(): string[] {
 		return buffers.filter((b) => b.id !== 'image' && b.id !== 'common').map((b) => b.id);
+	}
+
+	// Build and cache all uniform/attrib locations for a program.
+	function buildLocs(prog: WebGLProgram): ProgramLocs {
+		const g = gl!;
+		return {
+			aPosition: g.getAttribLocation(prog, 'aPosition'),
+			uTime: g.getUniformLocation(prog, 'uTime'),
+			uResolution: g.getUniformLocation(prog, 'uResolution'),
+			uMouse: g.getUniformLocation(prog, 'uMouse'),
+			uDate: g.getUniformLocation(prog, 'uDate'),
+			uFrameRate: g.getUniformLocation(prog, 'uFrameRate'),
+			uDeltaTime: g.getUniformLocation(prog, 'uDeltaTime'),
+			uFrameCount: g.getUniformLocation(prog, 'uFrameCount'),
+			uAspect: g.getUniformLocation(prog, 'uAspect'),
+			buffers: BUFFER_UNIFORM_NAMES.map((n) => g.getUniformLocation(prog, n)),
+			channels: CHANNEL_UNIFORM_NAMES.map((n) => g.getUniformLocation(prog, n)),
+		};
 	}
 
 	export function run(resetTime = true) {
@@ -250,7 +284,8 @@ void main() {
 				if (dims1) { fbo[1] = dims1.fbo; texture[1] = dims1.texture; }
 			}
 
-			bufferStates.set(id, { program, fbo, texture, prevIdx: 0 });
+			const locs = program ? buildLocs(program) : null;
+			bufferStates.set(id, { program, fbo, texture, prevIdx: 0, locs });
 		}
 
 		buildTime = performance.now() - t0;
@@ -269,27 +304,19 @@ void main() {
 		animationId = requestAnimationFrame(renderFrame);
 	}
 
-	// Uniform helpers
-	function setStandardUniforms(prog: WebGLProgram, elapsed: number, deltaTime: number) {
+	// Set all standard uniforms using pre-cached locations (zero getUniformLocation calls).
+	function setStandardUniforms(locs: ProgramLocs, elapsed: number, deltaTime: number, now: Date) {
 		if (!gl || !canvas) return;
-		const now = new Date();
 		const tofDay = now.getHours() * 3600.0 + now.getMinutes() * 60.0 + now.getSeconds();
 		const w = canvas.width, h = canvas.height;
-
-		const u1f = (n: string, v: number) => { const l = gl!.getUniformLocation(prog, n); if (l) gl!.uniform1f(l, v); };
-		const u2f = (n: string, a: number, b: number) => { const l = gl!.getUniformLocation(prog, n); if (l) gl!.uniform2f(l, a, b); };
-		const u3f = (n: string, a: number, b: number, c: number) => { const l = gl!.getUniformLocation(prog, n); if (l) gl!.uniform3f(l, a, b, c); };
-		const u4f = (n: string, a: number, b: number, c: number, d: number) => { const l = gl!.getUniformLocation(prog, n); if (l) gl!.uniform4f(l, a, b, c, d); };
-		const u1i = (n: string, v: number) => { const l = gl!.getUniformLocation(prog, n); if (l) gl!.uniform1i(l, v); };
-
-		u1f('uTime', elapsed);
-		u2f('uResolution', w, h);
-		u3f('uMouse', mouseX, mouseY, isMouseDown ? 1.0 : 0.0);
-		u4f('uDate', now.getFullYear(), now.getMonth() + 1, now.getDate(), tofDay);
-		u1f('uFrameRate', fps);
-		u1f('uDeltaTime', deltaTime);
-		u1i('uFrameCount', frameCount);
-		u1f('uAspect', w / h);
+		if (locs.uTime) gl.uniform1f(locs.uTime, elapsed);
+		if (locs.uResolution) gl.uniform2f(locs.uResolution, w, h);
+		if (locs.uMouse) gl.uniform3f(locs.uMouse, mouseX, mouseY, isMouseDown ? 1.0 : 0.0);
+		if (locs.uDate) gl.uniform4f(locs.uDate, now.getFullYear(), now.getMonth() + 1, now.getDate(), tofDay);
+		if (locs.uFrameRate) gl.uniform1f(locs.uFrameRate, fps);
+		if (locs.uDeltaTime) gl.uniform1f(locs.uDeltaTime, deltaTime);
+		if (locs.uFrameCount) gl.uniform1i(locs.uFrameCount, frameCount);
+		if (locs.uAspect) gl.uniform1f(locs.uAspect, w / h);
 	}
 
 	// Buffer texture bindings
@@ -297,9 +324,8 @@ void main() {
 	const BUFFER_UNIFORM_NAMES = ['uBufferA','uBufferB','uBufferC','uBufferD','uBufferE','uBufferF','uBufferG','uBufferH'];
 
 	// currentTarget: the buffer currently being rendered - never bind its own texture as input
-	function bindBufferTextures(prog: WebGLProgram, currentTarget: string) {
+	function bindBufferTextures(locs: ProgramLocs, currentTarget: string, order: string[]) {
 		if (!gl) return;
-		const order = userBufferOrder();
 		for (let i = 0; i < order.length && i < BUFFER_UNIFORM_NAMES.length; i++) {
 			if (order[i] === currentTarget) {
 				// Explicitly unbind to clear any stale binding from the previous frame
@@ -311,7 +337,7 @@ void main() {
 			// Expose the texture written this frame (1 - prevIdx = current write target)
 			const tex = state?.texture[1 - (state?.prevIdx ?? 0)] ?? null;
 			if (!tex) continue;
-			const loc = gl.getUniformLocation(prog, BUFFER_UNIFORM_NAMES[i]);
+			const loc = locs.buffers[i];
 			if (loc) {
 				gl.activeTexture(gl.TEXTURE0 + i);
 				gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -389,12 +415,12 @@ void main() {
 		}
 	}
 
-	function bindChannelTextures(prog: WebGLProgram, currentTarget: string) {
+	function bindChannelTextures(locs: ProgramLocs, currentTarget: string) {
 		if (!gl) return;
 		// Image/video channels
 		for (const [id, state] of channelTexStates.entries()) {
 			if (id >= CHANNEL_UNIFORM_NAMES.length) continue;
-			const loc = gl.getUniformLocation(prog, CHANNEL_UNIFORM_NAMES[id]);
+			const loc = locs.channels[id];
 			if (loc) {
 				const unit = 8 + id;
 				gl.activeTexture(gl.TEXTURE0 + unit);
@@ -410,7 +436,7 @@ void main() {
 			const unit = 8 + ch.id;
 			const bufState = bufferStates.get(ch.bufferId);
 			const prevTex = bufState?.texture[bufState.prevIdx] ?? null;
-			const loc = gl.getUniformLocation(prog, CHANNEL_UNIFORM_NAMES[ch.id]);
+			const loc = locs.channels[ch.id];
 			gl.activeTexture(gl.TEXTURE0 + unit);
 			if (loc && prevTex) {
 				gl.bindTexture(gl.TEXTURE_2D, prevTex);
@@ -426,12 +452,11 @@ void main() {
 		if (gl) updateChannelTextures();
 	});
 
-	function drawQuad(prog: WebGLProgram) {
+	function drawQuad(locs: ProgramLocs) {
 		if (!gl || !quadBuffer) return;
 		gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
-		const aPos = gl.getAttribLocation(prog, 'aPosition');
-		gl.enableVertexAttribArray(aPos);
-		gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+		gl.enableVertexAttribArray(locs.aPosition);
+		gl.vertexAttribPointer(locs.aPosition, 2, gl.FLOAT, false, 0, 0);
 		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 	}
 
@@ -488,6 +513,7 @@ void main() {
 		frameCount++;
 		if (deltaTime > 0) fps = fps * 0.9 + (1 / deltaTime) * 0.1;
 
+		// Compute now once - shared between uniform upload and display values.
 		const now = new Date();
 		uniformValues = {
 			uTime: elapsed.toFixed(2) + 's',
@@ -509,23 +535,25 @@ void main() {
 			}
 		}
 
-		for (const id of [...userBufferOrder(), 'image']) {
+		// Compute order once per frame - reused by the render loop and ping-pong flip.
+		const userOrder = userBufferOrder();
+		for (const id of [...userOrder, 'image']) {
 			const state = bufferStates.get(id);
-			if (!state?.program) continue;
+			if (!state?.program || !state.locs) continue;
 
 			// Write into fbo[1 - prevIdx]; fbo[prevIdx] holds the previous frame (readable by channels)
 			const writeFbo = id === 'image' ? null : (state.fbo[1 - state.prevIdx] ?? null);
 			gl.bindFramebuffer(gl.FRAMEBUFFER, writeFbo);
 			gl.viewport(0, 0, w, h);
 			gl.useProgram(state.program);
-			bindBufferTextures(state.program, id);
-			bindChannelTextures(state.program, id);
-			setStandardUniforms(state.program, elapsed, deltaTime);
-			drawQuad(state.program);
+			bindBufferTextures(state.locs, id, userOrder);
+			bindChannelTextures(state.locs, id);
+			setStandardUniforms(state.locs, elapsed, deltaTime, now);
+			drawQuad(state.locs);
 		}
 
 		// Flip ping-pong index: what was just written becomes the new "previous" frame for channels
-		for (const id of userBufferOrder()) {
+		for (const id of userOrder) {
 			const s = bufferStates.get(id);
 			if (s) s.prevIdx = 1 - s.prevIdx;
 		}
@@ -541,7 +569,14 @@ void main() {
 	// Mount
 	onMount(() => {
 		if (!canvas || !wrapper) return;
-		gl = canvas.getContext('webgl');
+		gl = canvas.getContext('webgl', {
+			powerPreference: 'high-performance',
+			antialias: false,
+			alpha: false,
+			depth: false,
+			stencil: false,
+			preserveDrawingBuffer: false,
+		});
 		if (gl) {
 			const floatExt = gl.getExtension('OES_texture_float');
 			if (floatExt) {
