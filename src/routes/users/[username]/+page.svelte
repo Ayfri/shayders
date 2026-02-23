@@ -1,8 +1,9 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import { auth } from '$lib/auth.svelte';
+	import { auth, logout, requestVerification } from '$lib/auth.svelte';
 	import { pb } from '$lib/pocketbase';
-	import { User, Trash2, Globe, Link, Lock, CodeXml } from '@lucide/svelte';
+	import { goto } from '$app/navigation';
+	import { User, Trash2, Globe, Link, Lock, CodeXml, MailCheck, RefreshCw } from '@lucide/svelte';
 	import ShaderPreview from '$lib/components/ShaderPreview.svelte';
 	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
 	import type { ShadersVisiblityOptions } from '$lib/pocketbase-types';
@@ -25,6 +26,23 @@
 	let deletedIds = $state(new Set<string>());
 	let deletingId = $state<string | null>(null);
 	let confirmId = $state<string | null>(null);
+
+	let resendLoading = $state(false);
+	let resendError = $state('');
+
+	async function resendVerificationCode() {
+		if (!auth.user?.email) return;
+		resendLoading = true;
+		resendError = '';
+		try {
+			await requestVerification(auth.user.email);
+			const params = new URLSearchParams({ email: auth.user.email });
+			goto(`/verify-email?${params}`);
+		} catch (err) {
+			resendError = err instanceof Error ? err.message : 'Failed to send verification email.';
+			resendLoading = false;
+		}
+	}
 
 	$effect(() => {
 		if (isOwner) {
@@ -79,6 +97,24 @@
 		unlisted: { icon: Link,  label: 'Unlisted',  cls: 'text-yellow-400 border-yellow-900/50 bg-yellow-950/30' },
 		private:  { icon: Lock,  label: 'Private',   cls: 'text-red-400 border-red-900/50 bg-red-950/30' },
 	} as const;
+
+	let confirmDeleteAccount = $state(false);
+	let deletingAccount = $state(false);
+	let deleteAccountError = $state('');
+
+	async function deleteAccount() {
+		deletingAccount = true;
+		deleteAccountError = '';
+		try {
+			await pb.collection('users').delete(data.profileUser.id);
+			logout();
+			goto('/');
+		} catch (e) {
+			deleteAccountError = e instanceof Error ? e.message : 'Failed to delete account.';
+			deletingAccount = false;
+			confirmDeleteAccount = false;
+		}
+	}
 </script>
 
 <div class="min-h-full overflow-y-auto bg-background text-foreground p-6 lg:p-10">
@@ -183,6 +219,62 @@
 						</div>
 					</div>
 				{/each}
+			</div>
+		{/if}
+
+		{#if isOwner && auth.user && !auth.user.verified}
+			<div class="mt-12 border-t border-border pt-8">
+				<div class="flex items-start gap-3">
+					<MailCheck size={16} class="text-yellow-400 shrink-0 mt-1" />
+					<div class="flex-1">
+						<p class="text-sm text-foreground font-medium">Email not verified</p>
+						<p class="text-sm text-muted mt-1">Verify your email to unlock full features.</p>
+						{#if resendError}
+							<p class="text-xs text-red-300 mt-2">{resendError}</p>
+						{/if}
+						<button
+							onclick={resendVerificationCode}
+							disabled={resendLoading}
+							class="mt-3 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded text-foreground border border-border hover:bg-panel disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+						>
+							<RefreshCw size={12} class={resendLoading ? 'animate-spin' : ''} />
+							{resendLoading ? 'Sending…' : 'Resend code'}
+						</button>
+					</div>
+				</div>
+			</div>
+		{/if}
+
+		{#if isOwner}
+			<div class="mt-16 border-t border-border pt-8">
+				<h2 class="text-sm font-semibold text-red-400 mb-3">Danger zone</h2>
+				{#if deleteAccountError}
+					<div class="mb-3 px-3 py-2 rounded bg-red-950/30 border border-red-700/50 text-red-300 text-sm">{deleteAccountError}</div>
+				{/if}
+				{#if confirmDeleteAccount}
+					<div class="flex items-center gap-3">
+						<span class="text-sm text-muted">Are you sure? This cannot be undone.</span>
+						<button
+							onclick={deleteAccount}
+							disabled={deletingAccount}
+							class="px-3 py-1.5 rounded text-sm font-medium bg-red-950/60 text-red-400 border border-red-700/50 hover:bg-red-900/60 transition-colors cursor-pointer disabled:opacity-50"
+						>
+							{deletingAccount ? 'Deleting…' : 'Yes, delete my account'}
+						</button>
+						<button
+							onclick={() => (confirmDeleteAccount = false)}
+							class="px-3 py-1.5 rounded text-sm text-muted hover:text-foreground transition-colors cursor-pointer"
+						>Cancel</button>
+					</div>
+				{:else}
+					<button
+						onclick={() => (confirmDeleteAccount = true)}
+						class="flex items-center gap-2 px-3 py-1.5 rounded text-sm text-red-400 border border-red-900/50 bg-red-950/20 hover:bg-red-950/50 transition-colors cursor-pointer"
+					>
+						<Trash2 size={14} />
+						Delete my account
+					</button>
+				{/if}
 			</div>
 		{/if}
 	</div>

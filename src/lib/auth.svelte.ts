@@ -25,9 +25,18 @@ export async function signup(
 	name: string,
 	password: string,
 	passwordConfirm: string
-) {
+): Promise<{ email: string }> {
 	await pb.collection('users').create({ email, name, password, passwordConfirm, emailVisibility: false });
-	await login(email, password);
+	await pb.collection('users').requestVerification(email);
+	return { email };
+}
+
+export async function requestVerification(email: string): Promise<void> {
+	await pb.collection('users').requestVerification(email);
+}
+
+export async function confirmVerification(token: string): Promise<void> {
+	await pb.collection('users').confirmVerification(token);
 }
 
 export function logout() {

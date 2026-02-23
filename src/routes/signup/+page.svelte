@@ -19,8 +19,9 @@
 		}
 		loading = true;
 		try {
-			await signup(email, name, password, passwordConfirm);
-			goto('/');
+			const { email: confirmedEmail } = await signup(email, name, password, passwordConfirm);
+			const params = new URLSearchParams({ email: confirmedEmail });
+			goto(`/verify-email?${params}`);
 		} catch (err: unknown) {
 			error = err instanceof Error ? err.message : 'Sign up failed. Please try again.';
 		} finally {
