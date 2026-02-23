@@ -8,6 +8,7 @@ interface SaveBody {
 	shaderId?: string;
 	name: string;
 	description?: string;
+	visiblity?: string;
 	userId: string;
 	buffers: { id: string; label: string; code: string }[];
 }
@@ -34,6 +35,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			content: body.buffers,
 			name: body.name,
 			description: body.description ?? '',
+			visiblity: body.visiblity ?? 'public',
 			user_id: userId,
 		};
 

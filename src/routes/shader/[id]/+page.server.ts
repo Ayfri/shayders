@@ -21,6 +21,7 @@ export const load: PageServerLoad = async ({ params }) => {
 			description: shader.description ?? '',
 			content: shader.content,
 			user_id: shader.user_id,
+			visiblity: shader.visiblity ?? 'public',
 		},
 	};
 };
