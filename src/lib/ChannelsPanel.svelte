@@ -1,19 +1,27 @@
 <script lang="ts">
-	import { X, Upload, Image, Video } from '@lucide/svelte';
+	import { X, Upload, Image, Video, Layers } from '@lucide/svelte';
+	import type { ShaderBuffer } from '$lib/ShaderCanvas.svelte';
 
 	export interface ChannelEntry {
 		id: number; // 0–3
-		type: 'image' | 'video' | null;
+		type: 'image' | 'video' | 'buffer' | null;
 		url: string | null;
 		name: string | null;
+		bufferId?: string | null;
 	}
 
 	interface Props {
 		channels: ChannelEntry[];
 		onChannelChange?: (ch: ChannelEntry) => void;
+		buffers?: ShaderBuffer[];
+		thumbnails?: Record<string, string>;
 	}
 
-	let { channels, onChannelChange }: Props = $props();
+	let { channels, onChannelChange, buffers = [], thumbnails = {} }: Props = $props();
+
+	const assignableBuffers = $derived(
+		buffers.filter((b) => b.id !== 'common' && b.id !== 'image')
+	);
 
 	let fileInputs = $state<(HTMLInputElement | null)[]>([null, null, null, null]);
 
@@ -24,14 +32,20 @@
 		const existing = channels.find((c) => c.id === id);
 		if (existing?.url) URL.revokeObjectURL(existing.url);
 		const url = URL.createObjectURL(file);
-		onChannelChange?.({ id, type: isVideo ? 'video' : 'image', url, name: file.name });
+		onChannelChange?.({ id, type: isVideo ? 'video' : 'image', url, name: file.name, bufferId: null });
 		(e.target as HTMLInputElement).value = '';
+	}
+
+	function assignBuffer(id: number, buf: ShaderBuffer) {
+		const existing = channels.find((c) => c.id === id);
+		if (existing?.url) URL.revokeObjectURL(existing.url);
+		onChannelChange?.({ id, type: 'buffer', url: null, name: buf.label, bufferId: buf.id });
 	}
 
 	function clearChannel(id: number) {
 		const ch = channels.find((c) => c.id === id);
 		if (ch?.url) URL.revokeObjectURL(ch.url);
-		onChannelChange?.({ id, type: null, url: null, name: null });
+		onChannelChange?.({ id, type: null, url: null, name: null, bufferId: null });
 	}
 
 	function onSlotKeydown(id: number, e: KeyboardEvent) {
@@ -51,7 +65,7 @@
 				<span class="text-xs font-mono text-subtle">uChannel{id}</span>
 			</div>
 
-			<!-- Slot clickable area -->
+			<!-- Slot clickable area (click = upload file) -->
 			<!-- svelte-ignore a11y_interactive_supports_focus -->
 			<div
 				role="button"
@@ -73,6 +87,13 @@
 						muted
 						playsinline
 					></video>
+				{:else if ch?.type === 'buffer' && ch.bufferId && thumbnails[ch.bufferId]}
+					<img src={thumbnails[ch.bufferId]} alt={ch.name ?? ''} class="w-full h-full object-cover" />
+				{:else if ch?.type === 'buffer'}
+					<div class="flex flex-col items-center justify-center h-full gap-1 text-cyan-400/60">
+						<Layers size={13} />
+						<span class="text-xs leading-none">{ch.name ?? 'Buffer'}</span>
+					</div>
 				{:else}
 					<div
 						class="flex flex-col items-center justify-center h-full gap-1 text-subtle group-hover:text-muted transition-colors"
@@ -90,10 +111,14 @@
 					<div class="absolute top-1 left-1 p-0.5 rounded bg-black/50 text-white pointer-events-none">
 						<Video size={10} />
 					</div>
+				{:else if ch?.type === 'buffer'}
+					<div class="absolute top-1 left-1 p-0.5 rounded bg-black/50 text-cyan-400 pointer-events-none">
+						<Layers size={10} />
+					</div>
 				{/if}
 			</div>
 
-			<!-- File name row -->
+			<!-- File name / clear row -->
 			<div class="flex items-center gap-1 px-0.5 min-h-4">
 				{#if ch?.name}
 					<span class="text-xs text-muted truncate flex-1" title={ch.name}>{ch.name}</span>
@@ -108,6 +133,30 @@
 					<span class="text-xs text-subtle">-</span>
 				{/if}
 			</div>
+
+			<!-- Buffer picker -->
+			{#if assignableBuffers.length > 0}
+				<div class="flex flex-wrap gap-1 px-0.5">
+					{#each assignableBuffers as buf (buf.id)}
+						{@const isSelected = ch?.type === 'buffer' && ch.bufferId === buf.id}
+						<button
+							onclick={(e) => { e.stopPropagation(); assignBuffer(id, buf); }}
+							title="Use {buf.label}"
+							class="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-mono border transition-colors cursor-pointer
+								{isSelected
+									? 'bg-cyan-400/15 text-cyan-400 border-cyan-400/60'
+									: 'text-subtle border-border hover:text-foreground hover:border-muted/40'}"
+						>
+							{#if thumbnails[buf.id]}
+								<img src={thumbnails[buf.id]} alt="" class="h-3 rounded-sm object-cover" style="width:6px;" />
+							{:else}
+								<Layers size={9} />
+							{/if}
+							<span>{buf.label}</span>
+						</button>
+					{/each}
+				</div>
+			{/if}
 
 			<input
 				bind:this={fileInputs[id]}

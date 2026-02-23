@@ -160,7 +160,7 @@ void main() {
 		fboWidth = w;
 		fboHeight = h;
 		for (const [id, state] of bufferStates.entries()) {
-			if (id === 'image' || id === 'common' || !state.texture) continue;
+			if (id === 'image' || !state.texture) continue;
 			gl.bindTexture(gl.TEXTURE_2D, state.texture);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
 			gl.bindTexture(gl.TEXTURE_2D, null);
@@ -181,6 +181,9 @@ void main() {
 		frameCount = 0;
 		fps = 0;
 		error = '';
+		// Reset tracked FBO size so ensureFboSize re-initialises storage on the next frame.
+		fboWidth = 0;
+		fboHeight = 0;
 
 		const t0 = performance.now();
 		const errors: string[] = [];
@@ -192,31 +195,27 @@ void main() {
 		// Dynamic render order: user buffers first (in declaration order), then image
 		const renderOrder = [...userBufferOrder(), 'image'];
 
-		// Clean up stale GL state for buffers that no longer exist
+		// Fully destroy all stale and existing GL state — always recreate FBOs fresh
+		// so there is no risk of a detached or incomplete framebuffer from a previous run.
 		for (const id of bufferStates.keys()) {
-			if (!renderOrder.includes(id)) {
-				const s = bufferStates.get(id)!;
-				if (s.program) gl.deleteProgram(s.program);
-				if (s.fbo) gl.deleteFramebuffer(s.fbo);
-				if (s.texture) gl.deleteTexture(s.texture);
-				bufferStates.delete(id);
-			}
+			const s = bufferStates.get(id)!;
+			if (s.program) gl.deleteProgram(s.program);
+			if (s.fbo) gl.deleteFramebuffer(s.fbo);
+			if (s.texture) gl.deleteTexture(s.texture);
+			bufferStates.delete(id);
 		}
 
 		for (const id of renderOrder) {
 			const buf = buffers.find((b) => b.id === id);
 			if (!buf) continue;
 
-			const existing = bufferStates.get(id);
-			if (existing?.program) gl.deleteProgram(existing.program);
-
 			const { program, err } = buildSingleProgram(gl, withCommon(buf.code), buf.label);
 			if (err) errors.push(err);
 
-			let fbo = existing?.fbo ?? null;
-			let texture = existing?.texture ?? null;
+			let fbo: WebGLFramebuffer | null = null;
+			let texture: WebGLTexture | null = null;
 
-			if (id !== 'image' && (!fbo || !texture)) {
+			if (id !== 'image') {
 				const dims = createFbo(gl, canvas?.width ?? 800, canvas?.height ?? 600);
 				if (dims) { fbo = dims.fbo; texture = dims.texture; }
 			}
@@ -267,10 +266,17 @@ void main() {
 	// User buffers are exposed as uBufferA, uBufferB, … (by declaration position, not ID)
 	const BUFFER_UNIFORM_NAMES = ['uBufferA','uBufferB','uBufferC','uBufferD','uBufferE','uBufferF','uBufferG','uBufferH'];
 
-	function bindBufferTextures(prog: WebGLProgram) {
+	// currentTarget: the buffer currently being rendered — never bind its own texture as input
+	function bindBufferTextures(prog: WebGLProgram, currentTarget: string) {
 		if (!gl) return;
 		const order = userBufferOrder();
 		for (let i = 0; i < order.length && i < BUFFER_UNIFORM_NAMES.length; i++) {
+			if (order[i] === currentTarget) {
+				// Explicitly unbind to clear any stale binding from the previous frame
+				gl.activeTexture(gl.TEXTURE0 + i);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+				continue;
+			}
 			const state = bufferStates.get(order[i]);
 			if (!state?.texture) continue;
 			const loc = gl.getUniformLocation(prog, BUFFER_UNIFORM_NAMES[i]);
@@ -286,6 +292,16 @@ void main() {
 	function updateChannelTextures() {
 		if (!gl) return;
 		for (const ch of channels) {
+			// Buffer channels are bound directly from bufferStates at render time
+			if (ch.type === 'buffer') {
+				const existing = channelTexStates.get(ch.id);
+				if (existing) {
+					gl.deleteTexture(existing.texture);
+					if (existing.videoEl) { existing.videoEl.pause(); existing.videoEl.src = ''; }
+					channelTexStates.delete(ch.id);
+				}
+				continue;
+			}
 			const existing = channelTexStates.get(ch.id);
 			if (existing && existing.url === (ch.url ?? '')) continue;
 			if (existing) {
@@ -332,7 +348,7 @@ void main() {
 		}
 		// Clean up removed channels
 		for (const [id, state] of channelTexStates.entries()) {
-			const still = channels.find((c) => c.id === id && c.url);
+			const still = channels.find((c) => c.id === id && c.url && c.type !== 'buffer');
 			if (!still) {
 				gl.deleteTexture(state.texture);
 				if (state.videoEl) { state.videoEl.pause(); state.videoEl.src = ''; }
@@ -341,8 +357,9 @@ void main() {
 		}
 	}
 
-	function bindChannelTextures(prog: WebGLProgram) {
+	function bindChannelTextures(prog: WebGLProgram, currentTarget: string) {
 		if (!gl) return;
+		// Image/video channels
 		for (const [id, state] of channelTexStates.entries()) {
 			if (id >= CHANNEL_UNIFORM_NAMES.length) continue;
 			const loc = gl.getUniformLocation(prog, CHANNEL_UNIFORM_NAMES[id]);
@@ -350,6 +367,26 @@ void main() {
 				const unit = 8 + id;
 				gl.activeTexture(gl.TEXTURE0 + unit);
 				gl.bindTexture(gl.TEXTURE_2D, state.texture);
+				gl.uniform1i(loc, unit);
+			}
+		}
+		// Buffer channels: bind the buffer's FBO texture (skip if it would be the current render target)
+		for (const ch of channels) {
+			if (ch.type !== 'buffer' || !ch.bufferId) continue;
+			if (ch.id >= CHANNEL_UNIFORM_NAMES.length) continue;
+			const unit = 8 + ch.id;
+			if (ch.bufferId === currentTarget) {
+				// Explicitly unbind this unit to clear any stale binding from the previous frame
+				gl.activeTexture(gl.TEXTURE0 + unit);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+				continue;
+			}
+			const bufState = bufferStates.get(ch.bufferId);
+			if (!bufState?.texture) continue;
+			const loc = gl.getUniformLocation(prog, CHANNEL_UNIFORM_NAMES[ch.id]);
+			if (loc) {
+				gl.activeTexture(gl.TEXTURE0 + unit);
+				gl.bindTexture(gl.TEXTURE_2D, bufState.texture);
 				gl.uniform1i(loc, unit);
 			}
 		}
@@ -407,7 +444,6 @@ void main() {
 		thumbnails = { ...thumbnails, ...newThumbs };
 	}
 
-	// Main render loop
 	function renderFrame() {
 		if (!gl || !canvas) return;
 		const w = canvas.width;
@@ -449,8 +485,8 @@ void main() {
 			gl.bindFramebuffer(gl.FRAMEBUFFER, id === 'image' ? null : (state.fbo ?? null));
 			gl.viewport(0, 0, w, h);
 			gl.useProgram(state.program);
-			bindBufferTextures(state.program);
-			bindChannelTextures(state.program);
+			bindBufferTextures(state.program, id);
+			bindChannelTextures(state.program, id);
 			setStandardUniforms(state.program, elapsed, deltaTime);
 			drawQuad(state.program);
 		}

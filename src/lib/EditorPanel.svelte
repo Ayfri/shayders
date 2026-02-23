@@ -232,7 +232,7 @@
 		</div>
 
 		{#if channelsOpen}
-			<ChannelsPanel {channels} {onChannelChange} />
+			<ChannelsPanel {channels} {onChannelChange} {buffers} {thumbnails} />
 		{/if}
 		<GlslEditor bind:value {errors} {onRun} />
 		<BuiltinsPanel {uniforms} {presentNames} onToggle={onToggleUniform} bind:open={panelOpen} />
