@@ -11,6 +11,7 @@ export interface GlslFunction {
 	returnType: string;
 	params: GlslVariable[];
 	line: number;
+	localVariables: GlslVariable[];
 }
 
 export interface GlslDefine {
@@ -105,7 +106,7 @@ export function analyzeDocument(src: string): GlslDocument {
 		addVar({ name: m[3], type: m[2], qualifier: m[1] as GlslVariable['qualifier'], line: lineOf(clean, m.index!) });
 	}
 
-	// Function declarations
+	// Function declarations with local variable tracking
 	const funcRe = new RegExp(
 		`\\b(${TYPE_RE_SRC})\\s+(\\w+)\\s*\\(([^)]*)\\)\\s*\\{`,
 		'g',
@@ -114,6 +115,7 @@ export function analyzeDocument(src: string): GlslDocument {
 		const returnType = m[1];
 		const name = m[2];
 		const paramStr = m[3];
+		const funcStartIndex = m.index! + m[0].length - 1; // Position of '{'
 
 		const params: GlslVariable[] = [];
 		for (const part of paramStr.split(',')) {
@@ -130,14 +132,41 @@ export function analyzeDocument(src: string): GlslDocument {
 			}
 		}
 
-		functions.push({ name, returnType, params, line: lineOf(clean, m.index!) });
+		// Find the matching closing brace to extract function body
+		let braceDepth = 1;
+		let funcBodyEndIndex = funcStartIndex + 1;
+		while (braceDepth > 0 && funcBodyEndIndex < clean.length) {
+			if (clean[funcBodyEndIndex] === '{') braceDepth++;
+			else if (clean[funcBodyEndIndex] === '}') braceDepth--;
+			funcBodyEndIndex++;
+		}
+		const funcBody = clean.slice(funcStartIndex + 1, funcBodyEndIndex - 1);
 
-		// Expose params as scoped variables too
+		// Parse local variables within this function
+		const localVariables: GlslVariable[] = [...params]; // Include params in scope
+		const localVarRe = new RegExp(
+			`\\b(${TYPE_RE_SRC})\\s+(\\w+(?:\\s*,\\s*\\w+)*)\\s*(?:=|;)`,
+			'g',
+		);
+		for (const lm of funcBody.matchAll(localVarRe)) {
+			const type = lm[1];
+			const names = lm[2].split(',').map((s) => s.trim());
+			for (const varName of names) {
+				if (!localVariables.find((v) => v.name === varName)) {
+					const varLine = lineOf(clean, funcStartIndex + (lm.index ?? 0));
+					localVariables.push({ name: varName, type, line: varLine });
+				}
+			}
+		}
+
+		functions.push({ name, returnType, params, line: lineOf(clean, m.index!), localVariables });
+
 		for (const p of params) addVar(p);
 	}
 
-	// Local variable declarations
+	// Local variable declarations (global scope only, not inside functions)
 	// type name; / type name = expr; / type name, name2;
+	// This regex pattern is now only for global-scope locals since function-scoped ones are handled above
 	const localRe = new RegExp(
 		`\\b(${TYPE_RE_SRC})\\s+(\\w+(?:\\s*,\\s*\\w+)*)\\s*(?:=|;)`,
 		'g',

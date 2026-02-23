@@ -470,8 +470,42 @@ function registerDefinition(monaco: typeof Monaco) {
 
 			const name = word.word;
 			const doc  = analyzeDocument(model.getValue());
+			const cursorLine = position.lineNumber;
 
-			const declLine = (() => {
+			// Find which function the cursor is in
+			const currentFunction = doc.functions.find((fn) => {
+				const funcStartLine = fn.line;
+				// Find function end by searching for closing brace at same nesting level
+				const src = model.getValue();
+				const lines = src.split('\n');
+				let braceCount = 0;
+				let foundOpening = false;
+				for (let i = funcStartLine - 1; i < lines.length; i++) {
+					const line = lines[i];
+					for (const ch of line) {
+						if (ch === '{') {
+							braceCount++;
+							foundOpening = true;
+						} else if (ch === '}') {
+							braceCount--;
+							if (foundOpening && braceCount === 0) {
+								return cursorLine >= funcStartLine && cursorLine <= i + 1;
+							}
+						}
+					}
+				}
+				return false;
+			});
+
+			// Helper to find declaration line
+			const findDeclLine = (): number | null => {
+				// First check function-scoped variables if we're inside a function
+				if (currentFunction) {
+					const localVar = currentFunction.localVariables.find((v) => v.name === name);
+					if (localVar) return localVar.line;
+				}
+
+				// Then check global scope
 				const fn  = doc.functions.find((f) => f.name === name);
 				if (fn) return fn.line;
 				const st  = doc.structs.find((s) => s.name === name);
@@ -481,8 +515,9 @@ function registerDefinition(monaco: typeof Monaco) {
 				const def = doc.defines.find((d) => d.name === name);
 				if (def) return def.line;
 				return null;
-			})();
+			};
 
+			const declLine = findDeclLine();
 			if (declLine === null) return null;
 
 			// Column: find the exact column of the identifier on that declaration line
