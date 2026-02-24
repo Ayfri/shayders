@@ -695,7 +695,7 @@ void main() {
 <div
 	bind:this={wrapper}
 	role="application"
-	class="flex flex-col bg-black relative min-w-0 flex-1 outline-none"
+	class="flex flex-col bg-black relative min-w-0 w-full h-full outline-none"
 >
 	{#if !isFullscreen}
 		<div class="flex items-center gap-2 sm:gap-3 px-2 py-1 sm:px-3 sm:py-2 bg-panel border-b border-border text-xs text-muted shrink-0">
@@ -762,7 +762,7 @@ void main() {
 		</div>
 	{/if}
 
-	<div class="flex-1 relative overflow-hidden min-h-0">
+	<div class="flex-1 relative overflow-hidden min-h-0 w-full min-w-0">
 		<canvas bind:this={canvas} class="w-full h-full block" width={800} height={600}></canvas>
 
 		<button
