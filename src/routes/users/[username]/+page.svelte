@@ -17,13 +17,13 @@
 	const isOwner = $derived(auth.isLoggedIn && auth.user?.id === data.profileUser.id);
 
 	type ShaderItem = {
+		buffers?: ShaderBuffer[];
+		created: string;
+		description: string;
 		id: string;
 		name: string;
-		description: string;
-		created: string;
 		updated: string;
 		visiblity: keyof typeof ShadersVisiblityOptions;
-		buffers?: ShaderBuffer[];
 	};
 
 	let ownerShaders = $state<ShaderItem[] | null>(null);

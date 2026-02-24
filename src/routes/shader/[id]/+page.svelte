@@ -15,13 +15,14 @@
 		Array.isArray(data.shader.content) ? (data.shader.content as ShaderBuffer[]) : []
 	);
 
-	const title = $derived(`${data.shader.name} - Shayders`);
+	const author = $derived(data.shader.authorName || 'Unknown Author');
+	const title = $derived(data.shader.name);
 	const description = $derived(data.shader.description?.slice(0, 155) || 'A shader created with Shayders GLSL editor');
 </script>
 
 <SeoHead
-	{title}
-	{description}
+	title={isPrivate ? "Shayder" : `${title} by ${author} - Shayders`}
+	description={isPrivate ? "A shader created with Shayders GLSL editor" : description}
 />
 
 {#if isPrivate}
