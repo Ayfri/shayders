@@ -1,6 +1,6 @@
 <script lang="ts">
 	import '$lib/layout.css';
-	import favicon from '$lib/assets/favicon.svg';
+	import favicon from '$lib/assets/logo.png';
 	import Header from '$lib/components/Header.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 
@@ -16,7 +16,8 @@
 	<meta property="og:description" content="A modern GLSL shader editor for creating and experimenting with fragment shaders in real-time." />
 	<meta property="og:type" content="website" />
 	<meta name="theme-color" content="#1e1e1e" />
-	<link rel="icon" href={favicon} />
+	<link rel="icon" type="image/png" href={favicon} />
+	<link rel="apple-touch-icon" sizes="400x400" href={favicon} />
 </svelte:head>
 
 <div class="flex flex-col h-screen">

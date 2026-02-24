@@ -1,4 +1,6 @@
 <script lang="ts">
+	import favicon from '$lib/assets/logo.png';
+
 	interface Props {
 		title: string;
 		description: string;
@@ -8,16 +10,16 @@
 		twitterCard?: string;
 	}
 
+	const domain = 'https://shayders.ayfri.com';
+
 	const {
 		title,
 		description,
 		ogType = 'website',
-		ogImage,
-		ogUrl = typeof window !== 'undefined' ? window.location.href : 'https://shayders.ayfri.com',
+		ogImage = domain + favicon,
+		ogUrl = typeof window !== 'undefined' ? window.location.href : domain,
 		twitterCard = 'summary',
 	}: Props = $props();
-
-	const domainUrl = 'https://shayders.ayfri.com';
 </script>
 
 <svelte:head>

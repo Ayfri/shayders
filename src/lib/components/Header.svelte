@@ -2,6 +2,7 @@
 	import { Home, LogIn, LogOut, Plus, User, UserPlus } from '@lucide/svelte';
 	import { auth, logout } from '$lib/auth.svelte';
 	import { goto } from '$app/navigation';
+	import logo from '$lib/assets/logo.png';
 
 	function handleLogout() {
 		logout();
@@ -12,7 +13,7 @@
 <header class="flex items-center justify-between px-4 sm:px-6 h-12 bg-surface border-b border-border shrink-0">
 	<div class="flex items-center gap-4 sm:gap-10">
 		<a href="/" class="flex items-center gap-2 text-foreground hover:text-white transition-colors font-semibold tracking-wide">
-			<Home size={18} />
+			<img src={logo} alt="Shayders Logo" class="size-6" />
 			<span>Shayders</span>
 		</a>
 		<nav class="flex items-center gap-2 sm:gap-4">
