@@ -1,5 +1,5 @@
 <script lang="ts">
-	import favicon from '$lib/assets/logo.png';
+	import logo from '$lib/assets/logo.png';
 
 	interface Props {
 		title: string;
@@ -16,7 +16,7 @@
 		title,
 		description,
 		ogType = 'website',
-		ogImage = domain + favicon,
+		ogImage = logo,
 		ogUrl = typeof window !== 'undefined' ? window.location.href : domain,
 		twitterCard = 'summary',
 	}: Props = $props();
