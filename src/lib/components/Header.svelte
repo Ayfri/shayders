@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { Home, LogIn, LogOut, Plus, User, UserPlus } from '@lucide/svelte';
+	import { LogIn, LogOut, User, UserPlus } from '@lucide/svelte';
 	import { auth, logout } from '$lib/auth.svelte';
+	import { pb } from '$lib/pocketbase';
 	import { goto } from '$app/navigation';
 	import logo from '$lib/assets/logo.png';
 
@@ -32,7 +33,15 @@
 				href="/users/{auth.user?.id}"
 				class="flex items-center gap-1.5 text-muted hover:text-foreground transition-colors"
 			>
-				<User size={15} />
+				{#if auth.user?.avatar}
+					<img
+						src={`${pb.baseURL}/api/files/users/${auth.user.id}/${auth.user.avatar}`}
+						alt=""
+						class="size-6 rounded-full object-cover"
+					/>
+				{:else}
+					<User size={15} />
+				{/if}
 				{auth.user?.name || auth.user?.username}
 			</a>
 			<button
