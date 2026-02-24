@@ -27,7 +27,7 @@
 
 <div class="flex flex-col h-screen">
 	<Header />
-	<main class="flex-1 overflow-hidden min-h-0">
+	<main class="flex-1 min-h-0 overflow-y-auto">
 		{@render children()}
 	</main>
 	<Footer />
