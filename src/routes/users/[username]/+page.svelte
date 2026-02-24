@@ -4,6 +4,7 @@
 	import { pb } from '$lib/pocketbase';
 	import { goto } from '$app/navigation';
 	import { User, Trash2, Globe, Link, Lock, CodeXml, MailCheck, RefreshCw } from '@lucide/svelte';
+	import EditProfileSection from '$lib/components/EditProfileSection.svelte';
 	import ShaderPreview from '$lib/components/ShaderPreview.svelte';
 	import SeoHead from '$lib/components/SeoHead.svelte';
 	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
@@ -11,10 +12,16 @@
 
 	let { data }: { data: PageData } = $props();
 
-	const title = $derived(`${data.profileUser.name}'s Shaders - Shayders`);
-	const description = $derived(`Explore GLSL shader creations by ${data.profileUser.name}. ${data.shaders.length} public shader${data.shaders.length !== 1 ? 's' : ''} available.`);
-
 	const isOwner = $derived(auth.isLoggedIn && auth.user?.id === data.profileUser.id);
+	const displayName = $derived(isOwner ? (auth.user?.name ?? data.profileUser.name) : data.profileUser.name);
+	const ownerAvatarUrl = $derived(
+		isOwner && auth.user?.avatar
+			? `${pb.baseURL}/api/files/users/${auth.user.id}/${auth.user.avatar}`
+			: null
+	);
+
+	const title = $derived(`${displayName}'s Shaders - Shayders`);
+	const description = $derived(`Explore GLSL shader creations by ${displayName}. ${data.shaders.length} public shader${data.shaders.length !== 1 ? 's' : ''} available.`);
 
 	type ShaderItem = {
 		buffers?: ShaderBuffer[];
@@ -130,11 +137,15 @@
 <div class="min-h-full overflow-y-auto bg-background text-foreground p-6 lg:p-10">
 	<div class="max-w-5xl mx-auto">
 		<div class="flex items-center gap-4 mb-10">
-			<div class="w-14 h-14 rounded-full bg-panel border border-border flex items-center justify-center shrink-0">
-				<User size={26} class="text-muted" />
+			<div class="w-14 h-14 rounded-full bg-panel border border-border flex items-center justify-center shrink-0 overflow-hidden">
+				{#if ownerAvatarUrl}
+					<img src={ownerAvatarUrl} alt="Avatar" class="w-full h-full object-cover" />
+				{:else}
+					<User size={26} class="text-muted" />
+				{/if}
 			</div>
 			<div>
-				<h1 class="text-xl font-semibold text-foreground">{data.profileUser.name}</h1>
+				<h1 class="text-xl font-semibold text-foreground">{displayName}</h1>
 			</div>
 			<div class="ml-auto text-sm text-muted">
 				{shaders.length} shader{shaders.length !== 1 ? 's' : ''}
@@ -253,6 +264,10 @@
 					</div>
 				</div>
 			</div>
+		{/if}
+
+		{#if isOwner}
+			<EditProfileSection />
 		{/if}
 
 		{#if isOwner}
