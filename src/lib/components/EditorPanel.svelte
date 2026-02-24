@@ -218,7 +218,7 @@
 	<div class="flex flex-col min-w-0 bg-surface shrink-0 overflow-hidden max-w-full" style={vertical ? `height: ${width}px` : `width: ${width}px`}>
 
 		<!-- Tab bar -->
-		<div class="flex items-stretch shrink-0 bg-panel border-b border-border overflow-x-auto">
+		<div class="flex items-stretch shrink-0 bg-panel border-b border-border overflow-x-auto overflow-y-hidden">
 			{#each buffers as buf}
 				{@const isActive = activeBufferId === buf.id}
 				{@const thumb = thumbnails[buf.id]}
