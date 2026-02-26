@@ -186,6 +186,10 @@ export function analyzeDocument(src: string): GlslDocument {
 			`\\b(${TYPE_RE_SRC})\\s+(\\w+(?:\\s*,\\s*\\w+)*)\\s*(?:=|;)`,
 			'g',
 		);
+		const localArrayRe = new RegExp(
+			`\\b(${TYPE_RE_SRC})\\s+(\\w+)\\s*\\[\\s*(\\d+)\\s*\\]\\s*(?:=|;)`,
+			'g',
+		);
 		for (const lm of funcBody.matchAll(localVarRe)) {
 			const type = lm[1];
 			const names = lm[2].split(',').map((s) => s.trim());
@@ -197,6 +201,19 @@ export function analyzeDocument(src: string): GlslDocument {
 						line: lineOf(clean, funcStartIndex + (lm.index ?? 0)),
 					});
 				}
+			}
+		}
+		for (const am of funcBody.matchAll(localArrayRe)) {
+			const type = am[1];
+			const name = am[2];
+			const size = parseInt(am[3], 10);
+			if (!localVariables.find((v) => v.name === name)) {
+				localVariables.push({
+					arraySize: size,
+					line: lineOf(clean, funcStartIndex + (am.index ?? 0)),
+					name,
+					type,
+				});
 			}
 		}
 
@@ -213,6 +230,10 @@ export function analyzeDocument(src: string): GlslDocument {
 		`\\b(${TYPE_RE_SRC})\\s+(\\w+(?:\\s*,\\s*\\w+)*)\\s*(?:=|;)`,
 		'g',
 	);
+	const globalArrayRe = new RegExp(
+		`\\b(${TYPE_RE_SRC})\\s+(\\w+)\\s*\\[\\s*(\\d+)\\s*\\]\\s*(?:=|;)`,
+		'g',
+	);
 	for (const m of globalVarRe[Symbol.matchAll](clean)) {
 		const idx = m.index!;
 		if (funcBodyRanges.some((r) => idx >= r.start && idx < r.end)) continue;
@@ -222,6 +243,21 @@ export function analyzeDocument(src: string): GlslDocument {
 			if (!functions.find((f) => f.name === name)) {
 				addVar({ name, type, line: lineOf(clean, idx) });
 			}
+		}
+	}
+	for (const m of globalArrayRe[Symbol.matchAll](clean)) {
+		const idx = m.index!;
+		if (funcBodyRanges.some((r) => idx >= r.start && idx < r.end)) continue;
+		const type = m[1];
+		const name = m[2];
+		const size = parseInt(m[3], 10);
+		if (!functions.find((f) => f.name === name)) {
+			addVar({
+				arraySize: size,
+				line: lineOf(clean, idx),
+				name,
+				type,
+			});
 		}
 	}
 
@@ -269,6 +305,56 @@ function escapeRe(s: string): string {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+const DECL_TYPE_RE =
+	'(?:u?i?b?vec[234]|mat[234](?:x[234])?|float|int|uint|bool)';
+
+/** Returns true if the array is ever read (not only written to) in the given scope. */
+function hasArrayRead(
+	scope: string,
+	arrName: string,
+	structNames: string[] = [],
+): boolean {
+	const typeRe =
+		structNames.length > 0
+			? `(?:${DECL_TYPE_RE}|${structNames.map(escapeRe).join('|')})`
+			: DECL_TYPE_RE;
+	const declRe = new RegExp(`\\b${typeRe}\\s+$`);
+	const re = new RegExp(`\\b${escapeRe(arrName)}\\[`, 'g');
+	let m;
+	while ((m = re.exec(scope)) !== null) {
+		const before = scope.slice(Math.max(0, m.index - 50), m.index);
+		if (declRe.test(before)) continue;
+
+		let depth = 1;
+		let i = m.index + m[0].length;
+		while (i < scope.length && depth > 0) {
+			if (scope[i] === '[') depth++;
+			else if (scope[i] === ']') depth--;
+			i++;
+		}
+		const afterBracket = scope.slice(i).replace(/^\s*/, '');
+		const isWrite = /^(?:\.\w+)*\s*=(?!=)/.test(afterBracket);
+		if (!isWrite) return true;
+	}
+	return false;
+}
+
+function getFunctionBody(clean: string, fn: GlslFunction): string {
+	const header = `${fn.returnType} ${fn.name}`;
+	const start = clean.indexOf(header);
+	if (start < 0) return '';
+	const braceStart = clean.indexOf('{', start);
+	if (braceStart < 0) return '';
+	let depth = 1;
+	let i = braceStart + 1;
+	while (depth > 0 && i < clean.length) {
+		if (clean[i] === '{') depth++;
+		else if (clean[i] === '}') depth--;
+		i++;
+	}
+	return clean.slice(braceStart + 1, i - 1);
+}
+
 // Pattern for GLSL primitive types used as value-discarding constructors
 const CONSTRUCTOR_TYPE_RE =
 	'(?:u?i?b?vec[234]|mat[234](?:x[234])?|float|int|uint|bool)';
@@ -281,10 +367,11 @@ const CONSTRUCTOR_TYPE_RE =
  *    (e.g. `vec3(1.0);`, `float(x);`).
  */
 export function findUnused(src: string, doc: GlslDocument): UnusedItem[] {
-	const clean     = stripComments(src);
-	const srcLines  = src.split('\n');
+	const clean      = stripComments(src);
+	const srcLines   = src.split('\n');
 	const cleanLines = clean.split('\n');
 	const result: UnusedItem[] = [];
+	const structNames = doc.structs.map((s) => s.name);
 
 	// Unused functions
 	for (const fn of doc.functions) {
@@ -328,13 +415,12 @@ export function findUnused(src: string, doc: GlslDocument): UnusedItem[] {
 		}
 	}
 
-	// Unused variables
+	// Unused variables (non-arrays)
 	for (const v of doc.variables) {
-		// Skip pipeline-visible or parameter qualifiers
 		if (v.qualifier && v.qualifier !== 'const') continue;
+		if (v.arraySize !== undefined) continue;
 
 		const occurrences = (clean.match(new RegExp(`\\b${escapeRe(v.name)}\\b`, 'g')) ?? []).length;
-		// ≤ 1 → only appears in its own declaration
 		if (occurrences <= 1) {
 			const lineContent = srcLines[v.line - 1] ?? '';
 			const col = lineContent.indexOf(v.name);
@@ -351,6 +437,63 @@ export function findUnused(src: string, doc: GlslDocument): UnusedItem[] {
 		}
 	}
 
+	// Unused arrays (never read, or write-only for non-global)
+	for (const v of doc.variables) {
+		if (v.arraySize === undefined) continue;
+		if (v.qualifier && v.qualifier !== 'const') continue;
+
+		if (!hasArrayRead(clean, v.name, structNames)) {
+			const lineContent = srcLines[v.line - 1] ?? '';
+			const col = lineContent.indexOf(v.name);
+			if (col >= 0) {
+				result.push({
+					name: v.name,
+					line: v.line,
+					startColumn: col + 1,
+					endColumn: col + v.name.length + 1,
+					kind: 'variable',
+					message: `Array '${v.name}' is declared but never read.`,
+				});
+			}
+		}
+	}
+
+	// Local write-only arrays: scan each function body directly for array declarations.
+	// This intentionally bypasses fn.localVariables to avoid any pipeline issue.
+	const localArrDeclRe = new RegExp(
+		`\\b(${CONSTRUCTOR_TYPE_RE})\\s+(\\w+)\\s*\\[\\s*\\d+\\s*\\]\\s*;`,
+		'g',
+	);
+	for (const fn of doc.functions) {
+		const body = getFunctionBody(clean, fn);
+		if (!body) continue;
+		localArrDeclRe.lastIndex = 0;
+		let am: RegExpExecArray | null;
+		while ((am = localArrDeclRe.exec(body)) !== null) {
+			const arrName = am[2];
+			if (hasArrayRead(body, arrName, structNames)) continue;
+
+			// Compute the absolute position in clean to derive the line number.
+			const fnHeader = `${fn.returnType} ${fn.name}`;
+			const fnStart = clean.indexOf(fnHeader);
+			const braceStart = fnStart >= 0 ? clean.indexOf('{', fnStart) : -1;
+			if (braceStart < 0) continue;
+			const absPos = braceStart + 1 + am.index;
+			const line = lineOf(clean, absPos);
+			const lineContent = srcLines[line - 1] ?? '';
+			const col = lineContent.indexOf(arrName);
+			if (col < 0) continue;
+			result.push({
+				endColumn: col + arrName.length + 1,
+				kind: 'variable',
+				line,
+				message: `Array '${arrName}' is declared but never read.`,
+				name: arrName,
+				startColumn: col + 1,
+			});
+		}
+	}
+
 	// Void expression statements
 	// Matches lines whose only statement is:
 	// 1. A type-constructor call (result discarded)
@@ -358,13 +501,17 @@ export function findUnused(src: string, doc: GlslDocument): UnusedItem[] {
 	// 2. An identifier with member access or array access (but not function calls,
 	//    which might have side effects)
 	//    e.g. a.test;   a[0];   a.b.c;
+	// Excludes: assignments (arr[i] = x; obj.f = x;) — they have side effects.
 	const voidStmtPatterns = [
 		new RegExp(`^\\s*(${CONSTRUCTOR_TYPE_RE})\\s*\\(.*\\)\\s*;\\s*$`),
 		/^\s*[a-zA-Z_]\w*(?:\.\w+|\[.*?\])*\s*;\s*$/,
 	];
+	const assignmentRe = /^\s*[a-zA-Z_]\w*(?:\.\w+|\[[^\]]*\])*\s*=(?!=)/;
 
 	for (let i = 0; i < cleanLines.length; i++) {
-		if (!voidStmtPatterns.some(re => re.test(cleanLines[i]))) continue;
+		const line = cleanLines[i];
+		if (!voidStmtPatterns.some((re) => re.test(line))) continue;
+		if (assignmentRe.test(line)) continue;
 
 		const originalLine = srcLines[i];
 		const colStart = originalLine.search(/\S/); // first non-whitespace
