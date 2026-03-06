@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { CircleAlert, Maximize2, Minimize2, Info } from '@lucide/svelte';
+	import { CircleAlert, Info, Maximize2, Minimize2 } from '@lucide/svelte';
 	import type { ChannelEntry, ShaderBuffer } from '$lib/shader-content';
-	import { shaderState } from '$lib/shaderState.svelte';
-	import ShaderInfoModal from '$lib/components/ShaderInfoModal.svelte';
 	import { auth } from '$lib/auth.svelte';
+	import ShaderInfoModal from '$lib/components/ShaderInfoModal.svelte';
+	import { shaderState } from '$lib/shaderState.svelte';
 
 	// 'image' and 'common' are reserved. All other IDs are user buffers (buf1, buf2, …).
 	export type BufferId = string;
@@ -671,6 +671,7 @@ void main() {
 		});
 		resizeObserver.observe(canvas);
 
+		updateChannelTextures();
 		run();
 
 		return () => {

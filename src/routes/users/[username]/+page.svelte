@@ -7,7 +7,7 @@
 	import EditProfileSection from '$lib/components/EditProfileSection.svelte';
 	import ShaderPreview from '$lib/components/ShaderPreview.svelte';
 	import SeoHead from '$lib/components/SeoHead.svelte';
-	import { countStoredAssets, deserializeShaderContent, sumStoredAssetBytes } from '$lib/shader-content';
+	import { countStoredAssets, deserializeShaderContent, hydrateChannels, sumStoredAssetBytes } from '$lib/shader-content';
 	import {
 		SHADER_IMAGE_MAX_BYTES,
 		SHADER_VIDEO_MAX_BYTES,
@@ -74,6 +74,7 @@
 						mediaCount: countStoredAssets(s.content),
 						assetBytes: sumStoredAssetBytes(s.content),
 						buffers: deserializeShaderContent(s.content).buffers,
+						channels: hydrateChannels(s.content),
 					}));
 				})
 				.catch(() => { ownerShaders = []; });
@@ -245,6 +246,7 @@
 							{#if shader.buffers && shader.buffers.length > 0}
 								<ShaderPreview
 									buffers={shader.buffers}
+									channels={shader.channels}
 									shaderId={shader.id}
 									name={shader.name}
 								/>

@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { X, Upload, Image, Video, Layers, Webcam } from '@lucide/svelte';
+	import { Image, Layers, Upload, Video, Webcam, X } from '@lucide/svelte';
 	import { auth, SessionExpiredError } from '$lib/auth.svelte';
 	import { pb } from '$lib/pocketbase';
 	import { CHANNEL_SLOT_IDS, type ChannelEntry, type ShaderBuffer } from '$lib/shader-content';
 	import {
-		SHADER_FILE_ACCEPT,
 		formatBytes,
+		SHADER_FILE_ACCEPT,
 	} from '$lib/shader-asset-policy';
 	import {
 		createLocalChannelEntry,
@@ -330,9 +330,9 @@
 							}}
 							class="text-xs flex-1 px-1.5 py-0.5 rounded bg-background border border-border text-foreground cursor-pointer"
 						>
-							<option value="nearest">Nearest</option>
 							<option value="linear">Linear</option>
 							<option value="linear-mipmap">Mipmap</option>
+							<option value="nearest">Nearest</option>
 						</select>
 					</div>
 					<!-- Wrap -->

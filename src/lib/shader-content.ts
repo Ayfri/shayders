@@ -1,3 +1,5 @@
+import { buildShaderAssetUrl } from './shader-asset-url';
+
 export interface ShaderBuffer {
 	id: string;
 	label: string;
@@ -208,7 +210,7 @@ export function serializeShaderContent(
 			return [{
 				id: channel.id,
 				type: channel.type === 'image' ? 'texture' : 'video',
-				url: channel.url,
+				url: buildShaderAssetUrl(channel.storageKey),
 				key: channel.storageKey,
 				name: channel.name ?? `Channel ${channel.id}`,
 				mime: channel.mime,
@@ -261,7 +263,7 @@ export function hydrateChannels(content: unknown): ChannelEntry[] {
 		channels[entry.id] = {
 			...channels[entry.id],
 			type: entry.type === 'texture' ? 'image' : 'video',
-			url: entry.url,
+			url: buildShaderAssetUrl(entry.key),
 			name: entry.name,
 			bufferId: null,
 			filter: entry.filter,
@@ -288,7 +290,7 @@ export function extractStoredAssets(content: unknown): StoredShaderAsset[] {
 		return [{
 			channelId: entry.id,
 			key: entry.key,
-			url: entry.url,
+			url: buildShaderAssetUrl(entry.key),
 			mime: entry.mime,
 			size: entry.size,
 			type: entry.type,

@@ -46,6 +46,7 @@
 							{#if shader.buffers && shader.buffers.length > 0}
 								<ShaderPreview
 									buffers={shader.buffers}
+									channels={shader.channels}
 									shaderId={shader.id}
 									name={shader.name}
 								/>

@@ -3,7 +3,7 @@ import type { PageServerLoad } from './$types';
 import PocketBase from 'pocketbase';
 import { PUBLIC_POCKETBASE_URL } from '$env/static/public';
 import type { TypedPocketBase, ShadersResponse, UsersResponse } from '$lib/pocketbase-types';
-import { countStoredAssets, deserializeShaderContent } from '$lib/shader-content';
+import { countStoredAssets, deserializeShaderContent, hydrateChannels } from '$lib/shader-content';
 import { SHADER_LIST_SORT } from '$lib/shader-list';
 
 export const load: PageServerLoad = async ({ params }) => {
@@ -43,6 +43,7 @@ export const load: PageServerLoad = async ({ params }) => {
 				visiblity: s.visiblity ?? 'public',
 				mediaCount: countStoredAssets(s.content),
 				buffers: content.buffers,
+				channels: hydrateChannels(s.content),
 			};
 		}),
 	};

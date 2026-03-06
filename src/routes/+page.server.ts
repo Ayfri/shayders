@@ -2,7 +2,7 @@ import type { PageServerLoad } from './$types.js';
 import PocketBase from 'pocketbase';
 import { PUBLIC_POCKETBASE_URL } from '$env/static/public';
 import type { TypedPocketBase } from '$lib/pocketbase-types';
-import { deserializeShaderContent } from '$lib/shader-content';
+import { deserializeShaderContent, hydrateChannels } from '$lib/shader-content';
 import { SHADER_LIST_SORT } from '$lib/shader-list';
 
 export const load: PageServerLoad = async () => {
@@ -25,6 +25,7 @@ export const load: PageServerLoad = async () => {
 					description: s.description ?? '',
 					created: s.created,
 					buffers: content.buffers,
+					channels: hydrateChannels(s.content),
 					authorId: s.user_id,
 					authorName: ((s.expand as any)?.user_id as any)?.name ?? 'Unknown',
 				};

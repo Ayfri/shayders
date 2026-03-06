@@ -2,16 +2,17 @@ import { error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import {
 	DeleteObjectsCommand,
+	GetObjectCommand,
 	HeadObjectCommand,
 	PutObjectCommand,
 	S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { SHADER_UPLOAD_URL_TTL_SECONDS } from '$lib/shader-asset-policy';
+import { buildShaderAssetUrl } from '$lib/shader-asset-url';
 
 interface R2Settings {
 	bucketName: string;
-	publicBaseUrl: string;
 	endpoint: string;
 	accessKeyId: string;
 	secretAccessKey: string;
@@ -37,14 +38,12 @@ function requiredEnv(name: string): string {
 
 function getR2Settings(): R2Settings {
 	const bucketName = requiredEnv('R2_BUCKET_NAME');
-	const publicBaseUrl = requiredEnv('R2_PUBLIC_BASE_URL').replace(/\/+$/, '');
 	const endpoint = env.R2_S3_ENDPOINT
 		? env.R2_S3_ENDPOINT.replace(/\/+$/, '')
 		: `https://${requiredEnv('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com`;
 
 	return {
 		bucketName,
-		publicBaseUrl,
 		endpoint,
 		accessKeyId: requiredEnv('R2_ACCESS_KEY_ID'),
 		secretAccessKey: requiredEnv('R2_SECRET_ACCESS_KEY'),
@@ -93,9 +92,19 @@ export function assertOwnedAssetKey(key: string, userId: string): void {
 }
 
 export function getR2PublicUrl(key: string): string {
-	const { publicBaseUrl } = getR2Settings();
-	const encodedKey = key.split('/').map((segment) => encodeURIComponent(segment)).join('/');
-	return `${publicBaseUrl}/${encodedKey}`;
+	return buildShaderAssetUrl(key);
+}
+
+export async function createPresignedAssetReadUrl(key: string): Promise<string> {
+	const { bucketName } = getR2Settings();
+	const command = new GetObjectCommand({
+		Bucket: bucketName,
+		Key: key,
+	});
+
+	return getSignedUrl(getR2Client(), command, {
+		expiresIn: SHADER_UPLOAD_URL_TTL_SECONDS,
+	});
 }
 
 export async function createPresignedUploadUrl(params: {
