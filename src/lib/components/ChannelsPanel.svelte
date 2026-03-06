@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { X, Upload, Image, Video, Layers, Webcam } from '@lucide/svelte';
-	import { auth } from '$lib/auth.svelte';
+	import { auth, SessionExpiredError } from '$lib/auth.svelte';
 	import { pb } from '$lib/pocketbase';
 	import { CHANNEL_SLOT_IDS, type ChannelEntry, type ShaderBuffer } from '$lib/shader-content';
 	import {
@@ -13,6 +13,7 @@
 		getPreparationStatusLabel,
 		getUploadStatusLabel,
 		prepareChannelUpload,
+		type PreparedChannelUpload,
 		uploadPreparedChannelAsset,
 	} from '$lib/channel-upload';
 
@@ -119,10 +120,11 @@
 
 		const existing = channels.find((c) => c.id === id);
 		clearUploadError(id);
+		let prepared: PreparedChannelUpload | null = null;
 
 		try {
 			setUploadStatus(id, getPreparationStatusLabel(file));
-			const prepared = await prepareChannelUpload(file);
+			prepared = await prepareChannelUpload(file);
 			if (auth.isLoggedIn) {
 				setUploadStatus(id, getUploadStatusLabel(prepared));
 				const upload = await uploadPreparedChannelAsset(
@@ -146,7 +148,15 @@
 			}
 			expireUploadStatus(id);
 		} catch (err) {
-			setUploadError(id, err instanceof Error ? err.message : 'Failed to process asset.');
+			if (err instanceof SessionExpiredError && prepared) {
+				revokeObjectUrl(existing?.url);
+				const url = URL.createObjectURL(prepared.file);
+				onChannelChange?.(createLocalChannelEntry(id, existing, prepared, url));
+				setUploadStatus(id, 'Session expired. Logged out. Asset kept as local preview only. Log in again to persist it.');
+				expireUploadStatus(id, 5000);
+			} else {
+				setUploadError(id, err instanceof Error ? err.message : 'Failed to process asset.');
+			}
 		} finally {
 			input.value = '';
 		}

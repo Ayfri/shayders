@@ -1,13 +1,13 @@
 <script lang="ts">
 	import type { PageProps } from './$types';
-	import { auth, logout, requestVerification } from '$lib/auth.svelte';
+	import { auth, logout, requestVerification, throwIfAuthenticatedApiError } from '$lib/auth.svelte';
 	import { pb } from '$lib/pocketbase';
 	import { goto } from '$app/navigation';
 	import { User, Trash2, Globe, Link, Lock, CodeXml, MailCheck, RefreshCw } from '@lucide/svelte';
 	import EditProfileSection from '$lib/components/EditProfileSection.svelte';
 	import ShaderPreview from '$lib/components/ShaderPreview.svelte';
 	import SeoHead from '$lib/components/SeoHead.svelte';
-	import { deserializeShaderContent, sumStoredAssetBytes } from '$lib/shader-content';
+	import { countStoredAssets, deserializeShaderContent, sumStoredAssetBytes } from '$lib/shader-content';
 	import {
 		SHADER_IMAGE_MAX_BYTES,
 		SHADER_VIDEO_MAX_BYTES,
@@ -38,6 +38,7 @@
 	let deletedIds = $state(new Set<string>());
 	let deletingId = $state<string | null>(null);
 	let confirmId = $state<string | null>(null);
+	let deleteError = $state('');
 
 	let resendLoading = $state(false);
 	let resendError = $state('');
@@ -70,6 +71,7 @@
 						description: s.description ?? '',
 						created: s.created,
 						visiblity: (s.visiblity ?? 'public') as ShaderItem['visiblity'],
+						mediaCount: countStoredAssets(s.content),
 						assetBytes: sumStoredAssetBytes(s.content),
 						buffers: deserializeShaderContent(s.content).buffers,
 					}));
@@ -97,6 +99,10 @@
 		return sortShadersByName(source.filter((shader) => !deletedIds.has(shader.id)));
 	});
 
+	const uploadedMediaCount = $derived.by(() => (
+		shaders.reduce((total, shader) => total + shader.mediaCount, 0)
+	));
+
 	function formatDate(iso: string) {
 		return new Date(iso).toLocaleDateString('en-US', {
 			year: 'numeric',
@@ -107,6 +113,7 @@
 
 	async function deleteShader(id: string) {
 		deletingId = id;
+		deleteError = '';
 		try {
 			const res = await fetch(`/api/shaders/${id}`, {
 				method: 'DELETE',
@@ -114,12 +121,10 @@
 					'Authorization': `Bearer ${pb.authStore.token}`,
 				},
 			});
-			if (!res.ok) {
-				const payload = await res.json().catch(() => null);
-				throw new Error(payload?.error ?? `HTTP ${res.status}`);
-			}
+			await throwIfAuthenticatedApiError(res, `Delete shader failed with HTTP ${res.status}.`);
 			deletedIds = new Set([...deletedIds, id]);
 		} catch (e) {
+			deleteError = e instanceof Error ? e.message : 'Failed to delete shader.';
 			console.error('Failed to delete shader', e);
 		} finally {
 			deletingId = null;
@@ -171,10 +176,17 @@
 			<div>
 				<h1 class="text-xl font-semibold text-foreground">{displayName}</h1>
 			</div>
-			<div class="ml-auto text-sm text-muted">
-				{shaders.length} shader{shaders.length !== 1 ? 's' : ''}
+			<div class="ml-auto flex flex-col items-end text-sm text-muted">
+				<p>{shaders.length} shader{shaders.length !== 1 ? 's' : ''}</p>
+				<p>{uploadedMediaCount} media item{uploadedMediaCount !== 1 ? 's' : ''}</p>
 			</div>
 		</div>
+
+		{#if deleteError}
+			<div class="mb-6 rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+				{deleteError}
+			</div>
+		{/if}
 
 		{#if isOwner}
 			<div class="mb-8 rounded-xl border border-border bg-surface px-4 py-4 sm:px-5">
@@ -190,9 +202,12 @@
 							<p class="mt-1 text-sm text-muted">Calculating your storage usage…</p>
 						{/if}
 					</div>
-					{#if ownerQuota}
-						<p class="text-sm text-muted">{Math.round(ownerQuota.usedPercent)}% used</p>
-					{/if}
+					<div class="text-sm text-muted sm:text-right">
+						{#if ownerQuota}
+							<p>{Math.round(ownerQuota.usedPercent)}% used</p>
+						{/if}
+						<p>{uploadedMediaCount} media item{uploadedMediaCount !== 1 ? 's' : ''} uploaded</p>
+					</div>
 				</div>
 
 				<div class="mt-3 h-2 overflow-hidden rounded-full bg-panel">

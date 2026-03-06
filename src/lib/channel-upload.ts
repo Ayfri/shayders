@@ -1,4 +1,5 @@
 import type { BinaryChannelType, ChannelEntry } from './shader-content';
+import { throwIfAuthenticatedApiError } from './auth.svelte';
 import { optimizeImageFileInWorker } from './image-optimizer';
 import {
 	getBinaryChannelTypeFromMime,
@@ -19,19 +20,6 @@ function copyChannelDisplaySettings(existing: ChannelEntry | undefined) {
 		wrap: existing?.wrap,
 		vflip: existing?.vflip,
 	};
-	}
-
-function readApiErrorMessage(payload: unknown, fallback: string): string {
-	if (
-		typeof payload === 'object'
-		&& payload !== null
-		&& 'error' in payload
-		&& typeof payload.error === 'string'
-	) {
-		return payload.error;
-	}
-
-	return fallback;
 	}
 
 function loadVideoMetadata(file: File): Promise<{ width: number; height: number; durationSeconds: number }> {
@@ -137,10 +125,7 @@ export async function uploadPreparedChannelAsset(
 			replacingKey: replacingKey ?? null,
 		}),
 	});
-	if (!response.ok) {
-		const payload = await response.json().catch(() => null);
-		throw new Error(readApiErrorMessage(payload, `Upload URL request failed with HTTP ${response.status}.`));
-	}
+	await throwIfAuthenticatedApiError(response, `Upload URL request failed with HTTP ${response.status}.`);
 
 	const upload = (await response.json()) as UploadUrlResponse;
 	const putResponse = await fetch(upload.uploadUrl, {

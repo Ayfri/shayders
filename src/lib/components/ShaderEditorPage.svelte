@@ -3,7 +3,7 @@
 	import ShaderCanvas from '$lib/components/ShaderCanvas.svelte';
 	import { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
 	import { UNIFORM_DOCS } from '$lib/glsl/builtins';
-	import { auth } from '$lib/auth.svelte';
+	import { auth, SessionExpiredError, throwIfAuthenticatedApiError } from '$lib/auth.svelte';
 	import { pb } from '$lib/pocketbase';
 	import { shaderState } from '$lib/shaderState.svelte';
 	import { replaceState } from '$app/navigation';
@@ -276,22 +276,30 @@
 		_compileTimer = setTimeout(() => run(), 800);
 	});
 
+	function saveDraftLocally(): boolean {
+		try {
+			const localData = {
+				name: shaderState.name,
+				description: shaderState.description,
+				visiblity: shaderState.visiblity,
+				buffers: buffersWithLatestCode(),
+				savedAt: new Date().toISOString(),
+			};
+			localStorage.setItem('shayders_draft', JSON.stringify(localData));
+			return true;
+		} catch (e) {
+			console.error('Error during local save', e);
+			return false;
+		}
+	}
+
 	async function saveProject() {
 		if (shaderState.isSaving) return;
 
 		if (!auth.isLoggedIn || !auth.user?.id) {
 			shaderState.isSaving = true;
 			try {
-				const localData = {
-					name: shaderState.name,
-					description: shaderState.description,
-					visiblity: shaderState.visiblity,
-					buffers: buffersWithLatestCode(),
-					savedAt: new Date().toISOString(),
-				};
-				localStorage.setItem('shayders_draft', JSON.stringify(localData));
-			} catch (e) {
-				console.error('Error during local save', e);
+				saveDraftLocally();
 			} finally {
 				shaderState.isSaving = false;
 			}
@@ -322,10 +330,7 @@
 					cleanupKeys: assetCleanupKeys,
 				}),
 			});
-			if (!res.ok) {
-				const payload = await res.json().catch(() => null);
-				throw new Error(payload?.error ?? `HTTP ${res.status}`);
-			}
+			await throwIfAuthenticatedApiError(res, `Failed to save shader (HTTP ${res.status}).`);
 			const data = await res.json();
 			if (data.record) {
 				const isNew = !shaderState.currentShaderId;
@@ -336,6 +341,16 @@
 				}
 			}
 		} catch (e) {
+			if (e instanceof SessionExpiredError) {
+				const savedLocally = saveDraftLocally();
+				window.alert(
+					savedLocally
+						? 'Session expired. You have been logged out. A local draft was saved so you can sign in again and retry.'
+						: e.message
+				);
+				return;
+			}
+
 			console.error('Crash during save', e);
 			window.alert(e instanceof Error ? e.message : 'Failed to save shader.');
 		} finally {

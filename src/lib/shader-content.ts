@@ -300,6 +300,12 @@ export function extractStoredAssetKeys(content: unknown): string[] {
 	return extractStoredAssets(content).map((asset) => asset.key);
 	}
 
+export function countStoredAssets(content: unknown, ignoredKeys: Set<string> = new Set()): number {
+	return extractStoredAssets(content)
+		.filter((asset) => !ignoredKeys.has(asset.key))
+		.length;
+}
+
 export function sumStoredAssetBytes(content: unknown, ignoredKeys: Set<string> = new Set()): number {
 	return extractStoredAssets(content)
 		.filter((asset) => !ignoredKeys.has(asset.key))
