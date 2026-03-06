@@ -1,13 +1,14 @@
 import { error } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
-import PocketBase from 'pocketbase';
 import { PUBLIC_POCKETBASE_URL } from '$env/static/public';
 import type { TypedPocketBase, ShadersResponse, UsersResponse } from '$lib/pocketbase-types';
 import { countStoredAssets, deserializeShaderContent, hydrateChannels } from '$lib/shader-content';
-import { SHADER_LIST_SORT } from '$lib/shader-list';
+import { getShaderListSort, normalizeShaderSort } from '$lib/shader-list';
+import PocketBase from 'pocketbase';
+import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params }) => {
+export const load: PageServerLoad = async ({ params, url }) => {
 	const pb = new PocketBase(PUBLIC_POCKETBASE_URL) as TypedPocketBase;
+	const selectedSort = normalizeShaderSort(url.searchParams.get('sort'));
 
 	let profileUser: UsersResponse;
 	try {
@@ -20,7 +21,7 @@ export const load: PageServerLoad = async ({ params }) => {
 	try {
 		const result = await pb.collection('shaders').getList(1, 100, {
 			filter: pb.filter("user_id = {:userId} && visiblity = 'public'", { userId: profileUser.id }),
-			sort: SHADER_LIST_SORT,
+			sort: getShaderListSort(selectedSort),
 		});
 		shaders = result.items;
 	} catch {
@@ -32,6 +33,7 @@ export const load: PageServerLoad = async ({ params }) => {
 			id: profileUser.id,
 			name: profileUser.name ?? '',
 		},
+		selectedSort,
 		shaders: shaders.map((s) => {
 			const content = deserializeShaderContent(s.content);
 
