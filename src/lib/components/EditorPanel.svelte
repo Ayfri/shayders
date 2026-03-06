@@ -4,12 +4,11 @@
 	import { isShadertoyShader, convertFromShadertoy } from '$lib/shadertoyConverter';
 	import GlslEditor from '$lib/components/GlslEditor.svelte';
 	import BuiltinsPanel, { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
-	import ChannelsPanel, { type ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
+	import ChannelsPanel from '$lib/components/ChannelsPanel.svelte';
 	import EditorSettingsModal from '$lib/components/EditorSettingsModal.svelte';
 	import Modal from '$lib/components/Modal.svelte';
-	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
+	import type { ChannelEntry, ShaderBuffer } from '$lib/shader-content';
 	import { loadSettings, saveSettings, type EditorSettingsData, EDITOR_DEFAULTS } from '$lib/editorSettings';
-	import { shaderState } from '$lib/shaderState.svelte';
 	import { auth } from '$lib/auth.svelte';
 
 	interface Props {

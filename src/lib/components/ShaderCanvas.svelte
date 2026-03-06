@@ -1,19 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { CircleAlert, Maximize2, Minimize2, Info } from '@lucide/svelte';
-	import type { ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
+	import type { ChannelEntry, ShaderBuffer } from '$lib/shader-content';
 	import { shaderState } from '$lib/shaderState.svelte';
 	import ShaderInfoModal from '$lib/components/ShaderInfoModal.svelte';
 	import { auth } from '$lib/auth.svelte';
 
 	// 'image' and 'common' are reserved. All other IDs are user buffers (buf1, buf2, …).
 	export type BufferId = string;
-
-	export interface ShaderBuffer {
-		id: BufferId;
-		label: string;
-		code: string;
-	}
 
 	interface Props {
 		buffers: ShaderBuffer[];
@@ -382,6 +376,8 @@ void main() {
 
 			if (ch.type === 'video') {
 				const video = document.createElement('video');
+				video.crossOrigin = 'anonymous';
+				video.preload = 'auto';
 				video.src = ch.url;
 				video.loop = true;
 				video.muted = true;
@@ -417,6 +413,7 @@ void main() {
 				channelTexStates.set(ch.id, { texture: tex, videoEl: video, stream: null, url: ch.url });
 			} else {
 				const img = new window.Image();
+				img.crossOrigin = 'anonymous';
 				img.onload = () => {
 					if (!gl) return;
 					gl.bindTexture(gl.TEXTURE_2D, tex);

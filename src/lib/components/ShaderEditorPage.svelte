@@ -1,8 +1,7 @@
 <script lang="ts">
 	import EditorPanel from '$lib/components/EditorPanel.svelte';
-	import ShaderCanvas, { type ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
+	import ShaderCanvas from '$lib/components/ShaderCanvas.svelte';
 	import { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
-	import { type ChannelEntry } from '$lib/components/ChannelsPanel.svelte';
 	import { UNIFORM_DOCS } from '$lib/glsl/builtins';
 	import { auth } from '$lib/auth.svelte';
 	import { pb } from '$lib/pocketbase';
@@ -10,6 +9,12 @@
 	import { replaceState } from '$app/navigation';
 	import { defaultImageShader, defaultBufferShader, defaultCommonCode } from '$lib/defaultShaders';
 	import type { ShadersVisiblityOptions } from '$lib/pocketbase-types';
+	import {
+		createEmptyChannels,
+		listUnpersistedBinaryChannels,
+		type ChannelEntry,
+		type ShaderBuffer,
+	} from '$lib/shader-content';
 
 	interface Props {
 		initialId?: string;
@@ -17,12 +22,13 @@
 		initialDescription?: string;
 		initialVisiblity?: keyof typeof ShadersVisiblityOptions;
 		initialBuffers?: ShaderBuffer[];
+		initialChannels?: ChannelEntry[];
 		viewOnly?: boolean;
 		authorId?: string;
 		authorName?: string;
 	}
 
-	let { initialId, initialName, initialDescription, initialVisiblity, initialBuffers, viewOnly = false, authorId, authorName }: Props = $props();
+	let { initialId, initialName, initialDescription, initialVisiblity, initialBuffers, initialChannels, viewOnly = false, authorId, authorName }: Props = $props();
 
 	// State - initialized with defaults, overridden from props in $effect.pre below
 	let buffers = $state<ShaderBuffer[]>([{ id: 'image', label: 'Image', code: defaultImageShader }]);
@@ -34,17 +40,20 @@
 	let thumbnails = $state<Record<string, string>>({});
 	let panelOpen = $state(false);
 	let shaderCanvas = $state<ReturnType<typeof ShaderCanvas> | null>(null);
-	let channels = $state<ChannelEntry[]>([
-		{ id: 0, type: null, url: null, name: null },
-		{ id: 1, type: null, url: null, name: null },
-		{ id: 2, type: null, url: null, name: null },
-		{ id: 3, type: null, url: null, name: null },
-	]);
+	let channels = $state<ChannelEntry[]>(createEmptyChannels());
+	let assetCleanupKeys = $state<string[]>([]);
 
 	// Initialize all prop-driven state before first paint
 	$effect.pre(() => {
-		const bufs = initialBuffers ?? [{ id: 'image', label: 'Image', code: defaultImageShader }];
+		const bufs = initialBuffers && initialBuffers.length > 0
+			? initialBuffers
+			: [{ id: 'image', label: 'Image', code: defaultImageShader }];
+		const nextChannels = initialChannels && initialChannels.length > 0
+			? initialChannels.map((channel) => ({ ...channel }))
+			: createEmptyChannels();
 		buffers = bufs;
+		channels = nextChannels;
+		assetCleanupKeys = [];
 		const startBuf = bufs.find((b) => b.id === 'image') ?? bufs[0];
 		editorValue = startBuf?.code ?? defaultImageShader;
 		activeBufferId = startBuf?.id ?? 'image';
@@ -98,6 +107,9 @@
 
 	function handleChannelChange(ch: ChannelEntry) {
 		const oldCh = channels.find((c) => c.id === ch.id);
+		if (oldCh?.storageKey && oldCh.storageKey !== ch.storageKey) {
+			assetCleanupKeys = [...new Set([...assetCleanupKeys, oldCh.storageKey])];
+		}
 		const wasActive = oldCh?.type != null;
 		const isActive = ch.type != null;
 		const uniformName = `uChannel${ch.id}`;
@@ -286,6 +298,12 @@
 			return;
 		}
 
+		const pendingChannelIds = listUnpersistedBinaryChannels(channels);
+		if (pendingChannelIds.length > 0) {
+			window.alert(`Upload channel assets before saving: ${pendingChannelIds.map((id) => `CH${id}`).join(', ')}.`);
+			return;
+		}
+
 		shaderState.isSaving = true;
 		try {
 			const res = await fetch('/api/shaders', {
@@ -299,21 +317,27 @@
 					name: shaderState.name,
 					description: shaderState.description,
 					visiblity: shaderState.visiblity,
-					userId: auth.user.id,
 					buffers: buffersWithLatestCode(),
+					channels,
+					cleanupKeys: assetCleanupKeys,
 				}),
 			});
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			if (!res.ok) {
+				const payload = await res.json().catch(() => null);
+				throw new Error(payload?.error ?? `HTTP ${res.status}`);
+			}
 			const data = await res.json();
 			if (data.record) {
 				const isNew = !shaderState.currentShaderId;
 				shaderState.currentShaderId = data.record.id;
+				assetCleanupKeys = [];
 				if (isNew) {
 					replaceState(`/shader/${data.record.id}`, {});
 				}
 			}
 		} catch (e) {
 			console.error('Crash during save', e);
+			window.alert(e instanceof Error ? e.message : 'Failed to save shader.');
 		} finally {
 			shaderState.isSaving = false;
 		}

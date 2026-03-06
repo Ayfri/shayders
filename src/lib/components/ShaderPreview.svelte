@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
+	import type { ShaderBuffer } from '$lib/shader-content';
 
 	interface Props {
 		buffers: ShaderBuffer[];

@@ -1,17 +1,20 @@
 <script lang="ts">
 	import { X, Upload, Image, Video, Layers, Webcam } from '@lucide/svelte';
-	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
-
-	export interface ChannelEntry {
-		id: number; // 0–3
-		type: 'image' | 'video' | 'webcam' | 'buffer' | null;
-		url: string | null;
-		name: string | null;
-		bufferId?: string | null;
-		filter?: 'linear' | 'nearest' | 'linear-mipmap';
-		wrap?: 'repeat' | 'clamp';
-		vflip?: boolean;
-	}
+	import { auth } from '$lib/auth.svelte';
+	import { pb } from '$lib/pocketbase';
+	import { CHANNEL_SLOT_IDS, type ChannelEntry, type ShaderBuffer } from '$lib/shader-content';
+	import {
+		SHADER_FILE_ACCEPT,
+		formatBytes,
+	} from '$lib/shader-asset-policy';
+	import {
+		createLocalChannelEntry,
+		createUploadedChannelEntry,
+		getPreparationStatusLabel,
+		getUploadStatusLabel,
+		prepareChannelUpload,
+		uploadPreparedChannelAsset,
+	} from '$lib/channel-upload';
 
 	interface Props {
 		channels: ChannelEntry[];
@@ -26,13 +29,68 @@
 		buffers.filter((b) => b.id !== 'common' && b.id !== 'image')
 	);
 
-	let fileInputs = $state<(HTMLInputElement | null)[]>([null, null, null, null]);
-	let webcamVideos = $state<(HTMLVideoElement | null)[]>([null, null, null, null]);
-	let webcamStreams = $state<(MediaStream | null)[]>([null, null, null, null]);
+	let fileInputs = $state<(HTMLInputElement | null)[]>(CHANNEL_SLOT_IDS.map(() => null));
+	let webcamVideos = $state<(HTMLVideoElement | null)[]>(CHANNEL_SLOT_IDS.map(() => null));
+	let webcamStreams = $state<(MediaStream | null)[]>(CHANNEL_SLOT_IDS.map(() => null));
+	let uploadStatus = $state<Record<number, string>>({});
+	let uploadErrors = $state<Record<number, string>>({});
+
+	function clearBinaryAssetFields() {
+		return {
+			mime: null,
+			size: null,
+			storageKey: null,
+			width: null,
+			height: null,
+			durationSeconds: null,
+		};
+	}
+
+	function keepChannelSettings(existing: ChannelEntry | undefined) {
+		return {
+			filter: existing?.filter,
+			wrap: existing?.wrap,
+			vflip: existing?.vflip,
+		};
+	}
+
+	function revokeObjectUrl(url: string | null | undefined) {
+		if (url?.startsWith('blob:')) {
+			URL.revokeObjectURL(url);
+		}
+	}
+
+	function clearUploadStatus(id: number) {
+		const next = { ...uploadStatus };
+		delete next[id];
+		uploadStatus = next;
+	}
+
+	function clearUploadError(id: number) {
+		const next = { ...uploadErrors };
+		delete next[id];
+		uploadErrors = next;
+	}
+
+	function setUploadStatus(id: number, message: string) {
+		clearUploadError(id);
+		uploadStatus = { ...uploadStatus, [id]: message };
+	}
+
+	function setUploadError(id: number, message: string) {
+		clearUploadStatus(id);
+		uploadErrors = { ...uploadErrors, [id]: message };
+	}
+
+	function expireUploadStatus(id: number, delay = 2500) {
+		window.setTimeout(() => clearUploadStatus(id), delay);
+	}
 
 	function startWebcam(id: number) {
 		const existing = channels.find((c) => c.id === id);
-		if (existing?.url) URL.revokeObjectURL(existing.url);
+		revokeObjectUrl(existing?.url);
+		clearUploadStatus(id);
+		clearUploadError(id);
 
 		navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
 			.then(stream => {
@@ -41,36 +99,92 @@
 					webcamVideos[id]!.play().catch(err => console.error('Error playing webcam:', err));
 				}
 				webcamStreams[id] = stream;
-				onChannelChange?.({ id, type: 'webcam', url: 'webcam', name: 'Webcam', bufferId: null });
+				onChannelChange?.({
+					id,
+					type: 'webcam',
+					url: 'webcam',
+					name: 'Webcam',
+					bufferId: null,
+					...keepChannelSettings(existing),
+					...clearBinaryAssetFields(),
+				});
 			})
 			.catch(err => console.error('Webcam access denied:', err));
 	}
 
-	function handleFile(id: number, e: Event) {
-		const file = (e.target as HTMLInputElement).files?.[0];
+	async function handleFile(id: number, e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
 		if (!file) return;
-		const isVideo = file.type.startsWith('video/');
+
 		const existing = channels.find((c) => c.id === id);
-		if (existing?.url) URL.revokeObjectURL(existing.url);
-		const url = URL.createObjectURL(file);
-		onChannelChange?.({ id, type: isVideo ? 'video' : 'image', url, name: file.name, bufferId: null });
-		(e.target as HTMLInputElement).value = '';
+		clearUploadError(id);
+
+		try {
+			setUploadStatus(id, getPreparationStatusLabel(file));
+			const prepared = await prepareChannelUpload(file);
+			if (auth.isLoggedIn) {
+				setUploadStatus(id, getUploadStatusLabel(prepared));
+				const upload = await uploadPreparedChannelAsset(
+					pb.authStore.token,
+					prepared,
+					existing?.storageKey,
+				);
+				revokeObjectUrl(existing?.url);
+				onChannelChange?.(createUploadedChannelEntry(id, existing, upload));
+				setUploadStatus(
+					id,
+					`Uploaded ${formatBytes(upload.asset.size)}. ${formatBytes(upload.quota.usedBytes)} / ${formatBytes(upload.quota.totalBytes)} used.`
+				);
+			} else {
+				revokeObjectUrl(existing?.url);
+				const url = URL.createObjectURL(prepared.file);
+				onChannelChange?.(createLocalChannelEntry(id, existing, prepared, url));
+				setUploadStatus(id, 'Local preview only. Log in to persist assets.');
+				expireUploadStatus(id, 4000);
+				return;
+			}
+			expireUploadStatus(id);
+		} catch (err) {
+			setUploadError(id, err instanceof Error ? err.message : 'Failed to process asset.');
+		} finally {
+			input.value = '';
+		}
 	}
 
 	function assignBuffer(id: number, buf: ShaderBuffer) {
 		const existing = channels.find((c) => c.id === id);
-		if (existing?.url) URL.revokeObjectURL(existing.url);
-		onChannelChange?.({ id, type: 'buffer', url: null, name: buf.label, bufferId: buf.id });
+		revokeObjectUrl(existing?.url);
+		clearUploadStatus(id);
+		clearUploadError(id);
+		onChannelChange?.({
+			id,
+			type: 'buffer',
+			url: null,
+			name: buf.label,
+			bufferId: buf.id,
+			...keepChannelSettings(existing),
+			...clearBinaryAssetFields(),
+		});
 	}
 
 	function clearChannel(id: number) {
 		const ch = channels.find((c) => c.id === id);
-		if (ch?.url) URL.revokeObjectURL(ch.url);
+		revokeObjectUrl(ch?.url);
 		if (webcamStreams[id]) {
 			webcamStreams[id]!.getTracks().forEach(t => t.stop());
 			webcamStreams[id] = null;
 		}
-		onChannelChange?.({ id, type: null, url: null, name: null, bufferId: null });
+		clearUploadStatus(id);
+		clearUploadError(id);
+		onChannelChange?.({
+			id,
+			type: null,
+			url: null,
+			name: null,
+			bufferId: null,
+			...clearBinaryAssetFields(),
+		});
 	}
 
 	function onSlotKeydown(id: number, e: KeyboardEvent) {
@@ -82,7 +196,12 @@
 </script>
 
 <div class="grid grid-cols-2 gap-2 p-3 bg-panel border-b border-border shrink-0 max-h-96 overflow-y-auto">
-	{#each [0, 1, 2, 3] as id (id)}
+	{#if !auth.isLoggedIn}
+		<div class="col-span-2 rounded border border-border bg-background/60 px-2 py-1.5 text-[10px] leading-relaxed text-muted">
+			Images are still optimized in a worker, but uploads stay local until you log in. Buffer and webcam channels still work normally.
+		</div>
+	{/if}
+	{#each CHANNEL_SLOT_IDS as id (id)}
 		{@const ch = channels.find((c) => c.id === id) ?? null}
 		<div class="flex flex-col gap-1">
 			<div class="flex items-center justify-between px-0.5">
@@ -179,6 +298,12 @@
 				{/if}
 			</div>
 
+			{#if uploadErrors[id]}
+				<p class="px-0.5 text-[10px] leading-relaxed text-red-400">{uploadErrors[id]}</p>
+			{:else if uploadStatus[id]}
+				<p class="px-0.5 text-[10px] leading-relaxed text-cyan-400">{uploadStatus[id]}</p>
+			{/if}
+
 			<!-- Texture options -->
 			{#if ch?.type && ch.type !== 'buffer' && ch.type !== null}
 				<div class="space-y-1 px-0.5 py-1">
@@ -262,7 +387,7 @@
 			<input
 				bind:this={fileInputs[id]}
 				type="file"
-				accept="image/*,video/*"
+				accept={SHADER_FILE_ACCEPT}
 				class="sr-only"
 				onchange={(e) => handleFile(id, e)}
 			/>
