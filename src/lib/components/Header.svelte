@@ -1,9 +1,11 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { LogIn, LogOut, User, UserPlus } from '@lucide/svelte';
 	import { auth, logout } from '$lib/auth.svelte';
-	import { pb } from '$lib/pocketbase';
-	import { goto } from '$app/navigation';
 	import logo from '$lib/assets/logo.png';
+	import SiteSearch from '$lib/components/SiteSearch.svelte';
+	import { pb } from '$lib/pocketbase';
+	import { getUserProfilePath } from '$lib/site';
 
 	function handleLogout() {
 		logout();
@@ -11,61 +13,71 @@
 	}
 </script>
 
-<header class="flex items-center justify-between px-4 sm:px-6 h-12 bg-surface border-b border-border shrink-0">
-	<div class="flex items-center gap-4 sm:gap-10">
-		<a href="/" class="flex items-center gap-2 text-foreground hover:text-white transition-colors font-semibold tracking-wide">
-			<img src={logo} alt="Shayders Logo" class="size-6" />
-			<span>Shayders</span>
-		</a>
-		<nav class="flex items-center gap-2 sm:gap-4">
-			<a
-				href="/new"
-				class="flex items-center gap-1.5 px-5 py-1 rounded text-foreground hover:bg-panel transition-colors"
-			>
-				New
-			</a>
-		</nav>
-	</div>
+<header class="shrink-0 border-b border-border bg-surface">
+	<div class="px-4 py-1.5 sm:px-6">
+		<div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+			<div class="flex items-center gap-4 sm:gap-10">
+				<a href="/" class="flex items-center gap-2 font-semibold tracking-wide text-foreground transition-colors hover:text-white">
+					<img src={logo} alt="Shayders Logo" class="size-6" />
+					<span>Shayders</span>
+				</a>
+				<nav class="flex items-center gap-2 sm:gap-4">
+					<a
+						href="/new"
+						class="flex items-center gap-1.5 rounded px-5 py-1 text-foreground transition-colors hover:bg-panel"
+					>
+						New
+					</a>
+				</nav>
+			</div>
 
-	<nav class="flex items-center gap-2 sm:gap-4 text-sm">
-		{#if auth.isLoggedIn}
-			<a
-				href="/users/{auth.user?.id}"
-				class="flex items-center gap-1.5 text-muted hover:text-foreground transition-colors"
-			>
-				{#if auth.user?.avatar}
-					<img
-						src={`${pb.baseURL}/api/files/users/${auth.user.id}/${auth.user.avatar}`}
-						alt=""
-						class="size-6 rounded-full object-cover"
-					/>
-				{:else}
-					<User size={15} />
-				{/if}
-				{auth.user?.name || auth.user?.username}
-			</a>
-			<button
-				onclick={handleLogout}
-				class="flex items-center gap-1.5 px-2 py-1 sm:px-3 rounded text-red-400 hover:text-red-300 border border-red-current/50 bg-red-950/30 transition-colors cursor-pointer"
-			>
-				<LogOut size={14} />
-				Logout
-			</button>
-		{:else}
-			<a
-				href="/login"
-				class="flex items-center gap-1.5 px-2 py-1 sm:px-3 rounded text-muted hover:text-foreground hover:bg-panel transition-colors"
-			>
-				<LogIn size={14} />
-				Login
-			</a>
-			<a
-				href="/signup"
-				class="flex items-center gap-1.5 px-2 py-1 sm:px-3 rounded bg-panel text-cyan-300 hover:bg-cyan-200/10 transition-colors"
-			>
-				<UserPlus size={14} />
-				Sign up
-			</a>
-		{/if}
-	</nav>
+			<div class="flex flex-col gap-12 sm:flex-row sm:items-center xl:flex-1 xl:justify-end">
+				<div class="w-full sm:max-w-xs xl:max-w-sm">
+					<SiteSearch />
+				</div>
+
+				<nav class="flex min-w-0 items-center gap-2 text-sm sm:shrink-0 sm:gap-4">
+					{#if auth.isLoggedIn}
+						<a
+							href={auth.user ? getUserProfilePath(auth.user.id) : '/'}
+							class="flex min-w-0 items-center gap-1.5 text-muted transition-colors hover:text-foreground"
+						>
+							{#if auth.user?.avatar}
+								<img
+									src={`${pb.baseURL}/api/files/users/${auth.user.id}/${auth.user.avatar}`}
+									alt=""
+									class="size-6 rounded-full object-cover"
+								/>
+							{:else}
+								<User size={15} />
+							{/if}
+							<span class="truncate">{auth.user?.name || auth.user?.username}</span>
+						</a>
+						<button
+							onclick={handleLogout}
+							class="flex items-center gap-1.5 rounded border border-red-current/50 bg-red-950/30 px-2 py-1 text-red-400 transition-colors hover:text-red-300 cursor-pointer sm:px-3"
+						>
+							<LogOut size={14} />
+							Logout
+						</button>
+					{:else}
+						<a
+							href="/login"
+							class="flex items-center gap-1.5 rounded px-2 py-1 text-muted transition-colors hover:bg-panel hover:text-foreground sm:px-3"
+						>
+							<LogIn size={14} />
+							Login
+						</a>
+						<a
+							href="/signup"
+							class="flex items-center gap-1.5 rounded bg-panel px-2 py-1 text-cyan-300 transition-colors hover:bg-cyan-200/10 sm:px-3"
+						>
+							<UserPlus size={14} />
+							Sign up
+						</a>
+					{/if}
+				</nav>
+			</div>
+		</div>
+	</div>
 </header>
