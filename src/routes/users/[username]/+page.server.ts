@@ -1,8 +1,10 @@
-	import { error } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import PocketBase from 'pocketbase';
 import { PUBLIC_POCKETBASE_URL } from '$env/static/public';
 import type { TypedPocketBase, ShadersResponse, UsersResponse } from '$lib/pocketbase-types';
+import { deserializeShaderContent } from '$lib/shader-content';
+import { SHADER_LIST_SORT } from '$lib/shader-list';
 
 export const load: PageServerLoad = async ({ params }) => {
 	const pb = new PocketBase(PUBLIC_POCKETBASE_URL) as TypedPocketBase;
@@ -18,7 +20,7 @@ export const load: PageServerLoad = async ({ params }) => {
 	try {
 		const result = await pb.collection('shaders').getList(1, 100, {
 			filter: pb.filter("user_id = {:userId} && visiblity = 'public'", { userId: profileUser.id }),
-			sort: '-created',
+			sort: SHADER_LIST_SORT,
 		});
 		shaders = result.items;
 	} catch {
@@ -30,14 +32,17 @@ export const load: PageServerLoad = async ({ params }) => {
 			id: profileUser.id,
 			name: profileUser.name ?? '',
 		},
-		shaders: shaders.map((s) => ({
-			id: s.id,
-			name: s.name,
-			description: s.description ?? '',
-			created: s.created,
-			updated: s.updated,
-			visiblity: s.visiblity ?? 'public',
-			buffers: Array.isArray(s.content) ? (s.content as any[]) : [],
-		})),
+		shaders: shaders.map((s) => {
+			const content = deserializeShaderContent(s.content);
+
+			return {
+				id: s.id,
+				name: s.name,
+				description: s.description ?? '',
+				created: s.created,
+				visiblity: s.visiblity ?? 'public',
+				buffers: content.buffers,
+			};
+		}),
 	};
 };

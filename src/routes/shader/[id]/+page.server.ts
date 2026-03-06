@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types';
 import PocketBase from 'pocketbase';
 import { PUBLIC_POCKETBASE_URL } from '$env/static/public';
 import type { TypedPocketBase, ShadersResponse } from '$lib/pocketbase-types';
+import { deserializeShaderContent, hydrateChannels } from '$lib/shader-content';
 
 export const load: PageServerLoad = async ({ params }) => {
 	const pb = new PocketBase(PUBLIC_POCKETBASE_URL) as TypedPocketBase;
@@ -14,12 +15,15 @@ export const load: PageServerLoad = async ({ params }) => {
 		error(404, 'Shader not found');
 	}
 
+	const content = deserializeShaderContent(shader.content);
+
 	return {
 		shader: {
 			id: shader.id,
 			name: shader.name,
 			description: shader.description ?? '',
-			content: shader.content,
+			buffers: content.buffers,
+			channels: hydrateChannels(shader.content),
 			user_id: shader.user_id,
 			visiblity: shader.visiblity ?? 'public',
 			authorId: shader.user_id,

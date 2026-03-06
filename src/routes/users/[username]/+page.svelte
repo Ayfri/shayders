@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PageData } from './$types';
+	import type { PageProps } from './$types';
 	import { auth, logout, requestVerification } from '$lib/auth.svelte';
 	import { pb } from '$lib/pocketbase';
 	import { goto } from '$app/navigation';
@@ -7,10 +7,21 @@
 	import EditProfileSection from '$lib/components/EditProfileSection.svelte';
 	import ShaderPreview from '$lib/components/ShaderPreview.svelte';
 	import SeoHead from '$lib/components/SeoHead.svelte';
-	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
-	import type { ShadersVisiblityOptions } from '$lib/pocketbase-types';
+	import { deserializeShaderContent, sumStoredAssetBytes } from '$lib/shader-content';
+	import {
+		SHADER_IMAGE_MAX_BYTES,
+		SHADER_VIDEO_MAX_BYTES,
+		createQuotaSummary,
+		formatBytes,
+	} from '$lib/shader-asset-policy';
+	import { SHADER_LIST_SORT, sortShadersByName } from '$lib/shader-list';
 
-	let { data }: { data: PageData } = $props();
+	let { data }: PageProps = $props();
+
+	type ShaderItem = PageProps['data']['shaders'][number];
+	type OwnerShaderItem = ShaderItem & {
+		assetBytes: number;
+	};
 
 	const isOwner = $derived(auth.isLoggedIn && auth.user?.id === data.profileUser.id);
 	const displayName = $derived(isOwner ? (auth.user?.name ?? data.profileUser.name) : data.profileUser.name);
@@ -23,17 +34,7 @@
 	const title = $derived(`${displayName}'s Shaders - Shayders`);
 	const description = $derived(`Explore GLSL shader creations by ${displayName}. ${data.shaders.length} public shader${data.shaders.length !== 1 ? 's' : ''} available.`);
 
-	type ShaderItem = {
-		buffers?: ShaderBuffer[];
-		created: string;
-		description: string;
-		id: string;
-		name: string;
-		updated: string;
-		visiblity: keyof typeof ShadersVisiblityOptions;
-	};
-
-	let ownerShaders = $state<ShaderItem[] | null>(null);
+	let ownerShaders = $state<OwnerShaderItem[] | null>(null);
 	let deletedIds = $state(new Set<string>());
 	let deletingId = $state<string | null>(null);
 	let confirmId = $state<string | null>(null);
@@ -60,7 +61,7 @@
 			pb.collection('shaders')
 				.getList(1, 100, {
 					filter: pb.filter('user_id = {:userId}', { userId: data.profileUser.id }),
-					sort: '-created',
+					sort: SHADER_LIST_SORT,
 				})
 				.then((res) => {
 					ownerShaders = res.items.map((s) => ({
@@ -68,19 +69,33 @@
 						name: s.name,
 						description: s.description ?? '',
 						created: s.created,
-						updated: s.updated,
-						visiblity: (s.visiblity ?? 'public') as keyof typeof ShadersVisiblityOptions,
-						buffers: Array.isArray(s.content) ? (s.content as ShaderBuffer[]) : [],
+						visiblity: (s.visiblity ?? 'public') as ShaderItem['visiblity'],
+						assetBytes: sumStoredAssetBytes(s.content),
+						buffers: deserializeShaderContent(s.content).buffers,
 					}));
 				})
 				.catch(() => { ownerShaders = []; });
+		} else {
+			ownerShaders = null;
 		}
 	});
 
-	const shaders = $derived<ShaderItem[]>(
-		(isOwner ? (ownerShaders ?? data.shaders) : data.shaders)
-			.filter((s) => !deletedIds.has(s.id))
-	);
+	const ownerQuota = $derived.by(() => {
+		if (!isOwner || ownerShaders === null) {
+			return null;
+		}
+
+		const usedBytes = ownerShaders
+			.filter((shader) => !deletedIds.has(shader.id))
+			.reduce((total, shader) => total + shader.assetBytes, 0);
+
+		return createQuotaSummary(usedBytes);
+	});
+
+	const shaders = $derived.by<ShaderItem[]>(() => {
+		const source = isOwner ? (ownerShaders ?? data.shaders) : data.shaders;
+		return sortShadersByName(source.filter((shader) => !deletedIds.has(shader.id)));
+	});
 
 	function formatDate(iso: string) {
 		return new Date(iso).toLocaleDateString('en-US', {
@@ -93,7 +108,16 @@
 	async function deleteShader(id: string) {
 		deletingId = id;
 		try {
-			await pb.collection('shaders').delete(id);
+			const res = await fetch(`/api/shaders/${id}`, {
+				method: 'DELETE',
+				headers: {
+					'Authorization': `Bearer ${pb.authStore.token}`,
+				},
+			});
+			if (!res.ok) {
+				const payload = await res.json().catch(() => null);
+				throw new Error(payload?.error ?? `HTTP ${res.status}`);
+			}
 			deletedIds = new Set([...deletedIds, id]);
 		} catch (e) {
 			console.error('Failed to delete shader', e);
@@ -151,6 +175,34 @@
 				{shaders.length} shader{shaders.length !== 1 ? 's' : ''}
 			</div>
 		</div>
+
+		{#if isOwner}
+			<div class="mb-8 rounded-xl border border-border bg-surface px-4 py-4 sm:px-5">
+				<div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+					<div>
+						<p class="text-[11px] font-mono uppercase tracking-[0.18em] text-cyan-400/80">Storage quota</p>
+						{#if ownerQuota}
+							<p class="mt-1 text-lg font-semibold text-foreground">{formatBytes(ownerQuota.usedBytes)} / {formatBytes(ownerQuota.totalBytes)}</p>
+							<p class="text-xs text-muted">
+								{formatBytes(ownerQuota.remainingBytes)} remaining. Images up to {formatBytes(SHADER_IMAGE_MAX_BYTES)}, videos up to {formatBytes(SHADER_VIDEO_MAX_BYTES)}.
+							</p>
+						{:else}
+							<p class="mt-1 text-sm text-muted">Calculating your storage usage…</p>
+						{/if}
+					</div>
+					{#if ownerQuota}
+						<p class="text-sm text-muted">{Math.round(ownerQuota.usedPercent)}% used</p>
+					{/if}
+				</div>
+
+				<div class="mt-3 h-2 overflow-hidden rounded-full bg-panel">
+					<div
+						class="h-full rounded-full bg-linear-to-r from-cyan-400 to-sky-400 transition-[width] duration-300"
+						style={`width: ${ownerQuota?.usedPercent ?? 0}%`}
+					></div>
+				</div>
+			</div>
+		{/if}
 
 		{#if shaders.length === 0}
 			<div class="flex flex-col items-center justify-center py-24 gap-3 text-muted">

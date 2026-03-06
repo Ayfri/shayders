@@ -1,19 +1,16 @@
 <script lang="ts">
-	import ShaderCanvas, { type ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
 	import ShaderEditorPage from '$lib/components/ShaderEditorPage.svelte';
 	import SeoHead from '$lib/components/SeoHead.svelte';
 	import { auth } from '$lib/auth.svelte';
 	import { Lock } from '@lucide/svelte';
-	import type { PageData } from './$types';
+	import type { PageProps } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	let { data }: PageProps = $props();
 
 	const isOwner = $derived(!!auth.user?.id && auth.user.id === data.shader.user_id);
 	const isPrivate = $derived(data.shader.visiblity === 'private' && !isOwner);
-
-	const buffers = $derived<ShaderBuffer[]>(
-		Array.isArray(data.shader.content) ? (data.shader.content as ShaderBuffer[]) : []
-	);
+	const buffers = $derived(data.shader.buffers);
+	const channels = $derived(data.shader.channels);
 
 	const author = $derived(data.shader.authorName || 'Unknown Author');
 	const title = $derived(data.shader.name);
@@ -37,6 +34,7 @@
 		initialDescription={data.shader.description}
 		initialVisiblity={data.shader.visiblity}
 		initialBuffers={buffers}
+		initialChannels={channels}
 	/>
 {:else}
 	<ShaderEditorPage
@@ -45,6 +43,7 @@
 		initialDescription={data.shader.description}
 		initialVisiblity={data.shader.visiblity}
 		initialBuffers={buffers}
+		initialChannels={channels}
 		viewOnly
 		authorId={data.shader.authorId}
 		authorName={data.shader.authorName}

@@ -1,26 +1,13 @@
 <script lang="ts">
-	import type { PageData } from './$types';
+	import type { PageProps } from './$types';
 	import { CodeXml, Globe } from '@lucide/svelte';
 	import ShaderPreview from '$lib/components/ShaderPreview.svelte';
 	import SeoHead from '$lib/components/SeoHead.svelte';
-	import type { ShaderBuffer } from '$lib/components/ShaderCanvas.svelte';
+	import { sortShadersByName } from '$lib/shader-list';
 
-	let { data }: { data: PageData } = $props();
+	let { data }: PageProps = $props();
 
-	type ShaderItem = {
-		id: string;
-		name: string;
-		description: string;
-		created: string;
-		updated: string;
-		visiblity: string;
-		buffers?: ShaderBuffer[];
-		userId: string;
-		authorId: string;
-		authorName: string;
-	};
-
-	const shaders = $derived<ShaderItem[]>(data.shaders);
+	const shaders = $derived.by(() => sortShadersByName(data.shaders));
 
 	function formatDate(iso: string) {
 		return new Date(iso).toLocaleDateString('en-US', {
