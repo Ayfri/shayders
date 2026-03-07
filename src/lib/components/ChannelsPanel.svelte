@@ -87,30 +87,48 @@
 		window.setTimeout(() => clearUploadStatus(id), delay);
 	}
 
+	// Start stream for any webcam channel that doesn't have one yet
+	$effect(() => {
+		for (const id of CHANNEL_SLOT_IDS) {
+			const ch = channels.find((c) => c.id === id);
+			if (ch?.type === 'webcam' && !webcamStreams[id]) {
+				navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+					.then(stream => { webcamStreams[id] = stream; })
+					.catch(err => console.error('Webcam access denied:', err));
+			}
+		}
+	});
+
+	// Connect stream to video element whenever both become available
+	$effect(() => {
+		for (const id of CHANNEL_SLOT_IDS) {
+			const video = webcamVideos[id];
+			const stream = webcamStreams[id];
+			if (video && stream && video.srcObject !== stream) {
+				video.srcObject = stream;
+				video.play().catch(() => {});
+			}
+		}
+	});
+
 	function startWebcam(id: number) {
 		const existing = channels.find((c) => c.id === id);
+		if (webcamStreams[id]) {
+			webcamStreams[id]!.getTracks().forEach(t => t.stop());
+			webcamStreams[id] = null;
+		}
 		revokeObjectUrl(existing?.url);
 		clearUploadStatus(id);
 		clearUploadError(id);
-
-		navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
-			.then(stream => {
-				if (webcamVideos[id]) {
-					webcamVideos[id]!.srcObject = stream;
-					webcamVideos[id]!.play().catch(err => console.error('Error playing webcam:', err));
-				}
-				webcamStreams[id] = stream;
-				onChannelChange?.({
-					id,
-					type: 'webcam',
-					url: 'webcam',
-					name: 'Webcam',
-					bufferId: null,
-					...keepChannelSettings(existing),
-					...clearBinaryAssetFields(),
-				});
-			})
-			.catch(err => console.error('Webcam access denied:', err));
+		onChannelChange?.({
+			id,
+			type: 'webcam',
+			url: 'webcam',
+			name: 'Webcam',
+			bufferId: null,
+			...keepChannelSettings(existing),
+			...clearBinaryAssetFields(),
+		});
 	}
 
 	async function handleFile(id: number, e: Event) {
@@ -287,7 +305,23 @@
 
 			<!-- File name / clear row with webcam button -->
 			<div class="flex items-center gap-1 px-0.5 min-h-4">
-				{#if ch?.name}
+				{#if ch?.type === 'webcam'}
+					<span class="text-xs text-cyan-400/70 truncate flex-1">Webcam</span>
+					<button
+						onclick={() => clearChannel(id)}
+						class="shrink-0 text-subtle hover:text-red-400 cursor-pointer transition-colors p-0.5"
+						title="Remove channel"
+					>
+						<X size={10} />
+					</button>
+					<button
+						onclick={() => startWebcam(id)}
+						class="shrink-0 text-cyan-400 cursor-pointer transition-colors p-1"
+						title="Webcam active"
+					>
+						<Webcam size={14} />
+					</button>
+				{:else if ch?.name}
 					<span class="text-xs text-muted truncate flex-1" title={ch.name}>{ch.name}</span>
 					<button
 						onclick={() => clearChannel(id)}

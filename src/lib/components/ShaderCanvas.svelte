@@ -341,32 +341,47 @@ void main() {
 		}
 	}
 
+	function channelStateKey(ch: ChannelEntry): string {
+		const base = ch.type === 'webcam' ? 'webcam' : (ch.url ?? '');
+		if (!base) return '';
+		return `${base}|${ch.filter ?? 'linear'}|${ch.wrap ?? 'clamp'}|${ch.vflip ? '1' : '0'}`;
+	}
+
+	function cleanupChannelTex(id: number) {
+		const existing = channelTexStates.get(id);
+		if (!existing) return;
+		gl!.deleteTexture(existing.texture);
+		if (existing.videoEl) { existing.videoEl.pause(); existing.videoEl.src = ''; }
+		if (existing.stream) { existing.stream.getTracks().forEach(t => t.stop()); }
+		channelTexStates.delete(id);
+	}
+
+	function initVideoTexture(tex: WebGLTexture, minFilter: number, magFilter: number, wrapMode: number) {
+		gl!.bindTexture(gl!.TEXTURE_2D, tex);
+		gl!.texImage2D(gl!.TEXTURE_2D, 0, gl!.RGBA, 1, 1, 0, gl!.RGBA, gl!.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+		gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_MIN_FILTER, minFilter);
+		gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_MAG_FILTER, magFilter);
+		gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_WRAP_S, wrapMode);
+		gl!.texParameteri(gl!.TEXTURE_2D, gl!.TEXTURE_WRAP_T, wrapMode);
+		gl!.bindTexture(gl!.TEXTURE_2D, null);
+	}
+
 	// Channel textures: uChannel0-3 use texture units 8-11
 	function updateChannelTextures() {
 		if (!gl) return;
 		for (const ch of channels) {
 			// Buffer channels are bound directly from bufferStates at render time
 			if (ch.type === 'buffer') {
-				const existing = channelTexStates.get(ch.id);
-				if (existing) {
-					gl.deleteTexture(existing.texture);
-					if (existing.videoEl) { existing.videoEl.pause(); existing.videoEl.src = ''; }
-					if (existing.stream) { existing.stream.getTracks().forEach(t => t.stop()); }
-					channelTexStates.delete(ch.id);
-				}
+				cleanupChannelTex(ch.id);
 				continue;
 			}
+			const stateKey = channelStateKey(ch);
 			const existing = channelTexStates.get(ch.id);
-			if (existing && existing.url === (ch.url ?? '')) continue;
-			if (existing) {
-				gl.deleteTexture(existing.texture);
-				if (existing.videoEl) { existing.videoEl.pause(); existing.videoEl.src = ''; }
-				if (existing.stream) { existing.stream.getTracks().forEach(t => t.stop()); }
-				channelTexStates.delete(ch.id);
+			if (existing && existing.url === stateKey) continue;
+			if (!stateKey || !ch.type) {
+				cleanupChannelTex(ch.id);
+				continue;
 			}
-			if (!ch.url || !ch.type) continue;
-			const tex = gl.createTexture();
-			if (!tex) continue;
 
 			const filter = ch.filter ?? 'linear';
 			const wrap = ch.wrap ?? 'clamp';
@@ -374,43 +389,49 @@ void main() {
 			const magFilter = filter === 'nearest' ? gl.NEAREST : gl.LINEAR;
 			const wrapMode = wrap === 'repeat' ? gl.REPEAT : gl.CLAMP_TO_EDGE;
 
+			// Webcam: update texture params in-place when only filter/wrap/vflip changed
+			if (ch.type === 'webcam' && existing) {
+				gl.bindTexture(gl.TEXTURE_2D, existing.texture);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magFilter);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapMode);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapMode);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+				existing.url = stateKey;
+				continue;
+			}
+
+			cleanupChannelTex(ch.id);
+			const tex = gl.createTexture();
+			if (!tex) continue;
+
 			if (ch.type === 'video') {
 				const video = document.createElement('video');
 				video.crossOrigin = 'anonymous';
 				video.preload = 'auto';
-				video.src = ch.url;
+				video.src = ch.url!;
 				video.loop = true;
 				video.muted = true;
 				video.autoplay = true;
 				video.playsInline = true;
 				video.play().catch(() => {});
-				gl.bindTexture(gl.TEXTURE_2D, tex);
-				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magFilter);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapMode);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapMode);
-				gl.bindTexture(gl.TEXTURE_2D, null);
-				channelTexStates.set(ch.id, { texture: tex, videoEl: video, stream: null, url: ch.url });
+				initVideoTexture(tex, minFilter, magFilter, wrapMode);
+				channelTexStates.set(ch.id, { texture: tex, videoEl: video, stream: null, url: stateKey });
 			} else if (ch.type === 'webcam') {
 				const video = document.createElement('video');
 				video.autoplay = true;
 				video.playsInline = true;
 				video.muted = true;
+				const state: ChannelTexState = { texture: tex, videoEl: video, stream: null, url: stateKey };
+				channelTexStates.set(ch.id, state);
 				navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
 					.then(stream => {
+						state.stream = stream;
 						video.srcObject = stream;
 						video.play().catch(() => {});
 					})
 					.catch(err => console.error('Webcam error:', err));
-				gl.bindTexture(gl.TEXTURE_2D, tex);
-				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magFilter);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapMode);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapMode);
-				gl.bindTexture(gl.TEXTURE_2D, null);
-				channelTexStates.set(ch.id, { texture: tex, videoEl: video, stream: null, url: ch.url });
+				initVideoTexture(tex, minFilter, magFilter, wrapMode);
 			} else {
 				const img = new window.Image();
 				img.crossOrigin = 'anonymous';
@@ -427,29 +448,16 @@ void main() {
 					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapMode);
 					gl.bindTexture(gl.TEXTURE_2D, null);
 				};
-				img.onerror = () => {
-					console.error('Failed to load image:', ch.url);
-				};
-				img.src = ch.url;
-				gl.bindTexture(gl.TEXTURE_2D, tex);
-				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magFilter);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapMode);
-				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapMode);
-				gl.bindTexture(gl.TEXTURE_2D, null);
-				channelTexStates.set(ch.id, { texture: tex, videoEl: null, stream: null, url: ch.url });
+				img.onerror = () => { console.error('Failed to load image:', ch.url); };
+				img.src = ch.url!;
+				initVideoTexture(tex, minFilter, magFilter, wrapMode);
+				channelTexStates.set(ch.id, { texture: tex, videoEl: null, stream: null, url: stateKey });
 			}
 		}
-		// Clean up removed channels
-		for (const [id, state] of channelTexStates.entries()) {
-			const still = channels.find((c) => c.id === id && c.url && c.type !== 'buffer');
-			if (!still) {
-				gl.deleteTexture(state.texture);
-				if (state.videoEl) { state.videoEl.pause(); state.videoEl.src = ''; state.videoEl.srcObject = null; }
-				if (state.stream) { state.stream.getTracks().forEach(t => t.stop()); }
-				channelTexStates.delete(id);
-			}
+		// Clean up state for channels no longer active
+		for (const [id] of channelTexStates.entries()) {
+			const still = channels.find((c) => c.id === id && channelStateKey(c) && c.type !== 'buffer');
+			if (!still) cleanupChannelTex(id);
 		}
 	}
 

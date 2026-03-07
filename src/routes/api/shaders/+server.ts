@@ -46,7 +46,7 @@ async function verifyPersistedChannels(
 	const verified: PersistedShaderChannel[] = [];
 
 	for (const channel of channels) {
-		if (channel.type === 'buffer') {
+		if (channel.type === 'buffer' || channel.type === 'webcam') {
 			verified.push(channel);
 			continue;
 		}
@@ -141,7 +141,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		filter: pb.filter('user_id = {:userId}', { userId: user.id }),
 	});
 	const currentShaderBytes = verifiedChannels.reduce(
-		(total, channel) => total + (channel.type === 'buffer' ? 0 : channel.size),
+		(total, channel) => total + (channel.type === 'buffer' || channel.type === 'webcam' ? 0 : channel.size),
 		0,
 	);
 	const otherShaderBytes = userShaders.reduce((total, shader) => {

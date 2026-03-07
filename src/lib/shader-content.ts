@@ -51,6 +51,13 @@ export type PersistedShaderChannel =
 			filter?: ChannelFilter;
 			wrap?: ChannelWrap;
 			vflip?: boolean;
+	  }
+	| {
+			id: number;
+			type: 'webcam';
+			filter?: ChannelFilter;
+			wrap?: ChannelWrap;
+			vflip?: boolean;
 	  };
 
 export interface ShaderContentDocument {
@@ -119,6 +126,16 @@ function toStoredChannel(entry: unknown): PersistedShaderChannel | null {
 			type: 'buffer',
 			name: typeof entry.name === 'string' ? entry.name : null,
 			bufferId: entry.bufferId,
+			filter: asFilter(entry.filter),
+			wrap: asWrap(entry.wrap),
+			vflip: asBoolean(entry.vflip),
+		};
+	}
+
+	if (entry.type === 'webcam') {
+		return {
+			id: entry.id,
+			type: 'webcam',
 			filter: asFilter(entry.filter),
 			wrap: asWrap(entry.wrap),
 			vflip: asBoolean(entry.vflip),
@@ -200,6 +217,16 @@ export function serializeShaderContent(
 			}];
 		}
 
+		if (channel.type === 'webcam') {
+			return [{
+				id: channel.id,
+				type: 'webcam',
+				filter: channel.filter,
+				wrap: channel.wrap,
+				vflip: channel.vflip,
+			}];
+		}
+
 		if (
 			(channel.type === 'image' || channel.type === 'video')
 			&& channel.url
@@ -260,6 +287,18 @@ export function hydrateChannels(content: unknown): ChannelEntry[] {
 			continue;
 		}
 
+		if (entry.type === 'webcam') {
+			channels[entry.id] = {
+				...channels[entry.id],
+				type: 'webcam',
+				url: 'webcam',
+				filter: entry.filter,
+				wrap: entry.wrap,
+				vflip: entry.vflip,
+			};
+			continue;
+		}
+
 		channels[entry.id] = {
 			...channels[entry.id],
 			type: entry.type === 'texture' ? 'image' : 'video',
@@ -283,7 +322,7 @@ export function hydrateChannels(content: unknown): ChannelEntry[] {
 
 export function extractStoredAssets(content: unknown): StoredShaderAsset[] {
 	return deserializeShaderContent(content).channels.flatMap((entry) => {
-		if (entry.type === 'buffer') {
+		if (entry.type === 'buffer' || entry.type === 'webcam') {
 			return [];
 		}
 
