@@ -22,12 +22,9 @@
 		createQuotaSummary,
 		formatBytes,
 	} from '$lib/shader-asset-policy';
-	import { countStoredAssets, deserializeShaderContent, hydrateChannels, sumStoredAssetBytes } from '$lib/shader-content';
 	import {
-		getShaderListSort,
 		getShaderSortLabel,
 		SHADER_SORT_OPTIONS,
-		sortShaders,
 		type ShaderSort,
 	} from '$lib/shader-list';
 	import type { PageProps } from './$types';
@@ -35,15 +32,16 @@
 	let { data }: PageProps = $props();
 
 	type ShaderItem = PageProps['data']['shaders'][number];
-	type OwnerShaderItem = ShaderItem & {
-		assetBytes: number;
-	};
-
-	const isOwner = $derived(auth.isLoggedIn && auth.user?.id === data.profileUser.id);
+	const isOwner = $derived(data.isOwner);
 	const displayName = $derived(isOwner ? (auth.user?.name ?? data.profileUser.name) : data.profileUser.name);
+	const isVerified = $derived(auth.user?.verified ?? data.profileUser.verified);
 	const ownerAvatarUrl = $derived(
-		isOwner && auth.user?.avatar
-			? `${pb.baseURL}/api/files/users/${auth.user.id}/${auth.user.avatar}`
+		isOwner
+			? (
+				auth.user?.avatar && auth.user?.id
+					? `${pb.baseURL}/api/files/users/${auth.user.id}/${auth.user.avatar}`
+					: data.profileUser.avatarUrl
+			)
 			: null
 	);
 
@@ -51,7 +49,6 @@
 	const description = $derived(`Explore GLSL shader creations by ${displayName}. ${data.shaders.length} public shader${data.shaders.length !== 1 ? 's' : ''} available.`);
 	const currentSortLabel = $derived(getShaderSortLabel(data.selectedSort));
 
-	let ownerShaders = $state<OwnerShaderItem[] | null>(null);
 	let deletedIds = $state(new Set<string>());
 	let deletingId = $state<string | null>(null);
 	let confirmId = $state<string | null>(null);
@@ -74,40 +71,12 @@
 		}
 	}
 
-	$effect(() => {
-		if (isOwner) {
-			pb.collection('shaders')
-				.getList(1, 100, {
-					filter: pb.filter('user_id = {:userId}', { userId: data.profileUser.id }),
-					sort: getShaderListSort(data.selectedSort),
-				})
-				.then((res) => {
-					ownerShaders = res.items.map((s) => ({
-						id: s.id,
-						name: s.name,
-						description: s.description ?? '',
-						created: s.created,
-						visiblity: (s.visiblity ?? 'public') as ShaderItem['visiblity'],
-						mediaCount: countStoredAssets(s.content),
-						assetBytes: sumStoredAssetBytes(s.content),
-						buffers: deserializeShaderContent(s.content).buffers,
-						channels: hydrateChannels(s.content),
-					}));
-				})
-				.catch(() => {
-					ownerShaders = [];
-				});
-		} else {
-			ownerShaders = null;
-		}
-	});
-
 	const ownerQuota = $derived.by(() => {
-		if (!isOwner || ownerShaders === null) {
+		if (!isOwner) {
 			return null;
 		}
 
-		const usedBytes = ownerShaders
+		const usedBytes = data.shaders
 			.filter((shader) => !deletedIds.has(shader.id))
 			.reduce((total, shader) => total + shader.assetBytes, 0);
 
@@ -115,11 +84,7 @@
 	});
 
 	const shaders = $derived.by<ShaderItem[]>(() => {
-		const source = isOwner ? (ownerShaders ?? data.shaders) : data.shaders;
-		return sortShaders(
-			source.filter((shader) => !deletedIds.has(shader.id)),
-			data.selectedSort,
-		);
+		return data.shaders.filter((shader) => !deletedIds.has(shader.id));
 	});
 
 	const uploadedMediaCount = $derived.by(() => (
@@ -292,7 +257,6 @@
 								<ShaderPreview
 									buffers={shader.buffers}
 									channels={shader.channels}
-									shaderId={shader.id}
 									name={shader.name}
 								/>
 							{:else}
@@ -399,7 +363,7 @@
 			{/if}
 		{/if}
 
-		{#if isOwner && auth.user && !auth.user.verified}
+		{#if isOwner && !isVerified}
 			<div class="mt-12 border-t border-border pt-8">
 				<div class="flex items-start gap-3">
 					<MailCheck size={16} class="mt-1 shrink-0 text-yellow-400" />
@@ -423,7 +387,7 @@
 		{/if}
 
 		{#if isOwner}
-			<EditProfileSection />
+			<EditProfileSection initialName={data.profileUser.name} />
 		{/if}
 
 		{#if isOwner}

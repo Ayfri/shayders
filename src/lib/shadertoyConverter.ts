@@ -1,3 +1,5 @@
+import { CHANNEL_UNIFORM_NAMES } from '$lib/shader-domain';
+
 // Mapping of Shadertoy uniform names to our uniform names
 const UNIFORM_MAP: [RegExp, string][] = [
 	[/\biTimeDelta\b/g, 'uDeltaTime'],
@@ -26,8 +28,6 @@ uniform vec2 uResolution;
 uniform vec3 uMouse;
 uniform vec4 uDate;`;
 
-const CHANNEL_NAMES = ['uChannel0', 'uChannel1', 'uChannel2', 'uChannel3'] as const;
-
 export function isShadertoyShader(code: string): boolean {
 	return /void\s+mainImage\s*\(/.test(code);
 }
@@ -50,7 +50,7 @@ export function convertFromShadertoy(code: string): string {
 	result = result.replace(/\btexture\s*\(/g, 'texture2D(');
 
 	// Detect which channel samplers are actually used and emit their declarations
-	const channelDecls = CHANNEL_NAMES.filter((ch) => new RegExp(`\\b${ch}\\b`).test(result))
+	const channelDecls = CHANNEL_UNIFORM_NAMES.filter((ch) => new RegExp(`\\b${ch}\\b`).test(result))
 		.map((ch) => `uniform sampler2D ${ch};`)
 		.join('\n');
 

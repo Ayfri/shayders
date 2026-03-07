@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import '$lib/layout.css';
 	import { VERSION } from '@sveltejs/kit';
 	import favicon from '$lib/assets/logo.png';
+	import { hydrateAuth } from '$lib/auth.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import Header from '$lib/components/Header.svelte';
 	import {
@@ -31,6 +33,12 @@
 	});
 
 	let { children, data }: Props = $props();
+
+	$effect(() => {
+		if (browser) {
+			hydrateAuth(data.sessionUser ?? null);
+		}
+	});
 </script>
 
 <svelte:head>
@@ -54,7 +62,7 @@
 </svelte:head>
 
 <div class="flex flex-col h-screen">
-	<Header />
+	<Header sessionUser={data.sessionUser ?? null} />
 	<main class="flex-1 min-h-0 overflow-y-auto">
 		{@render children()}
 	</main>

@@ -1,20 +1,20 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { CHANNEL_UNIFORM_NAMES } from '$lib/shader-domain';
 	import type { ChannelEntry, ShaderBuffer } from '$lib/shader-content';
 
 	interface Props {
 		buffers: ShaderBuffer[];
 		channels?: ChannelEntry[];
-		shaderId: string;
 		name: string;
 	}
 
-	let { buffers, channels = [], shaderId, name }: Props = $props();
+	let { buffers, channels = [], name }: Props = $props();
 
-	let canvas = $state<HTMLCanvasElement | null>(null);
-	let isHovered = $state(false);
-	let mouseX = $state(0);
-	let mouseY = $state(0);
+	let canvas: HTMLCanvasElement | null = null;
+	let isHovered = false;
+	let mouseX = 0;
+	let mouseY = 0;
 
 	let gl: WebGLRenderingContext | null = null;
 	let program: WebGLProgram | null = null;
@@ -23,13 +23,9 @@
 	let freezeTime = 0;
 	let startTime = Date.now();
 
-	const BUFFER_NAMES = ['uBufferA', 'uBufferB', 'uBufferC', 'uBufferD'];
-	const CHANNEL_NAMES = ['uChannel0', 'uChannel1', 'uChannel2', 'uChannel3'];
-
 	interface ChannelTexState {
 		texture: WebGLTexture;
 		videoEl: HTMLVideoElement | null;
-		url: string;
 	}
 
 	const channelTexStates = new Map<number, ChannelTexState>();
@@ -130,11 +126,11 @@
 		}
 
 		for (const [id, state] of channelTexStates.entries()) {
-			if (id >= CHANNEL_NAMES.length) {
+			if (id >= CHANNEL_UNIFORM_NAMES.length) {
 				continue;
 			}
 
-			const location = gl.getUniformLocation(program, CHANNEL_NAMES[id]);
+			const location = gl.getUniformLocation(program, CHANNEL_UNIFORM_NAMES[id]);
 			if (!location) {
 				continue;
 			}
@@ -199,7 +195,6 @@
 				channelTexStates.set(channel.id, {
 					texture,
 					videoEl: video,
-					url: channel.url,
 				});
 				continue;
 			}
@@ -235,7 +230,6 @@
 			channelTexStates.set(channel.id, {
 				texture,
 				videoEl: null,
-				url: channel.url,
 			});
 		}
 	}
@@ -355,7 +349,6 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <canvas
 	bind:this={canvas}
 	class="w-full h-full block bg-black rounded cursor-pointer"

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick, onMount } from 'svelte';
+	import { tick } from 'svelte';
 	import { Code, Play, Save, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
 	import { isShadertoyShader, convertFromShadertoy } from '$lib/shadertoyConverter';
 	import GlslEditor from '$lib/components/GlslEditor.svelte';
@@ -60,36 +60,46 @@
 	}: Props = $props();
 
 	let visible = $state(true);
-	// Panel size (width when horizontal layout, height when vertical)
-	// will be initialized on mount to a percentage of the viewport
 	let width = $state(0);
 	let isDragging = $state(false);
-	let vertical = $state(false); // true when viewport narrow (mobile)
 	let channelsOpen = $state(false);
 	let settings = $state<EditorSettingsData>(loadSettings());
 	let showSettings = $state(false);
 	let showConvertModal = $state(false);
 	let detectedShadertoyOnce = $state(false);
+	let viewportHeight = $state(0);
+	let viewportWidth = $state(0);
 
-	// initial layout adjustments for narrow viewports
-	onMount(() => {
-		const updateOrientation = () => {
-			vertical = window.innerWidth < 640;
-			const max = vertical ? window.innerHeight * 0.75 : window.innerWidth * 0.75;
-			if (width === 0) {
-				// first run: start with roughly half of the viewport
-				width = vertical ? window.innerHeight * 0.5 : window.innerWidth * 0.5;
-			}
-			width = Math.min(width, max);
-			if (vertical) visible = false;
-		};
-		updateOrientation();
-		window.addEventListener('resize', updateOrientation);
-		return () => window.removeEventListener('resize', updateOrientation);
-	});
+	let dragStartPointer = 0;
+	let dragStartSize = 0;
+	let renameInputEl = $state<HTMLInputElement | null>(null);
+	let wasVerticalLayout: boolean | null = null;
+
+	const vertical = $derived(viewportWidth < 640);
+	const panelStyle = $derived(vertical ? `height: ${width}px` : `width: ${width}px`);
 
 	$effect(() => {
 		saveSettings(settings);
+	});
+
+	$effect(() => {
+		if (!viewportWidth || !viewportHeight) {
+			return;
+		}
+
+		const nextWidth = vertical ? viewportHeight * 0.5 : viewportWidth * 0.5;
+		const maxWidth = vertical ? viewportHeight * 0.75 : viewportWidth * 0.75;
+		width = Math.min(width || nextWidth, maxWidth);
+
+		if (wasVerticalLayout === vertical) {
+			return;
+		}
+
+		if (vertical) {
+			visible = false;
+		}
+
+		wasVerticalLayout = vertical;
 	});
 
 	const hasCommon = $derived(buffers.some((b) => b.id === 'common'));
@@ -110,7 +120,6 @@
 	// Inline rename
 	let editingTabId = $state<string | null>(null);
 	let editingLabel = $state('');
-	let renameInputEl = $state<HTMLInputElement | null>(null);
 
 	async function startRename(id: string, label: string) {
 		closeCtx();
@@ -149,39 +158,32 @@
 	function startDrag(e: MouseEvent) {
 		e.preventDefault();
 		isDragging = true;
-		if (vertical) {
-			const startY = e.clientY;
-			const startSize = width;
-			const onMove = (e: MouseEvent) => {
-				const delta = startY - e.clientY;
-				const max = window.innerHeight * 0.75;
-				width = Math.max(100, Math.min(max, startSize + delta));
-			};
-			const onUp = () => {
-				isDragging = false;
-				window.removeEventListener('mousemove', onMove);
-				window.removeEventListener('mouseup', onUp);
-			};
-			window.addEventListener('mousemove', onMove);
-			window.addEventListener('mouseup', onUp);
-		} else {
-			const startX = e.clientX;
-			const startWidth = width;
-			const onMove = (e: MouseEvent) => {
-				const delta = startX - e.clientX;
-				const max = window.innerWidth * 0.75;
-				width = Math.max(240, Math.min(max, startWidth + delta));
-			};
-			const onUp = () => {
-				isDragging = false;
-				window.removeEventListener('mousemove', onMove);
-				window.removeEventListener('mouseup', onUp);
-			};
-			window.addEventListener('mousemove', onMove);
-			window.addEventListener('mouseup', onUp);
+		dragStartPointer = vertical ? e.clientY : e.clientX;
+		dragStartSize = width;
+	}
+
+	function handleWindowMousemove(event: MouseEvent) {
+		if (!isDragging) {
+			return;
 		}
+
+		const delta = dragStartPointer - (vertical ? event.clientY : event.clientX);
+		const maxWidth = vertical ? viewportHeight * 0.75 : viewportWidth * 0.75;
+		const minWidth = vertical ? 100 : 240;
+		width = Math.max(minWidth, Math.min(maxWidth, dragStartSize + delta));
+	}
+
+	function stopDrag() {
+		isDragging = false;
 	}
 </script>
+
+<svelte:window
+	bind:innerHeight={viewportHeight}
+	bind:innerWidth={viewportWidth}
+	onmousemove={handleWindowMousemove}
+	onmouseup={stopDrag}
+/>
 
 {#if !visible}
 	<button
@@ -214,11 +216,11 @@
 		></div>
 	{/if}
 
-	<div class="flex flex-col min-w-0 bg-surface shrink-0 overflow-hidden max-w-full" style={vertical ? `height: ${width}px` : `width: ${width}px`}>
+	<div class="flex flex-col min-w-0 bg-surface shrink-0 overflow-hidden max-w-full" style={panelStyle}>
 
 		<!-- Tab bar -->
 		<div class="flex items-stretch shrink-0 bg-panel border-b border-border overflow-x-auto overflow-y-hidden">
-			{#each buffers as buf}
+			{#each buffers as buf (buf.id)}
 				{@const isActive = activeBufferId === buf.id}
 				{@const thumb = thumbnails[buf.id]}
 				<!-- svelte-ignore a11y_interactive_supports_focus -->
@@ -261,7 +263,7 @@
 						<button
 							onclick={(e) => { e.stopPropagation(); onRemoveBuffer?.(buf.id); }}
 							class="ml-0.5 p-0.5 rounded opacity-0 group-hover:opacity-60 hover:opacity-100! hover:text-red-400 transition-all cursor-pointer"
-							title="Remove {buf.label}"
+							title={`Remove ${buf.label}`}
 						>
 							<X size={10} />
 						</button>

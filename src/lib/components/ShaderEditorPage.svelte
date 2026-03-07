@@ -1,15 +1,33 @@
 <script lang="ts">
 	import { beforeNavigate, goto, replaceState } from '$app/navigation';
 	import { auth, SessionExpiredError, throwIfAuthenticatedApiError } from '$lib/auth.svelte';
-	import { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
 	import EditorPanel from '$lib/components/EditorPanel.svelte';
 	import ShaderCanvas from '$lib/components/ShaderCanvas.svelte';
-	import { defaultBufferShader, defaultCommonCode, defaultImageShader } from '$lib/defaultShaders';
-	import { UNIFORM_DOCS } from '$lib/glsl/builtins';
 	import { pb } from '$lib/pocketbase';
 	import type { ShadersVisiblityOptions } from '$lib/pocketbase-types';
 	import {
-		createEmptyChannels,
+		addCommonBuffer,
+		addUserBuffer,
+		applyChannelUniform,
+		duplicateBufferAfter,
+		removeUserBuffer,
+		resolveInitialBuffers,
+		resolveInitialChannels,
+		withLatestBufferCode,
+	} from '$lib/shader-editor/buffers';
+	import {
+		forkShaderRecord,
+		readShaderMutationId,
+		saveShaderDraft,
+		saveShaderRecord,
+	} from '$lib/shader-editor/persistence';
+	import {
+		addUniformLine,
+		buildUniformEntries,
+		parseUniforms,
+		removeUniformLine,
+	} from '$lib/shader-editor/uniforms';
+	import {
 		listUnpersistedBinaryChannels,
 		type ChannelEntry,
 		type ShaderBuffer,
@@ -29,33 +47,30 @@
 	}
 
 	let { authorId, authorName, initialBuffers, initialChannels, initialDescription, initialId, initialName, initialVisiblity, viewOnly = false }: Props = $props();
+	const initialResolvedBuffers = resolveInitialBuffers();
 
 	let activeBufferId = $state<string>('image');
-	let assetCleanupKeys = $state<string[]>([]);
-	let buffers = $state<ShaderBuffer[]>([{ id: 'image', label: 'Image', code: defaultImageShader }]);
-	let channels = $state<ChannelEntry[]>(createEmptyChannels());
-	let editorValue = $state<string>(defaultImageShader);
+	let assetCleanupKeys = $state.raw<string[]>([]);
+	let buffers = $state.raw<ShaderBuffer[]>(initialResolvedBuffers);
+	let channels = $state.raw<ChannelEntry[]>(resolveInitialChannels());
+	let editorValue = $state<string>(initialResolvedBuffers[0]?.code ?? '');
 	let error = $state('');
 	let isDirty = $state(false);
 	let panelOpen = $state(false);
-	let shaderCanvas = $state<ReturnType<typeof ShaderCanvas> | null>(null);
-	let thumbnails = $state<Record<string, string>>({});
-	let uniformValues = $state<Record<string, string>>({});
+	let shaderCanvas: ReturnType<typeof ShaderCanvas> | null = null;
+	let thumbnails = $state.raw<Record<string, string>>({});
+	let uniformValues = $state.raw<Record<string, string>>({});
 
 	let _firstCompile = true;
 
 	$effect.pre(() => {
-		const bufs = initialBuffers && initialBuffers.length > 0
-			? initialBuffers
-			: [{ id: 'image', label: 'Image', code: defaultImageShader }];
-		const nextChannels = initialChannels && initialChannels.length > 0
-			? initialChannels.map((channel) => ({ ...channel }))
-			: createEmptyChannels();
+		const bufs = resolveInitialBuffers(initialBuffers);
+		const nextChannels = resolveInitialChannels(initialChannels);
 		buffers = bufs;
 		channels = nextChannels;
 		assetCleanupKeys = [];
 		const startBuf = bufs.find((b) => b.id === 'image') ?? bufs[0];
-		editorValue = startBuf?.code ?? defaultImageShader;
+		editorValue = startBuf?.code ?? bufs[0]?.code ?? '';
 		activeBufferId = startBuf?.id ?? 'image';
 		shaderState.currentShaderId = initialId ?? null;
 		shaderState.name = initialName ?? 'Untitled Shader';
@@ -65,45 +80,21 @@
 		_firstCompile = true;
 	});
 
-	const BUFFER_UNIFORM_NAMES = ['uBufferA', 'uBufferB', 'uBufferC', 'uBufferD', 'uBufferE', 'uBufferF', 'uBufferG', 'uBufferH'];
-
-	const UNIFORM_CATALOG_BASE: { name: string; type: string }[] = [
-		{ name: 'uAspect', type: 'float' },
-		{ name: 'uDate', type: 'vec4' },
-		{ name: 'uDeltaTime', type: 'float' },
-		{ name: 'uFrameCount', type: 'int' },
-		{ name: 'uFrameRate', type: 'float' },
-		{ name: 'uMouse', type: 'vec3' },
-		{ name: 'uResolution', type: 'vec2' },
-		{ name: 'uTime', type: 'float' },
-		{ name: 'uChannel0', type: 'sampler2D' },
-		{ name: 'uChannel1', type: 'sampler2D' },
-		{ name: 'uChannel2', type: 'sampler2D' },
-		{ name: 'uChannel3', type: 'sampler2D' },
-	];
-
-	function addUniformLine(code: string, name: string, type: string): string {
-		if (new RegExp(`\\buniform\\s+\\S+\\s+${name}\\s*;`).test(code)) return code;
-		const line = `uniform ${type} ${name};`;
-		const lines = code.split('\n');
-		let insertAt = 0;
-		let lastUniform = -1;
-		let lastPrecision = -1;
-		for (let i = 0; i < lines.length; i++) {
-			if (/^\s*uniform\s/.test(lines[i])) lastUniform = i;
-			if (/^\s*precision\s/.test(lines[i])) lastPrecision = i;
-		}
-		if (lastUniform >= 0) insertAt = lastUniform + 1;
-		else if (lastPrecision >= 0) insertAt = lastPrecision + 1;
-		lines.splice(insertAt, 0, line);
-		return lines.join('\n');
+	function applyBuffers(nextBuffers: ShaderBuffer[], nextActiveId = activeBufferId) {
+		activeBufferId = nextActiveId;
+		buffers = nextBuffers;
+		editorValue = nextBuffers.find((buffer) => buffer.id === nextActiveId)?.code ?? '';
 	}
 
-	function removeUniformLine(code: string, name: string): string {
-		return code.replace(
-			new RegExp(`[ \\t]*uniform\\s+\\S+\\s+${name}\\s*;[ \\t]*\\n?`, 'm'),
-			''
-		);
+	function mutateBuffers(
+		mutator: (saved: ShaderBuffer[]) => ShaderBuffer[],
+		nextActiveId = activeBufferId,
+	) {
+		applyBuffers(mutator(buffersWithLatestCode()), nextActiveId);
+	}
+
+	function rerunShader() {
+		window.setTimeout(() => shaderCanvas?.run(), 0);
 	}
 
 	function handleChannelChange(ch: ChannelEntry) {
@@ -113,30 +104,19 @@
 		}
 		const wasActive = oldCh?.type != null;
 		const isActive = ch.type != null;
-		const uniformName = `uChannel${ch.id}`;
 		channels = channels.map((c) => (c.id === ch.id ? ch : c));
 		isDirty = true;
 		if (!wasActive && isActive) {
-			const saved = buffersWithLatestCode();
-			const updated = saved.map((b) =>
-				b.id === 'common' ? b : { ...b, code: addUniformLine(b.code, uniformName, 'sampler2D') }
-			);
-			buffers = updated;
-			editorValue = updated.find((b) => b.id === activeBufferId)?.code ?? editorValue;
-			setTimeout(() => shaderCanvas?.run(), 0);
+			mutateBuffers((saved) => applyChannelUniform(saved, ch.id, true));
+			rerunShader();
 		} else if (wasActive && !isActive) {
-			const saved = buffersWithLatestCode();
-			const updated = saved.map((b) =>
-				b.id === 'common' ? b : { ...b, code: removeUniformLine(b.code, uniformName) }
-			);
-			buffers = updated;
-			editorValue = updated.find((b) => b.id === activeBufferId)?.code ?? editorValue;
-			setTimeout(() => shaderCanvas?.run(), 0);
+			mutateBuffers((saved) => applyChannelUniform(saved, ch.id, false));
+			rerunShader();
 		}
 	}
 
 	function buffersWithLatestCode(): ShaderBuffer[] {
-		return buffers.map((b) => (b.id === activeBufferId ? { ...b, code: editorValue } : b));
+		return withLatestBufferCode(buffers, activeBufferId, editorValue);
 	}
 
 	function run() {
@@ -151,35 +131,17 @@
 	}
 
 	function addBuffer() {
-		let n = 1;
-		while (buffers.some((b) => b.id === `buf${n}`)) n++;
-		const newId = `buf${n}`;
-		const label = `Buffer ${n}`;
-		const userBufs = buffers.filter((b) => b.id !== 'image' && b.id !== 'common');
-		const newUniformName = BUFFER_UNIFORM_NAMES[userBufs.length];
-		const saved = buffersWithLatestCode();
-		const updatedExisting = saved.map((b) =>
-			b.id === 'common' ? b : { ...b, code: addUniformLine(b.code, newUniformName, 'sampler2D') }
-		);
-		const newBuf: ShaderBuffer = { id: newId, label, code: defaultBufferShader };
-		buffers = [...updatedExisting, newBuf];
-		activeBufferId = newId;
-		editorValue = defaultBufferShader;
+		const nextState = addUserBuffer(buffersWithLatestCode());
+		applyBuffers(nextState.buffers, nextState.activeBufferId);
 		isDirty = true;
-		setTimeout(() => shaderCanvas?.run(), 0);
+		rerunShader();
 	}
 
 	function addCommon() {
 		if (buffers.some((b) => b.id === 'common')) return;
-		const commonBuf: ShaderBuffer = { id: 'common', label: 'Common', code: defaultCommonCode };
-		const saved = buffersWithLatestCode();
-		const imageIdx = saved.findIndex((b) => b.id === 'image');
-		saved.splice(imageIdx, 0, commonBuf);
-		buffers = saved;
-		activeBufferId = 'common';
-		editorValue = defaultCommonCode;
+		mutateBuffers(addCommonBuffer, 'common');
 		isDirty = true;
-		setTimeout(() => shaderCanvas?.run(), 0);
+		rerunShader();
 	}
 
 	function renameBuffer(id: string, label: string) {
@@ -189,83 +151,23 @@
 
 	function removeBuffer(id: string) {
 		if (id === 'image') return;
-		const saved = buffersWithLatestCode();
-		const userBufs = saved.filter((b) => b.id !== 'image' && b.id !== 'common');
-		const removedIdx = userBufs.findIndex((b) => b.id === id);
-		const removedUniform = removedIdx >= 0 ? BUFFER_UNIFORM_NAMES[removedIdx] : null;
-		const newActiveId = activeBufferId === id ? 'image' : activeBufferId;
-		const updatedBufs = saved
-			.filter((b) => b.id !== id)
-			.map((b) => {
-				if (b.id === 'common') return b;
-				let code = b.code;
-				if (removedUniform) code = removeUniformLine(code, removedUniform);
-				return { ...b, code };
-			});
-		buffers = updatedBufs;
-		activeBufferId = newActiveId;
-		editorValue = updatedBufs.find((b) => b.id === newActiveId)?.code ?? '';
+		const nextState = removeUserBuffer(buffersWithLatestCode(), activeBufferId, id);
+		applyBuffers(nextState.buffers, nextState.activeBufferId);
 		isDirty = true;
-		setTimeout(() => shaderCanvas?.run(), 0);
+		rerunShader();
 	}
 
 	function duplicateBuffer(id: string) {
-		const src = buffersWithLatestCode().find((b) => b.id === id);
-		if (!src || id === 'image') return;
-		let n = 1;
-		while (buffers.some((b) => b.id === `buf${n}`)) n++;
-		const newId = `buf${n}`;
-		const newBuf: ShaderBuffer = { id: newId, label: `${src.label} copy`, code: src.code };
-		const saved = buffersWithLatestCode();
-		const srcIdx = saved.findIndex((b) => b.id === id);
-		saved.splice(srcIdx + 1, 0, newBuf);
-		buffers = saved;
-		activeBufferId = newId;
-		editorValue = newBuf.code;
+		if (id === 'image') return;
+		const nextState = duplicateBufferAfter(buffersWithLatestCode(), id);
+		applyBuffers(nextState.buffers, nextState.activeBufferId);
 		isDirty = true;
-		setTimeout(() => shaderCanvas?.run(), 0);
+		rerunShader();
 	}
 
-	const allUniforms = $derived<UniformEntry[]>((() => {
-		const userBufs = buffers.filter((b) => b.id !== 'image' && b.id !== 'common');
-		const catalog: { name: string; type: string; description?: string }[] = [...UNIFORM_CATALOG_BASE];
-		userBufs.forEach((buf, i) => {
-			if (i < BUFFER_UNIFORM_NAMES.length) {
-				catalog.push({
-					name: BUFFER_UNIFORM_NAMES[i],
-					type: 'sampler2D',
-					description: `Offscreen "${buf.label}" texture (sampler2D).`,
-				});
-			}
-		});
-		const parsed = parseUniforms(editorValue);
-		const catalogNames = new Set(catalog.map((c) => c.name));
-		for (const pu of parsed) {
-			if (!catalogNames.has(pu.name)) {
-				catalog.push({ name: pu.name, type: pu.type, description: undefined });
-			}
-		}
-		return catalog.map(({ name, type, description }) => ({
-			name,
-			type,
-			description: description ?? UNIFORM_DOCS[name]?.description,
-			value: uniformValues[name],
-		}));
-	})());
+	const allUniforms = $derived.by(() => buildUniformEntries(buffers, editorValue, uniformValues));
 
-	function parseUniforms(code: string): { name: string; type: string }[] {
-		const regex = /^\s*uniform\s+(\w+)\s+(\w+)\s*;/gm;
-		const results: { name: string; type: string }[] = [];
-		let match: RegExpExecArray | null;
-		while ((match = regex.exec(code)) !== null) {
-			results.push({ type: match[1], name: match[2] });
-		}
-		return results;
-	}
-
-	const presentNames = $derived<Set<string>>(
-		new Set(parseUniforms(editorValue).map((u) => u.name))
-	);
+	const presentNames = $derived.by(() => new Set(parseUniforms(editorValue).map((u) => u.name)));
 
 	function toggleUniform(name: string, type: string) {
 		if (presentNames.has(name)) {
@@ -286,21 +188,14 @@
 	});
 
 	function saveDraftLocally(): boolean {
-		try {
-			const localData = {
-				buffers: buffersWithLatestCode(),
-				description: shaderState.description,
-				name: shaderState.name,
-				savedAt: new Date().toISOString(),
-				visiblity: shaderState.visiblity,
-			};
-			localStorage.setItem('shayders_draft', JSON.stringify(localData));
-			isDirty = false;
-			return true;
-		} catch (e) {
-			console.error('Error during local save', e);
-			return false;
-		}
+		const saved = saveShaderDraft({
+			buffers: buffersWithLatestCode(),
+			description: shaderState.description ?? '',
+			name: shaderState.name ?? 'Untitled Shader',
+			visiblity: shaderState.visiblity,
+		});
+		if (saved) isDirty = false;
+		return saved;
 	}
 
 	async function saveProject() {
@@ -324,31 +219,25 @@
 
 		shaderState.isSaving = true;
 		try {
-			const res = await fetch('/api/shaders', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'Authorization': `Bearer ${pb.authStore.token}`,
-				},
-				body: JSON.stringify({
-					shaderId: shaderState.currentShaderId,
-					name: shaderState.name,
-					description: shaderState.description,
-					visiblity: shaderState.visiblity,
-					buffers: buffersWithLatestCode(),
-					channels,
-					cleanupKeys: assetCleanupKeys,
-				}),
+			const response = await saveShaderRecord({
+				buffers: buffersWithLatestCode(),
+				channels,
+				cleanupKeys: assetCleanupKeys,
+				description: shaderState.description ?? '',
+				name: shaderState.name ?? 'Untitled Shader',
+				shaderId: shaderState.currentShaderId,
+				token: pb.authStore.token,
+				visiblity: shaderState.visiblity,
 			});
-			await throwIfAuthenticatedApiError(res, `Failed to save shader (HTTP ${res.status}).`);
-			const data = await res.json() as { record?: { id: string } };
-			if (data.record) {
+			await throwIfAuthenticatedApiError(response, `Failed to save shader (HTTP ${response.status}).`);
+			const recordId = await readShaderMutationId(response);
+			if (recordId) {
 				const isNew = !shaderState.currentShaderId;
-				shaderState.currentShaderId = data.record.id;
+				shaderState.currentShaderId = recordId;
 				assetCleanupKeys = [];
 				isDirty = false;
 				if (isNew) {
-					replaceState(`/shader/${data.record.id}`, {});
+					replaceState(`/shader/${recordId}`, {});
 				}
 			}
 		} catch (e) {
@@ -375,25 +264,17 @@
 
 		shaderState.isSaving = true;
 		try {
-			const res = await fetch('/api/shaders', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'Authorization': `Bearer ${pb.authStore.token}`,
-				},
-				body: JSON.stringify({
-					name: `Fork of ${shaderState.name}`,
-					description: shaderState.description,
-					visiblity: shaderState.visiblity,
-					buffers: buffersWithLatestCode(),
-					channels,
-				}),
+			const response = await forkShaderRecord({
+				buffers: buffersWithLatestCode(),
+				channels,
+				description: shaderState.description ?? '',
+				name: shaderState.name ?? 'Untitled Shader',
+				token: pb.authStore.token,
+				visiblity: shaderState.visiblity,
 			});
-			await throwIfAuthenticatedApiError(res, `Failed to fork shader (HTTP ${res.status}).`);
-			const data = await res.json() as { record?: { id: string } };
-			if (data.record) {
-				goto(`/shader/${data.record.id}`);
-			}
+			await throwIfAuthenticatedApiError(response, `Failed to fork shader (HTTP ${response.status}).`);
+			const recordId = await readShaderMutationId(response);
+			if (recordId) goto(`/shader/${recordId}`);
 		} catch (e) {
 			if (e instanceof SessionExpiredError) {
 				window.alert(e.message);
@@ -406,24 +287,16 @@
 		}
 	}
 
-	$effect(() => {
-		if (viewOnly) return;
-		const handleKeyDown = (e: KeyboardEvent) => {
-			if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-				e.preventDefault();
-				saveProject();
-			}
-		};
-		const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-			if (isDirty) e.preventDefault();
-		};
-		window.addEventListener('keydown', handleKeyDown);
-		window.addEventListener('beforeunload', handleBeforeUnload);
-		return () => {
-			window.removeEventListener('keydown', handleKeyDown);
-			window.removeEventListener('beforeunload', handleBeforeUnload);
-		};
-	});
+	function handleWindowBeforeUnload(event: BeforeUnloadEvent) {
+		if (!viewOnly && isDirty) event.preventDefault();
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if ((event.ctrlKey || event.metaKey) && event.key === 's' && !viewOnly) {
+			event.preventDefault();
+			void saveProject();
+		}
+	}
 
 	beforeNavigate(({ cancel }) => {
 		if (!viewOnly && isDirty && !confirm('You have unsaved changes. Leave anyway?')) {
@@ -431,6 +304,8 @@
 		}
 	});
 </script>
+
+<svelte:window onbeforeunload={handleWindowBeforeUnload} onkeydown={handleWindowKeydown} />
 
 <div class="flex flex-col lg:flex-row h-full w-full min-h-0 bg-background text-foreground overflow-auto lg:overflow-hidden font-sans">
 	<div class="flex-1 min-w-0 min-h-0">

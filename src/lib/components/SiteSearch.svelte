@@ -10,11 +10,13 @@
 		type SiteSearchResults,
 	} from '$lib/search';
 
+	const routeQuery = $derived(page.url.pathname === '/search' ? (page.url.searchParams.get('q') ?? '') : '');
+
 	let query = $state(page.url.pathname === '/search' ? (page.url.searchParams.get('q') ?? '') : '');
 	let error = $state('');
 	let isFocused = $state(false);
 	let isLoading = $state(false);
-	let results = $state<SiteSearchResults | null>(null);
+	let results = $state.raw<SiteSearchResults | null>(null);
 
 	let blurTimeout = 0;
 	let requestToken = 0;
@@ -27,8 +29,8 @@
 	));
 
 	$effect(() => {
-		if (page.url.pathname === '/search') {
-			query = page.url.searchParams.get('q') ?? '';
+		if (!isFocused && query !== routeQuery) {
+			query = routeQuery;
 		}
 	});
 
@@ -173,7 +175,6 @@
 										<ShaderPreview
 											buffers={shader.buffers}
 											channels={shader.channels}
-											shaderId={shader.id}
 											name={shader.name}
 										/>
 									{:else}

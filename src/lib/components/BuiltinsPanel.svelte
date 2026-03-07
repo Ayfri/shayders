@@ -2,6 +2,8 @@
 	import { BUILTIN_DOCS } from '$lib/glsl/builtins';
 	import { ChevronDown, ChevronRight, Variable } from '@lucide/svelte';
 
+	type MarkdownPart = string | { type: 'italic' | 'bold' | 'code'; content: string };
+
 	export interface UniformEntry {
 		name: string;
 		type: string;
@@ -22,8 +24,8 @@
 		[...uniforms].sort((a, b) => a.name.localeCompare(b.name))
 	);
 
-	function parseMarkdown(text: string) {
-		const parts: (string | { type: 'italic' | 'bold' | 'code'; content: string })[] = [];
+	function parseMarkdown(text: string): MarkdownPart[] {
+		const parts: MarkdownPart[] = [];
 		let remainder = text;
 		let i = 0;
 
@@ -123,7 +125,7 @@
 		.map(([name, doc]) => {
 			const match = doc.signature.match(/^(\S+)/);
 			const type = match ? match[1] : 'unknown';
-			return { name, type, description: doc.description };
+			return { markdownParts: parseMarkdown(doc.description), name, type };
 		})
 		.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -134,7 +136,13 @@
 			const firstLine = doc.signature.split('\n')[0];
 			const match = firstLine.match(/^(\S+)\s+(\w+)/);
 			const returnType = match ? match[1] : '';
-			return { name, returnType, signature: firstLine, description: doc.description };
+			return {
+				markdownParts: parseMarkdown(doc.description),
+				name,
+				parsedSignature: parseSignature(firstLine),
+				returnType,
+				signature: firstLine,
+			};
 		})
 		.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -211,7 +219,7 @@
 					<span class="{getTypeColor(v.type)} font-mono shrink-0 text-[11px] whitespace-nowrap">{v.type}</span>
 					<span class="text-foreground font-mono shrink-0 font-semibold text-[11px] whitespace-nowrap">{v.name}</span>
 					<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-[11px]">
-						{#each parseMarkdown(v.description) as part}
+						{#each v.markdownParts as part, i (`${typeof part === 'string' ? part : `${part.type}:${part.content}`}:${i}`)}
 							{#if typeof part === 'string'}
 								{part}
 							{:else if part.type === 'italic'}
@@ -235,17 +243,16 @@
 					{returnType}
 				</div>
 				{#each functions as fn (fn.name)}
-					{@const parsed = parseSignature(fn.signature)}
 					<div class="flex items-baseline gap-1 px-4 py-1 hover:bg-panel group">
 						<span class="font-mono shrink-0 text-[11px] whitespace-nowrap">
-							{#if parsed}
-								<span class={getTypeColor(parsed.returnType)}>{parsed.returnType}</span><span class="text-foreground">{' '}{parsed.functionName}(</span>{#each parsed.params as param, i}{#if i > 0}<span class="text-foreground">,</span>{ ' '}{/if}<span class={getTypeColor(param.type)}>{param.type}</span><span class="text-white">{' '}{param.name}</span>{/each}<span class="text-foreground">)</span>
+							{#if fn.parsedSignature}
+								<span class={getTypeColor(fn.parsedSignature.returnType)}>{fn.parsedSignature.returnType}</span><span class="text-foreground">{' '}{fn.parsedSignature.functionName}(</span>{#each fn.parsedSignature.params as param, i (`${param.type}:${param.name}:${i}`)}{#if i > 0}<span class="text-foreground">,</span>{ ' '}{/if}<span class={getTypeColor(param.type)}>{param.type}</span><span class="text-white">{' '}{param.name}</span>{/each}<span class="text-foreground">)</span>
 							{:else}
 								<span class="text-blue-300">{fn.signature}</span>
 							{/if}
 						</span>
 						<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-[11px]">
-							{#each parseMarkdown(fn.description) as part}
+							{#each fn.markdownParts as part, i (`${typeof part === 'string' ? part : `${part.type}:${part.content}`}:${i}`)}
 								{#if typeof part === 'string'}
 									{part}
 								{:else if part.type === 'italic'}

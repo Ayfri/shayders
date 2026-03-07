@@ -5,7 +5,7 @@ import { PUBLIC_POCKETBASE_URL } from '$env/static/public';
 import type { TypedPocketBase, ShadersResponse } from '$lib/pocketbase-types';
 import { deserializeShaderContent, hydrateChannels } from '$lib/shader-content';
 
-export const load: PageServerLoad = async ({ params }) => {
+export const load: PageServerLoad = async ({ locals, params }) => {
 	const pb = new PocketBase(PUBLIC_POCKETBASE_URL) as TypedPocketBase;
 
 	let shader: ShadersResponse;
@@ -16,8 +16,19 @@ export const load: PageServerLoad = async ({ params }) => {
 	}
 
 	const content = deserializeShaderContent(shader.content);
+	const isOwner = locals.user?.id === shader.user_id;
+	const isPrivate = (shader.visiblity ?? 'public') === 'private';
+
+	if (isPrivate && !isOwner) {
+		return {
+			isOwner: false,
+			private: true as const,
+		};
+	}
 
 	return {
+		isOwner,
+		private: false as const,
 		shader: {
 			id: shader.id,
 			name: shader.name,

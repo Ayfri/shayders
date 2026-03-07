@@ -163,7 +163,6 @@
 											<ShaderPreview
 												buffers={shader.buffers}
 												channels={shader.channels}
-												shaderId={shader.id}
 												name={shader.name}
 											/>
 										{:else}

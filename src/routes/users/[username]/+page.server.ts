@@ -1,12 +1,12 @@
 import { error } from '@sveltejs/kit';
 import { PUBLIC_POCKETBASE_URL } from '$env/static/public';
 import type { TypedPocketBase, ShadersResponse, UsersResponse } from '$lib/pocketbase-types';
-import { countStoredAssets, deserializeShaderContent, hydrateChannels } from '$lib/shader-content';
+import { countStoredAssets, deserializeShaderContent, hydrateChannels, sumStoredAssetBytes } from '$lib/shader-content';
 import { getShaderListSort, normalizeShaderSort } from '$lib/shader-list';
 import PocketBase from 'pocketbase';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, url }) => {
+export const load: PageServerLoad = async ({ locals, params, url }) => {
 	const pb = new PocketBase(PUBLIC_POCKETBASE_URL) as TypedPocketBase;
 	const selectedSort = normalizeShaderSort(url.searchParams.get('sort'));
 
@@ -17,10 +17,13 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		error(404, 'User not found');
 	}
 
+	const isOwner = locals.user?.id === profileUser.id;
 	let shaders: ShadersResponse[] = [];
 	try {
 		const result = await pb.collection('shaders').getList(1, 100, {
-			filter: pb.filter("user_id = {:userId} && visiblity = 'public'", { userId: profileUser.id }),
+			filter: isOwner
+				? pb.filter('user_id = {:userId}', { userId: profileUser.id })
+				: pb.filter("user_id = {:userId} && visiblity = 'public'", { userId: profileUser.id }),
 			sort: getShaderListSort(selectedSort),
 		});
 		shaders = result.items;
@@ -29,15 +32,21 @@ export const load: PageServerLoad = async ({ params, url }) => {
 	}
 
 	return {
+		isOwner,
 		profileUser: {
+			avatarUrl: profileUser.avatar
+				? `${pb.baseURL}/api/files/users/${profileUser.id}/${profileUser.avatar}`
+				: null,
 			id: profileUser.id,
 			name: profileUser.name ?? '',
+			verified: profileUser.verified ?? false,
 		},
 		selectedSort,
 		shaders: shaders.map((s) => {
 			const content = deserializeShaderContent(s.content);
 
 			return {
+				assetBytes: sumStoredAssetBytes(s.content),
 				id: s.id,
 				name: s.name,
 				description: s.description ?? '',

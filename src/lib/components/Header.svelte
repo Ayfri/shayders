@@ -1,11 +1,21 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { LogIn, LogOut, User, UserPlus } from '@lucide/svelte';
+	import type { AuthUser } from '$lib/auth-shared';
 	import { auth, logout } from '$lib/auth.svelte';
 	import logo from '$lib/assets/logo.png';
 	import SiteSearch from '$lib/components/SiteSearch.svelte';
 	import { pb } from '$lib/pocketbase';
 	import { getUserProfilePath } from '$lib/site';
+
+	interface Props {
+		sessionUser?: AuthUser | null;
+	}
+
+	let { sessionUser = null }: Props = $props();
+
+	const currentUser = $derived(auth.user ?? sessionUser);
+	const isLoggedIn = $derived(currentUser !== null);
 
 	function handleLogout() {
 		logout();
@@ -37,21 +47,21 @@
 				</div>
 
 				<nav class="flex min-w-0 items-center gap-2 text-sm sm:shrink-0 sm:gap-4">
-					{#if auth.isLoggedIn}
+					{#if isLoggedIn}
 						<a
-							href={auth.user ? getUserProfilePath(auth.user.id) : '/'}
+							href={currentUser ? getUserProfilePath(currentUser.id) : '/'}
 							class="flex min-w-0 items-center gap-1.5 text-muted transition-colors hover:text-foreground"
 						>
-							{#if auth.user?.avatar}
+							{#if currentUser?.avatar}
 								<img
-									src={`${pb.baseURL}/api/files/users/${auth.user.id}/${auth.user.avatar}`}
+									src={`${pb.baseURL}/api/files/users/${currentUser.id}/${currentUser.avatar}`}
 									alt=""
 									class="size-6 rounded-full object-cover"
 								/>
 							{:else}
 								<User size={15} />
 							{/if}
-							<span class="truncate">{auth.user?.name || auth.user?.username}</span>
+							<span class="truncate">{currentUser?.name || currentUser?.username}</span>
 						</a>
 						<button
 							onclick={handleLogout}

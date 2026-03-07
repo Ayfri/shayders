@@ -35,6 +35,9 @@
 		{ value: 'unlisted', label: 'Unlisted', desc: 'Accessible by URL, hidden from profiles' },
 		{ value: 'private', label: 'Private', desc: 'Only accessible to you' },
 	];
+	const selectedVisibilityOption = $derived(
+		visibilityOptions.find((option) => option.value === (shaderState.visiblity ?? 'public')) ?? visibilityOptions[0]
+	);
 </script>
 
 <Modal {open} onClose={() => (open = false)} title="Shader Info">
@@ -57,15 +60,17 @@
 
 			<div class="flex flex-col gap-1.5">
 				<span class="text-xs font-semibold text-muted uppercase tracking-wider">Visibility</span>
-				{#each visibilityOptions.filter((o) => o.value === (shaderState.visiblity ?? 'public')) as vis}
-					<div class="flex items-center gap-2 text-sm text-foreground">
-						{#if vis.value === 'public'}<Globe size={14} class="text-muted" />
-						{:else if vis.value === 'unlisted'}<Link size={14} class="text-muted" />
-						{:else}<Lock size={14} class="text-muted" />{/if}
-						<span>{vis.label}</span>
-						<span class="text-subtle">- {vis.desc}</span>
-					</div>
-				{/each}
+				<div class="flex items-center gap-2 text-sm text-foreground">
+					{#if selectedVisibilityOption.value === 'public'}
+						<Globe size={14} class="text-muted" />
+					{:else if selectedVisibilityOption.value === 'unlisted'}
+						<Link size={14} class="text-muted" />
+					{:else}
+						<Lock size={14} class="text-muted" />
+					{/if}
+					<span>{selectedVisibilityOption.label}</span>
+					<span class="text-subtle">- {selectedVisibilityOption.desc}</span>
+				</div>
 			</div>
 		{:else}
 		<div class="flex flex-col gap-1.5">
@@ -93,7 +98,7 @@
 		<div class="flex flex-col gap-2">
 			<span class="text-xs font-semibold text-muted uppercase tracking-wider">Visibility</span>
 			<div class="flex flex-col gap-1.5">
-				{#each visibilityOptions as opt}
+				{#each visibilityOptions as opt (opt.value)}
 					{@const isSelected = visibilityDraft === opt.value}
 					<button
 						type="button"

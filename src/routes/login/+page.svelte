@@ -1,27 +1,9 @@
 <script lang="ts">
-	import { login } from '$lib/auth.svelte';
-	import { LogIn, Home } from '@lucide/svelte';
-	import { goto } from '$app/navigation';
+	import { LogIn } from '@lucide/svelte';
 	import SeoHead from '$lib/components/SeoHead.svelte';
+	import type { PageProps } from './$types';
 
-	let email = $state('');
-	let password = $state('');
-	let error = $state('');
-	let loading = $state(false);
-
-	async function handleSubmit(e: SubmitEvent) {
-		e.preventDefault();
-		error = '';
-		loading = true;
-		try {
-			await login(email, password);
-			goto('/');
-		} catch (err: unknown) {
-			error = err instanceof Error ? err.message : 'Login failed. Please try again.';
-		} finally {
-			loading = false;
-		}
-	}
+	let { form }: PageProps = $props();
 </script>
 
 <SeoHead
@@ -35,15 +17,16 @@
 			<h1 class="text-2xl font-semibold text-foreground">Welcome back</h1>
 		</div>
 
-		<form onsubmit={handleSubmit} class="flex flex-col gap-4">
+		<form method="POST" class="flex flex-col gap-4">
 			<div class="flex flex-col gap-2">
 				<label for="email" class="text-sm font-medium text-muted">Email address</label>
 				<input
 					id="email"
 					type="email"
-					bind:value={email}
+					name="email"
 					required
 					autocomplete="email"
+					value={form?.email ?? ''}
 					class="px-3 py-2.5 rounded bg-panel border border-border text-foreground text-sm focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30 transition-colors"
 					placeholder="you@example.com"
 				/>
@@ -54,7 +37,7 @@
 				<input
 					id="password"
 					type="password"
-					bind:value={password}
+					name="password"
 					required
 					autocomplete="current-password"
 					class="px-3 py-2.5 rounded bg-panel border border-border text-foreground text-sm focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30 transition-colors"
@@ -62,18 +45,17 @@
 				/>
 			</div>
 
-			{#if error}
-				<div class="px-3 py-2 rounded bg-red-950/30 border border-red-700/50 text-red-300 text-sm">{error}</div>
+			{#if form?.error}
+				<div class="px-3 py-2 rounded bg-red-950/30 border border-red-700/50 text-red-300 text-sm">{form.error}</div>
 			{/if}
 
 			<button
 				type="submit"
-				disabled={loading}
 				class="mt-2 px-4 py-2.5 rounded font-medium text-white bg-linear-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 border border-cyan-400/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
 			>
 				<span class="flex items-center justify-center gap-2">
 					<LogIn size={16} />
-					{loading ? 'Signing in…' : 'Sign in'}
+					Sign in
 				</span>
 			</button>
 		</form>

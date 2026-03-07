@@ -3,7 +3,15 @@
 	import { auth } from '$lib/auth.svelte';
 	import { Camera, Check, Eye, EyeOff, KeyRound, RefreshCw, User } from '@lucide/svelte';
 
-	let name = $state(auth.user?.name ?? '');
+	interface Props {
+		initialName?: string;
+	}
+
+	let { initialName = '' }: Props = $props();
+
+	const initialDisplayName = $derived(auth.user?.name ?? initialName);
+
+	let name = $state('');
 	let nameLoading = $state(false);
 	let nameError = $state('');
 	let nameSuccess = $state(false);
@@ -28,6 +36,12 @@
 	);
 
 	const inputCls = 'w-full bg-panel border border-border rounded px-3 py-1.5 text-sm text-foreground placeholder:text-subtle focus:outline-none focus:border-subtle';
+
+	$effect(() => {
+		if (!name && initialDisplayName) {
+			name = initialDisplayName;
+		}
+	});
 
 	async function saveName() {
 		if (!name.trim() || !auth.user) return;
