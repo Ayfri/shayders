@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { CircleAlert, Info, Maximize2, Minimize2 } from '@lucide/svelte';
+	import { CircleAlert, GitFork, Info, Maximize2, Minimize2 } from '@lucide/svelte';
 	import type { ChannelEntry, ShaderBuffer } from '$lib/shader-content';
 	import { auth } from '$lib/auth.svelte';
 	import ShaderInfoModal from '$lib/components/ShaderInfoModal.svelte';
@@ -13,8 +13,9 @@
 		buffers: ShaderBuffer[];
 		channels?: ChannelEntry[];
 		error?: string;
-		uniformValues?: Record<string, string>;
+		onFork?: () => void;
 		thumbnails?: Record<string, string>;
+		uniformValues?: Record<string, string>;
 		readonly?: boolean;
 		viewOnly?: boolean;
 		isSavingLocally?: boolean;
@@ -26,8 +27,9 @@
 		buffers,
 		channels = [],
 		error = $bindable(''),
-		uniformValues = $bindable({}),
+		onFork = undefined,
 		thumbnails = $bindable({}),
+		uniformValues = $bindable({}),
 		readonly = false,
 		viewOnly = false,
 		isSavingLocally = false,
@@ -735,6 +737,17 @@ void main() {
 						<Info size={11} />
 						<span>Informations</span>
 					</button>
+					{#if auth.isLoggedIn && onFork}
+						<button
+							onclick={onFork}
+							disabled={shaderState.isSaving}
+							class="flex items-center gap-1 px-2 py-0.5 rounded text-muted hover:text-foreground transition-colors cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+							title="Fork this shader into your account"
+						>
+							<GitFork size={11} />
+							<span>{shaderState.isSaving ? 'Forking…' : 'Fork'}</span>
+						</button>
+					{/if}
 				</div>
 			{:else if !readonly && auth.isLoggedIn}
 				<div class="flex items-center gap-2 ml-auto min-w-0">
@@ -763,6 +776,17 @@ void main() {
 						<Info size={11} />
 						<span>Informations</span>
 					</button>
+					{#if onFork}
+						<button
+							onclick={onFork}
+							disabled={shaderState.isSaving}
+							class="flex items-center gap-1 px-2 py-0.5 rounded text-muted hover:text-foreground transition-colors cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+							title="Fork this shader into a new copy"
+						>
+							<GitFork size={11} />
+							<span>{shaderState.isSaving ? 'Forking…' : 'Fork'}</span>
+						</button>
+					{/if}
 				</div>
 			{/if}
 		</div>

@@ -6,7 +6,7 @@
 	import { auth, SessionExpiredError, throwIfAuthenticatedApiError } from '$lib/auth.svelte';
 	import { pb } from '$lib/pocketbase';
 	import { shaderState } from '$lib/shaderState.svelte';
-	import { replaceState } from '$app/navigation';
+	import { goto, replaceState } from '$app/navigation';
 	import { defaultImageShader, defaultBufferShader, defaultCommonCode } from '$lib/defaultShaders';
 	import type { ShadersVisiblityOptions } from '$lib/pocketbase-types';
 	import {
@@ -358,6 +358,43 @@
 		}
 	}
 
+	async function forkProject() {
+		if (shaderState.isSaving) return;
+		if (!auth.isLoggedIn || !auth.user?.id) return;
+
+		shaderState.isSaving = true;
+		try {
+			const res = await fetch('/api/shaders', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${pb.authStore.token}`,
+				},
+				body: JSON.stringify({
+					name: `Fork of ${shaderState.name}`,
+					description: shaderState.description,
+					visiblity: shaderState.visiblity,
+					buffers: buffersWithLatestCode(),
+					channels,
+				}),
+			});
+			await throwIfAuthenticatedApiError(res, `Failed to fork shader (HTTP ${res.status}).`);
+			const data = await res.json() as { record?: { id: string } };
+			if (data.record) {
+				goto(`/shader/${data.record.id}`);
+			}
+		} catch (e) {
+			if (e instanceof SessionExpiredError) {
+				window.alert(e.message);
+				return;
+			}
+			console.error('Crash during fork', e);
+			window.alert(e instanceof Error ? e.message : 'Failed to fork shader.');
+		} finally {
+			shaderState.isSaving = false;
+		}
+	}
+
 	$effect(() => {
 		if (viewOnly) return;
 		const handleKeyDown = (e: KeyboardEvent) => {
@@ -384,6 +421,7 @@
 			{viewOnly}
 			{authorId}
 			{authorName}
+			onFork={forkProject}
 		/>
 	</div>
 
