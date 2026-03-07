@@ -1,5 +1,13 @@
 @import 'tailwindcss';
 
+@layer base {
+	html,
+	body {
+		background-color: var(--color-background);
+		color: var(--color-foreground);
+	}
+}
+
 @theme {
 	--color-background: #1a1a1a;
 	--color-surface: #212121;
