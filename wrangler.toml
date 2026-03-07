@@ -8,5 +8,9 @@ workers_dev = true
 binding = "ASSETS"
 directory = ".svelte-kit/cloudflare"
 
+[[r2_buckets]]
+binding = "assets-storage"
+bucket_name = "shayders"
+
 [observability.logs]
 enabled = true
