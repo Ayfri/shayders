@@ -1,13 +1,12 @@
 <script lang="ts">
+	import { beforeNavigate, goto, replaceState } from '$app/navigation';
+	import { auth, SessionExpiredError, throwIfAuthenticatedApiError } from '$lib/auth.svelte';
+	import { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
 	import EditorPanel from '$lib/components/EditorPanel.svelte';
 	import ShaderCanvas from '$lib/components/ShaderCanvas.svelte';
-	import { type UniformEntry } from '$lib/components/BuiltinsPanel.svelte';
+	import { defaultBufferShader, defaultCommonCode, defaultImageShader } from '$lib/defaultShaders';
 	import { UNIFORM_DOCS } from '$lib/glsl/builtins';
-	import { auth, SessionExpiredError, throwIfAuthenticatedApiError } from '$lib/auth.svelte';
 	import { pb } from '$lib/pocketbase';
-	import { shaderState } from '$lib/shaderState.svelte';
-	import { goto, replaceState } from '$app/navigation';
-	import { defaultImageShader, defaultBufferShader, defaultCommonCode } from '$lib/defaultShaders';
 	import type { ShadersVisiblityOptions } from '$lib/pocketbase-types';
 	import {
 		createEmptyChannels,
@@ -15,35 +14,36 @@
 		type ChannelEntry,
 		type ShaderBuffer,
 	} from '$lib/shader-content';
+	import { shaderState } from '$lib/shaderState.svelte';
 
 	interface Props {
-		initialId?: string;
-		initialName?: string;
-		initialDescription?: string;
-		initialVisiblity?: keyof typeof ShadersVisiblityOptions;
-		initialBuffers?: ShaderBuffer[];
-		initialChannels?: ChannelEntry[];
-		viewOnly?: boolean;
 		authorId?: string;
 		authorName?: string;
+		initialBuffers?: ShaderBuffer[];
+		initialChannels?: ChannelEntry[];
+		initialDescription?: string;
+		initialId?: string;
+		initialName?: string;
+		initialVisiblity?: keyof typeof ShadersVisiblityOptions;
+		viewOnly?: boolean;
 	}
 
-	let { initialId, initialName, initialDescription, initialVisiblity, initialBuffers, initialChannels, viewOnly = false, authorId, authorName }: Props = $props();
+	let { authorId, authorName, initialBuffers, initialChannels, initialDescription, initialId, initialName, initialVisiblity, viewOnly = false }: Props = $props();
 
-	// State - initialized with defaults, overridden from props in $effect.pre below
-	let buffers = $state<ShaderBuffer[]>([{ id: 'image', label: 'Image', code: defaultImageShader }]);
 	let activeBufferId = $state<string>('image');
+	let assetCleanupKeys = $state<string[]>([]);
+	let buffers = $state<ShaderBuffer[]>([{ id: 'image', label: 'Image', code: defaultImageShader }]);
+	let channels = $state<ChannelEntry[]>(createEmptyChannels());
 	let editorValue = $state<string>(defaultImageShader);
-
 	let error = $state('');
-	let uniformValues = $state<Record<string, string>>({});
-	let thumbnails = $state<Record<string, string>>({});
+	let isDirty = $state(false);
 	let panelOpen = $state(false);
 	let shaderCanvas = $state<ReturnType<typeof ShaderCanvas> | null>(null);
-	let channels = $state<ChannelEntry[]>(createEmptyChannels());
-	let assetCleanupKeys = $state<string[]>([]);
+	let thumbnails = $state<Record<string, string>>({});
+	let uniformValues = $state<Record<string, string>>({});
 
-	// Initialize all prop-driven state before first paint
+	let _firstCompile = true;
+
 	$effect.pre(() => {
 		const bufs = initialBuffers && initialBuffers.length > 0
 			? initialBuffers
@@ -61,9 +61,11 @@
 		shaderState.name = initialName ?? 'Untitled Shader';
 		shaderState.description = initialDescription ?? '';
 		shaderState.visiblity = (initialVisiblity ?? 'public') as keyof typeof ShadersVisiblityOptions;
+		isDirty = false;
+		_firstCompile = true;
 	});
 
-	const BUFFER_UNIFORM_NAMES = ['uBufferA','uBufferB','uBufferC','uBufferD','uBufferE','uBufferF','uBufferG','uBufferH'];
+	const BUFFER_UNIFORM_NAMES = ['uBufferA', 'uBufferB', 'uBufferC', 'uBufferD', 'uBufferE', 'uBufferF', 'uBufferG', 'uBufferH'];
 
 	const UNIFORM_CATALOG_BASE: { name: string; type: string }[] = [
 		{ name: 'uAspect', type: 'float' },
@@ -80,7 +82,6 @@
 		{ name: 'uChannel3', type: 'sampler2D' },
 	];
 
-	// Uniform line helpers
 	function addUniformLine(code: string, name: string, type: string): string {
 		if (new RegExp(`\\buniform\\s+\\S+\\s+${name}\\s*;`).test(code)) return code;
 		const line = `uniform ${type} ${name};`;
@@ -114,6 +115,7 @@
 		const isActive = ch.type != null;
 		const uniformName = `uChannel${ch.id}`;
 		channels = channels.map((c) => (c.id === ch.id ? ch : c));
+		isDirty = true;
 		if (!wasActive && isActive) {
 			const saved = buffersWithLatestCode();
 			const updated = saved.map((b) =>
@@ -163,6 +165,7 @@
 		buffers = [...updatedExisting, newBuf];
 		activeBufferId = newId;
 		editorValue = defaultBufferShader;
+		isDirty = true;
 		setTimeout(() => shaderCanvas?.run(), 0);
 	}
 
@@ -175,11 +178,13 @@
 		buffers = saved;
 		activeBufferId = 'common';
 		editorValue = defaultCommonCode;
+		isDirty = true;
 		setTimeout(() => shaderCanvas?.run(), 0);
 	}
 
 	function renameBuffer(id: string, label: string) {
 		buffers = buffers.map((b) => (b.id === id ? { ...b, label } : b));
+		isDirty = true;
 	}
 
 	function removeBuffer(id: string) {
@@ -200,6 +205,7 @@
 		buffers = updatedBufs;
 		activeBufferId = newActiveId;
 		editorValue = updatedBufs.find((b) => b.id === newActiveId)?.code ?? '';
+		isDirty = true;
 		setTimeout(() => shaderCanvas?.run(), 0);
 	}
 
@@ -216,6 +222,7 @@
 		buffers = saved;
 		activeBufferId = newId;
 		editorValue = newBuf.code;
+		isDirty = true;
 		setTimeout(() => shaderCanvas?.run(), 0);
 	}
 
@@ -274,18 +281,21 @@
 		const _code = editorValue;
 		clearTimeout(_compileTimer);
 		_compileTimer = setTimeout(() => run(), 800);
+		if (_firstCompile) { _firstCompile = false; return; }
+		isDirty = true;
 	});
 
 	function saveDraftLocally(): boolean {
 		try {
 			const localData = {
-				name: shaderState.name,
-				description: shaderState.description,
-				visiblity: shaderState.visiblity,
 				buffers: buffersWithLatestCode(),
+				description: shaderState.description,
+				name: shaderState.name,
 				savedAt: new Date().toISOString(),
+				visiblity: shaderState.visiblity,
 			};
 			localStorage.setItem('shayders_draft', JSON.stringify(localData));
+			isDirty = false;
 			return true;
 		} catch (e) {
 			console.error('Error during local save', e);
@@ -336,6 +346,7 @@
 				const isNew = !shaderState.currentShaderId;
 				shaderState.currentShaderId = data.record.id;
 				assetCleanupKeys = [];
+				isDirty = false;
 				if (isNew) {
 					replaceState(`/shader/${data.record.id}`, {});
 				}
@@ -403,8 +414,21 @@
 				saveProject();
 			}
 		};
+		const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+			if (isDirty) e.preventDefault();
+		};
 		window.addEventListener('keydown', handleKeyDown);
-		return () => window.removeEventListener('keydown', handleKeyDown);
+		window.addEventListener('beforeunload', handleBeforeUnload);
+		return () => {
+			window.removeEventListener('keydown', handleKeyDown);
+			window.removeEventListener('beforeunload', handleBeforeUnload);
+		};
+	});
+
+	beforeNavigate(({ cancel }) => {
+		if (!viewOnly && isDirty && !confirm('You have unsaved changes. Leave anyway?')) {
+			cancel();
+		}
 	});
 </script>
 
