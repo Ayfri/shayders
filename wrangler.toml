@@ -9,7 +9,7 @@ binding = "ASSETS"
 directory = ".svelte-kit/cloudflare"
 
 [[r2_buckets]]
-binding = "assets-storage"
+binding = "ASSETS-STORAGE"
 bucket_name = "shayders"
 
 [observability.logs]
