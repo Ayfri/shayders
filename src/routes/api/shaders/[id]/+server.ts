@@ -4,7 +4,10 @@ import { extractStoredAssetKeys } from '$lib/shader-content';
 import { authenticatePocketBaseRequest } from '$lib/server/pocketbase-auth';
 import { deleteR2Objects } from '$lib/server/r2';
 
-export const DELETE: RequestHandler = async ({ request, params }) => {
+export const DELETE: RequestHandler = async ({ request, params, platform }) => {
+	const bucket = platform?.env.ASSETS_STORAGE;
+	if (!bucket) return json({ error: 'Storage unavailable.' }, { status: 503 });
+
 	const { pb, user } = await authenticatePocketBaseRequest(request);
 
 	let shader;
@@ -21,7 +24,7 @@ export const DELETE: RequestHandler = async ({ request, params }) => {
 	const assetKeys = extractStoredAssetKeys(shader.content);
 	await pb.collection('shaders').delete(params.id);
 
-	deleteR2Objects(assetKeys).catch((err) => {
+	deleteR2Objects(bucket, assetKeys).catch((err) => {
 		console.error('Failed to delete shader assets from R2:', err);
 	});
 

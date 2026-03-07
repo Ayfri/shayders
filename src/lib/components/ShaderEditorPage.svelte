@@ -331,7 +331,7 @@
 				}),
 			});
 			await throwIfAuthenticatedApiError(res, `Failed to save shader (HTTP ${res.status}).`);
-			const data = await res.json();
+			const data = await res.json() as { record?: { id: string } };
 			if (data.record) {
 				const isNew = !shaderState.currentShaderId;
 				shaderState.currentShaderId = data.record.id;

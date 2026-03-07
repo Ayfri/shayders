@@ -33,8 +33,6 @@ export interface QuotaSummary {
 }
 
 export interface UploadUrlResponse {
-	uploadUrl: string;
-	headers: Record<string, string>;
 	asset: UploadedChannelAsset;
 	quota: QuotaSummary;
 }

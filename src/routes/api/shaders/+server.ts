@@ -41,6 +41,7 @@ function normalizeVisibility(value: string | undefined): keyof typeof ShadersVis
 async function verifyPersistedChannels(
 	channels: PersistedShaderChannel[],
 	userId: string,
+	bucket: R2Bucket,
 ): Promise<PersistedShaderChannel[]> {
 	const verified: PersistedShaderChannel[] = [];
 
@@ -50,7 +51,7 @@ async function verifyPersistedChannels(
 			continue;
 		}
 
-		const objectHead = await getOwnedObjectHead(channel.key, userId);
+		const objectHead = await getOwnedObjectHead(bucket, channel.key, userId);
 		const validationError = validateBinaryAssetMetadata({
 			mime: objectHead.mime,
 			size: objectHead.size,
@@ -85,7 +86,10 @@ async function verifyPersistedChannels(
 	return verified;
 }
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
+	const bucket = platform?.env.ASSETS_STORAGE;
+	if (!bucket) return json({ error: 'Storage unavailable.' }, { status: 503 });
+
 	const { pb, user } = await authenticatePocketBaseRequest(request);
 
 	let body: SaveBody;
@@ -125,7 +129,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	let verifiedChannels: PersistedShaderChannel[];
 	try {
 		const serialized = serializeShaderContent(buffers, channels);
-		verifiedChannels = await verifyPersistedChannels(serialized.channels, user.id);
+		verifiedChannels = await verifyPersistedChannels(serialized.channels, user.id, bucket);
 	} catch (err) {
 		return json({
 			error: err instanceof Error ? err.message : 'Failed to verify uploaded assets.',
@@ -179,7 +183,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	const keysToDelete = [...new Set([...removedKeys, ...cleanupKeys])];
 
 	if (keysToDelete.length > 0) {
-		deleteR2Objects(keysToDelete).catch((err) => {
+		deleteR2Objects(bucket, keysToDelete).catch((err) => {
 			console.error('Failed to clean up replaced shader assets:', err);
 		});
 	}

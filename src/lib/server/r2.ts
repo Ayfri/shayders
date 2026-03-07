@@ -1,22 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { env } from '$env/dynamic/private';
-import {
-	DeleteObjectsCommand,
-	GetObjectCommand,
-	HeadObjectCommand,
-	PutObjectCommand,
-	S3Client,
-} from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { SHADER_UPLOAD_URL_TTL_SECONDS } from '$lib/shader-asset-policy';
 import { buildShaderAssetUrl } from '$lib/shader-asset-url';
-
-interface R2Settings {
-	bucketName: string;
-	endpoint: string;
-	accessKeyId: string;
-	secretAccessKey: string;
-}
 
 export interface OwnedObjectHead {
 	key: string;
@@ -25,49 +8,7 @@ export interface OwnedObjectHead {
 	size: number;
 }
 
-let client: S3Client | null = null;
-
-function requiredEnv(name: string): string {
-	const value = env[name];
-	if (!value) {
-		error(500, `Missing ${name} environment variable.`);
-	}
-
-	return value;
-}
-
-function getR2Settings(): R2Settings {
-	const bucketName = requiredEnv('R2_BUCKET_NAME');
-	const endpoint = env.R2_S3_ENDPOINT
-		? env.R2_S3_ENDPOINT.replace(/\/+$/, '')
-		: `https://${requiredEnv('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com`;
-
-	return {
-		bucketName,
-		endpoint,
-		accessKeyId: requiredEnv('R2_ACCESS_KEY_ID'),
-		secretAccessKey: requiredEnv('R2_SECRET_ACCESS_KEY'),
-	};
-}
-
-function getR2Client(): S3Client {
-	if (client) {
-		return client;
-	}
-
-	const settings = getR2Settings();
-	client = new S3Client({
-		region: 'auto',
-		endpoint: settings.endpoint,
-		forcePathStyle: true,
-		credentials: {
-			accessKeyId: settings.accessKeyId,
-			secretAccessKey: settings.secretAccessKey,
-		},
-	});
-
-	return client;
-}
+const ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
 function sanitizeFilename(filename: string): string {
 	const trimmed = filename.trim().toLowerCase();
@@ -95,87 +36,98 @@ export function getR2PublicUrl(key: string): string {
 	return buildShaderAssetUrl(key);
 }
 
-export async function createPresignedAssetReadUrl(key: string): Promise<string> {
-	const { bucketName } = getR2Settings();
-	const command = new GetObjectCommand({
-		Bucket: bucketName,
-		Key: key,
-	});
+export async function streamR2Asset(
+	bucket: R2Bucket,
+	key: string,
+	request: Request,
+	method: 'GET' | 'HEAD',
+): Promise<Response> {
+	if (!key || !key.startsWith('users/')) {
+		error(404, 'Asset not found');
+	}
 
-	return getSignedUrl(getR2Client(), command, {
-		expiresIn: SHADER_UPLOAD_URL_TTL_SECONDS,
-	});
+	if (method === 'HEAD') {
+		const object = await bucket.head(key);
+		if (!object) error(404, 'Asset not found');
+
+		const headers = new Headers();
+		object.writeHttpMetadata(headers);
+		headers.set('etag', object.httpEtag);
+		headers.set('content-length', String(object.size));
+		if (!headers.has('cache-control')) {
+			headers.set('cache-control', ASSET_CACHE_CONTROL);
+		}
+
+		return new Response(null, { headers });
+	}
+
+	const rangeHeader = request.headers.get('range');
+	const options: R2GetOptions = rangeHeader ? { range: request.headers } : {};
+	const object = await bucket.get(key, options);
+
+	if (!object) {
+		error(404, 'Asset not found');
+	}
+
+	const headers = new Headers();
+	object.writeHttpMetadata(headers);
+	headers.set('etag', object.httpEtag);
+	if (!headers.has('cache-control')) {
+		headers.set('cache-control', ASSET_CACHE_CONTROL);
+	}
+
+	if (object.range) {
+		const { offset = 0, length } = object.range as { offset?: number; length?: number };
+		const end = length !== undefined ? offset + length - 1 : object.size - 1;
+		headers.set('content-range', `bytes ${offset}-${end}/${object.size}`);
+	}
+
+	const status = rangeHeader ? 206 : 200;
+	return new Response(object.body, { status, headers });
 }
 
-export async function createPresignedUploadUrl(params: {
-	userId: string;
-	filename: string;
-	mime: string;
-}): Promise<{
-	key: string;
-	publicUrl: string;
-	uploadUrl: string;
-	headers: Record<string, string>;
-}> {
+export async function putR2Asset(
+	bucket: R2Bucket,
+	params: { userId: string; filename: string; mime: string },
+	body: ReadableStream | ArrayBuffer | ArrayBufferView,
+): Promise<{ key: string; publicUrl: string }> {
 	const key = createUserAssetKey(params.userId, params.filename);
-	const { bucketName } = getR2Settings();
-	const command = new PutObjectCommand({
-		Bucket: bucketName,
-		Key: key,
-		ContentType: params.mime,
+	await bucket.put(key, body, {
+		httpMetadata: { contentType: params.mime },
 	});
-	const uploadUrl = await getSignedUrl(getR2Client(), command, {
-		expiresIn: SHADER_UPLOAD_URL_TTL_SECONDS,
-		signableHeaders: new Set(['content-type']),
-	});
+
+	return { key, publicUrl: getR2PublicUrl(key) };
+}
+
+export async function getOwnedObjectHead(
+	bucket: R2Bucket,
+	key: string,
+	userId: string,
+): Promise<OwnedObjectHead> {
+	assertOwnedAssetKey(key, userId);
+
+	const object = await bucket.head(key);
+	if (!object) {
+		error(400, 'Referenced asset is missing from storage.');
+	}
+
+	const size = object.size;
+	if (!Number.isFinite(size) || size <= 0) {
+		error(400, 'Stored asset has an invalid size.');
+	}
 
 	return {
 		key,
-		publicUrl: getR2PublicUrl(key),
-		uploadUrl,
-		headers: {
-			'Content-Type': params.mime,
-		},
+		url: getR2PublicUrl(key),
+		mime: object.httpMetadata?.contentType ?? 'application/octet-stream',
+		size,
 	};
-	}
+}
 
-export async function getOwnedObjectHead(key: string, userId: string): Promise<OwnedObjectHead> {
-	assertOwnedAssetKey(key, userId);
-	const { bucketName } = getR2Settings();
-
-	try {
-		const response = await getR2Client().send(new HeadObjectCommand({
-			Bucket: bucketName,
-			Key: key,
-		}));
-		const size = Number(response.ContentLength ?? 0);
-		if (!Number.isFinite(size) || size <= 0) {
-			error(400, 'Stored asset has an invalid size.');
-		}
-
-		return {
-			key,
-			url: getR2PublicUrl(key),
-			mime: response.ContentType ?? 'application/octet-stream',
-			size,
-		};
-	} catch {
-		error(400, 'Referenced asset is missing from storage.');
-	}
-	}
-
-export async function deleteR2Objects(keys: string[]): Promise<void> {
+export async function deleteR2Objects(bucket: R2Bucket, keys: string[]): Promise<void> {
 	if (keys.length === 0) {
 		return;
 	}
 
-	const uniqueKeys = [...new Set(keys)];
-	const { bucketName } = getR2Settings();
-	await getR2Client().send(new DeleteObjectsCommand({
-		Bucket: bucketName,
-		Delete: {
-			Objects: uniqueKeys.map((key) => ({ Key: key })),
-			Quiet: true,
-		},
-	}));
-	}
+	await bucket.delete([...new Set(keys)]);
+}

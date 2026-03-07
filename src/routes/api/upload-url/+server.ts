@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { sumStoredAssetBytes } from '$lib/shader-content';
 import {
@@ -11,16 +11,31 @@ import {
 	validateBinaryAssetMetadata,
 } from '$lib/shader-asset-policy';
 import { authenticatePocketBaseRequest } from '$lib/server/pocketbase-auth';
-import { createPresignedUploadUrl } from '$lib/server/r2';
+import { putR2Asset } from '$lib/server/r2';
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, platform }) => {
+	const bucket = platform?.env.ASSETS_STORAGE;
+	if (!bucket) error(503, 'Storage unavailable.');
+
 	const { pb, user } = await authenticatePocketBaseRequest(request);
+
+	let formData: FormData;
+	try {
+		formData = await request.formData();
+	} catch {
+		return json({ error: 'Invalid upload payload.' }, { status: 400 });
+	}
 
 	let body: UploadUrlRequest;
 	try {
-		body = (await request.json()) as UploadUrlRequest;
+		body = JSON.parse(formData.get('metadata') as string) as UploadUrlRequest;
 	} catch {
-		return json({ error: 'Invalid upload payload.' }, { status: 400 });
+		return json({ error: 'Invalid upload metadata.' }, { status: 400 });
+	}
+
+	const file = formData.get('file');
+	if (!(file instanceof File)) {
+		return json({ error: 'Missing file in upload payload.' }, { status: 400 });
 	}
 
 	const validationError = validateBinaryAssetMetadata(body);
@@ -49,22 +64,20 @@ export const POST: RequestHandler = async ({ request }) => {
 		}, { status: 400 });
 	}
 
-	const signedUpload = await createPresignedUploadUrl({
+	const { key, publicUrl } = await putR2Asset(bucket, {
 		userId: user.id,
 		filename: body.filename,
 		mime: body.mime,
-	});
+	}, await file.arrayBuffer());
 
 	const response: UploadUrlResponse = {
-		uploadUrl: signedUpload.uploadUrl,
-		headers: signedUpload.headers,
 		asset: {
 			type: kind,
-			url: signedUpload.publicUrl,
+			url: publicUrl,
 			name: body.filename,
 			mime: body.mime,
 			size: body.size,
-			storageKey: signedUpload.key,
+			storageKey: key,
 			width: body.width ?? null,
 			height: body.height ?? null,
 			durationSeconds: body.durationSeconds ?? null,
@@ -73,4 +86,4 @@ export const POST: RequestHandler = async ({ request }) => {
 	};
 
 	return json(response);
-	};
+};

@@ -114,30 +114,21 @@ export async function uploadPreparedChannelAsset(
 	prepared: PreparedChannelUpload,
 	replacingKey?: string | null,
 ): Promise<UploadUrlResponse> {
+	const formData = new FormData();
+	formData.append('file', prepared.file);
+	formData.append('metadata', JSON.stringify({
+		...prepared.request,
+		replacingKey: replacingKey ?? null,
+	}));
+
 	const response = await fetch('/api/upload-url', {
 		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			'Authorization': `Bearer ${token}`,
-		},
-		body: JSON.stringify({
-			...prepared.request,
-			replacingKey: replacingKey ?? null,
-		}),
+		headers: { 'Authorization': `Bearer ${token}` },
+		body: formData,
 	});
-	await throwIfAuthenticatedApiError(response, `Upload URL request failed with HTTP ${response.status}.`);
+	await throwIfAuthenticatedApiError(response, `Upload failed with HTTP ${response.status}.`);
 
-	const upload = (await response.json()) as UploadUrlResponse;
-	const putResponse = await fetch(upload.uploadUrl, {
-		method: 'PUT',
-		headers: upload.headers,
-		body: prepared.file,
-	});
-	if (!putResponse.ok) {
-		throw new Error(`Asset upload failed with HTTP ${putResponse.status}.`);
-	}
-
-	return upload;
+	return (await response.json()) as UploadUrlResponse;
 	}
 
 export function createLocalChannelEntry(
