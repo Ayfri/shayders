@@ -4,8 +4,8 @@ import {
 	SEARCH_PREVIEW_SHADER_LIMIT,
 	SEARCH_PREVIEW_USER_LIMIT,
 	normalizeSearchQuery,
-} from '$lib/search';
-import { searchSite } from '$lib/server/search';
+} from '$features/search/search';
+import { searchSite } from '$features/search/server/search';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ url }) => {
@@ -36,3 +36,4 @@ export const GET: RequestHandler = async ({ url }) => {
 		},
 	});
 };
+

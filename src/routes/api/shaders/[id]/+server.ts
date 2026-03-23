@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { extractStoredAssetKeys } from '$lib/shader-content';
+import { extractStoredAssetKeys } from '$features/shaders/model/shader-content';
 import { authenticatePocketBaseRequest } from '$lib/server/pocketbase-auth';
 import { deleteR2Objects } from '$lib/server/r2';
 

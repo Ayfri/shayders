@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { sumStoredAssetBytes } from '$lib/shader-content';
+import { sumStoredAssetBytes } from '$features/shaders/model/shader-content';
 import {
 	SHADER_USER_QUOTA_BYTES,
 	createQuotaSummary,
@@ -9,7 +9,7 @@ import {
 	formatBytes,
 	getBinaryChannelTypeFromMime,
 	validateBinaryAssetMetadata,
-} from '$lib/shader-asset-policy';
+} from '$features/shaders/assets/shader-asset-policy';
 import { authenticatePocketBaseRequest } from '$lib/server/pocketbase-auth';
 import { putR2Asset } from '$lib/server/r2';
 
@@ -87,3 +87,4 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
 	return json(response);
 };
+

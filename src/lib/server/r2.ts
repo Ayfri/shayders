@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { buildShaderAssetUrl } from '$lib/shader-asset-url';
+import { buildShaderAssetUrl } from '$features/shaders/assets/shader-asset-url';
 
 export interface OwnedObjectHead {
 	key: string;
@@ -131,3 +131,4 @@ export async function deleteR2Objects(bucket: R2Bucket, keys: string[]): Promise
 
 	await bucket.delete([...new Set(keys)]);
 }
+

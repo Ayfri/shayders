@@ -10,13 +10,13 @@ import {
 	listUnpersistedBinaryChannels,
 	serializeShaderContent,
 	sumStoredAssetBytes,
-	} from '$lib/shader-content';
+	} from '$features/shaders/model/shader-content';
 import {
 	SHADER_USER_QUOTA_BYTES,
 	formatBytes,
 	getBinaryChannelTypeFromMime,
 	validateBinaryAssetMetadata,
-} from '$lib/shader-asset-policy';
+} from '$features/shaders/assets/shader-asset-policy';
 import { authenticatePocketBaseRequest } from '$lib/server/pocketbase-auth';
 import { deleteR2Objects, getOwnedObjectHead } from '$lib/server/r2';
 
@@ -190,3 +190,4 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
 	return json({ success: true, record });
 	};
+

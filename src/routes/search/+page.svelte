@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { CodeXml, Search, User } from '@lucide/svelte';
 	import SeoHead from '$lib/components/SeoHead.svelte';
-	import ShaderPreview from '$lib/components/ShaderPreview.svelte';
-	import { buildSearchHref } from '$lib/search';
+	import ShaderPreview from '$features/shaders/preview/ShaderPreview.svelte';
+	import { buildSearchHref } from '$features/search/search';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -200,3 +200,4 @@
 		{/if}
 	</div>
 </div>
+

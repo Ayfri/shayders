@@ -1,0 +1,98 @@
+<script lang="ts">
+	import { GitFork, Info } from '@lucide/svelte';
+	import { auth } from '$features/auth/auth-client.svelte';
+	import { shaderState } from '$features/shaders/model/shader-state.svelte';
+
+	interface Props {
+		authorId?: string;
+		authorName?: string;
+		buildTime: number;
+		isSavingLocally?: boolean;
+		onFork?: () => void;
+		onOpenInfo: () => void;
+		readonly?: boolean;
+		viewOnly?: boolean;
+	}
+
+	let {
+		authorId = undefined,
+		authorName = undefined,
+		buildTime,
+		isSavingLocally = false,
+		onFork = undefined,
+		onOpenInfo,
+		readonly = false,
+		viewOnly = false,
+	}: Props = $props();
+</script>
+
+{#snippet infoButton()}
+	<button
+		onclick={onOpenInfo}
+		class="flex items-center gap-1 rounded border border-cyan-400/40 bg-cyan-400/5 px-2 py-0.5 text-cyan-400/80 transition-colors hover:bg-cyan-400/15 hover:text-cyan-400"
+		title="Shader info"
+	>
+		<Info size={11} />
+		<span>Informations</span>
+	</button>
+{/snippet}
+
+{#snippet forkButton(title: string)}
+	{#if onFork}
+		<button
+			onclick={onFork}
+			disabled={shaderState.isSaving}
+			class="flex shrink-0 items-center gap-1 rounded px-2 py-0.5 text-muted transition-colors disabled:cursor-not-allowed disabled:opacity-40 hover:text-foreground"
+			title={title}
+		>
+			<GitFork size={11} />
+			<span>{shaderState.isSaving ? 'Forking…' : 'Fork'}</span>
+		</button>
+	{/if}
+{/snippet}
+
+<div class="flex shrink-0 items-center gap-2 border-b border-border bg-panel px-2 py-1 text-xs text-muted sm:gap-3 sm:px-3 sm:py-2">
+	<span class="size-3 shrink-0 rounded-full bg-green-400"></span>
+	<span class="hidden shrink-0 font-medium tracking-wider sm:inline">Preview</span>
+	<span class="shrink-0 text-muted-foreground">•</span>
+	<span class="shrink-0"><span class="hidden sm:inline">Build: </span>{buildTime.toFixed(2)}ms</span>
+
+	{#if isSavingLocally}
+		<span class="ml-auto rounded border border-yellow-600/60 bg-yellow-950/40 px-2 py-1 text-xs text-yellow-400">
+			Saved locally
+		</span>
+	{:else if viewOnly}
+		<div class="ml-auto flex min-w-0 items-center gap-2">
+			<div class="flex shrink-0 items-center gap-1 text-xs text-muted">
+				{#if authorId && authorName}
+					<a href="/users/{authorId}" class="transition-colors hover:text-foreground">{authorName}</a>
+					<span>/</span>
+				{/if}
+				<span class="max-w-40 truncate text-xs font-semibold text-foreground">{shaderState.name || 'Untitled Shader'}</span>
+			</div>
+			{@render infoButton()}
+			{#if auth.isLoggedIn}
+				{@render forkButton('Fork this shader into your account')}
+			{/if}
+		</div>
+	{:else if !readonly && auth.isLoggedIn}
+		<div class="ml-auto flex min-w-0 items-center gap-2">
+			<div class="flex items-center gap-1">
+				{#if authorId && authorName && authorId !== auth.user?.id}
+					<a href="/users/{authorId}" class="text-xs text-muted transition-colors hover:text-foreground">{authorName}</a>
+					<span class="text-xs text-muted">/</span>
+				{/if}
+				<input
+					type="text"
+					bind:value={shaderState.name}
+					placeholder="Untitled Shader"
+					class="w-40 min-w-0 rounded border-none bg-transparent px-2 py-0.5 text-right text-xs font-semibold text-foreground outline-none transition-colors placeholder:text-subtle hover:bg-surface focus:bg-surface"
+				/>
+			</div>
+			{@render infoButton()}
+			{@render forkButton('Fork this shader into a new copy')}
+		</div>
+	{/if}
+</div>
+
+

@@ -3,7 +3,7 @@ import type { PageServerLoad } from './$types';
 import PocketBase from 'pocketbase';
 import { PUBLIC_POCKETBASE_URL } from '$env/static/public';
 import type { TypedPocketBase, ShadersResponse } from '$lib/pocketbase-types';
-import { deserializeShaderContent, hydrateChannels } from '$lib/shader-content';
+import { deserializeShaderContent, hydrateChannels } from '$features/shaders/model/shader-content';
 
 export const load: PageServerLoad = async ({ locals, params }) => {
 	const pb = new PocketBase(PUBLIC_POCKETBASE_URL) as TypedPocketBase;

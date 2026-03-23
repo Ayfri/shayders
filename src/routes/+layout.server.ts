@@ -1,4 +1,4 @@
-import { toAuthUser } from '$lib/server/auth-session';
+import { toAuthUser } from '$features/auth/server/auth-session';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ locals, url }) => {
@@ -7,3 +7,4 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 		sessionUser: toAuthUser(locals.user),
 	};
 };
+

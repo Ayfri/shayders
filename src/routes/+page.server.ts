@@ -1,7 +1,7 @@
 import { PUBLIC_POCKETBASE_URL } from '$env/static/public';
 import type { TypedPocketBase } from '$lib/pocketbase-types';
-import { getShaderListSort, normalizeShaderSort } from '$lib/shader-list';
-import { deserializeShaderContent, hydrateChannels } from '$lib/shader-content';
+import { getShaderListSort, normalizeShaderSort } from '$features/shaders/model/shader-list';
+import { deserializeShaderContent, hydrateChannels } from '$features/shaders/model/shader-content';
 import PocketBase from 'pocketbase';
 import type { PageServerLoad } from './$types.js';
 
@@ -43,3 +43,4 @@ export const load: PageServerLoad = async ({ url }) => {
 		};
 	}
 };
+

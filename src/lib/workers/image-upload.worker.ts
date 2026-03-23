@@ -3,7 +3,7 @@
 import {
 	SHADER_ASSET_LIMITS,
 	SHADER_IMAGE_PASSTHROUGH_MIME_TYPES,
-} from '$lib/shader-asset-policy';
+} from '$features/shaders/assets/shader-asset-policy';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -162,3 +162,4 @@ self.onmessage = async (event: MessageEvent<OptimizeImageRequest>) => {
 	};
 
 export {};
+
