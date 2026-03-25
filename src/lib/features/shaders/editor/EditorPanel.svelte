@@ -66,7 +66,7 @@
 	let settings = $state<EditorSettingsData>(loadSettings());
 	let showSettings = $state(false);
 	let showConvertModal = $state(false);
-	let detectedShadertoyOnce = $state(false);
+	let promptedShadertoyByBuffer = $state<Record<string, true>>({});
 	let viewportHeight = $state(0);
 	let viewportWidth = $state(0);
 
@@ -140,10 +140,23 @@
 	const isShadertoy = $derived(isShadertoyShader(value));
 
 	$effect(() => {
-		if (isShadertoy && !detectedShadertoyOnce) {
-			showConvertModal = true;
-			detectedShadertoyOnce = true;
+		if (!isShadertoy) {
+			if (promptedShadertoyByBuffer[activeBufferId]) {
+				const { [activeBufferId]: _removed, ...rest } = promptedShadertoyByBuffer;
+				promptedShadertoyByBuffer = rest;
+			}
+			return;
 		}
+
+		if (showConvertModal || promptedShadertoyByBuffer[activeBufferId]) {
+			return;
+		}
+
+		promptedShadertoyByBuffer = {
+			...promptedShadertoyByBuffer,
+			[activeBufferId]: true,
+		};
+			showConvertModal = true;
 	});
 
 	function handleConvert() {
@@ -417,5 +430,3 @@
 		</div>
 	</div>
 </Modal>
-
-
