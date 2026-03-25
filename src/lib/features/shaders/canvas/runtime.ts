@@ -341,4 +341,3 @@ export class ShaderCanvasRuntime {
 		return buffers.filter((buffer) => buffer.id !== 'common' && buffer.id !== 'image').map((buffer) => buffer.id);
 	}
 }
-
