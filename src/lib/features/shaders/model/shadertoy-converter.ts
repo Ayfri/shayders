@@ -14,6 +14,15 @@ const UNIFORM_MAP: [RegExp, string][] = [
 	[/\biChannel3\b/g, 'uChannel3'],
 ];
 
+// WebGL 1 does not support unsigned integer types, so imported shaders need
+// to be downgraded to their signed equivalents.
+const UNSIGNED_TYPE_MAP: [RegExp, string][] = [
+	[/\buvec4\b/g, 'ivec4'],
+	[/\buvec3\b/g, 'ivec3'],
+	[/\buvec2\b/g, 'ivec2'],
+	[/\buint\b/g, 'int'],
+];
+
 // iMouse in Shadertoy is vec4(x, y, clickX, clickY)
 // uMouse in shayders is vec3(x, y, pressed)
 const IMOUSE_REPLACEMENT = 'vec4(uMouse.xy, uMouse.z > 0.5 ? uMouse.xy : vec2(0.0))';
@@ -42,6 +51,13 @@ export function convertFromShadertoy(code: string): string {
 	for (const [pattern, replacement] of UNIFORM_MAP) {
 		result = result.replace(pattern, replacement);
 	}
+
+	for (const [pattern, replacement] of UNSIGNED_TYPE_MAP) {
+		result = result.replace(pattern, replacement);
+	}
+
+	// Drop the unsigned literal suffix used by Shadertoy shaders.
+	result = result.replace(/\b(0[xX][0-9a-fA-F]+|\d+)\s*[uU]\b/g, '$1');
 
 	// iMouse is a vec4 in Shadertoy, our uMouse is vec3 — emit a compatible vec4 expression
 	result = result.replace(/\biMouse\b/g, IMOUSE_REPLACEMENT);
