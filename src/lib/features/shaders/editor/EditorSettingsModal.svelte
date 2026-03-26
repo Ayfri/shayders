@@ -58,6 +58,15 @@
 		</section>
 
 		<section>
+			<h3 class="text-sm font-bold text-foreground uppercase tracking-wide mb-3">Tabs</h3>
+			<div class="space-y-4">
+				<SettingRow label="Buffer previews" changed={changed('bufferPreviews')} onReset={rb('bufferPreviews')}>
+					<input type="checkbox" bind:checked={settings.bufferPreviews} class={chk} />
+				</SettingRow>
+			</div>
+		</section>
+
+		<section>
 			<h3 class="text-sm font-bold text-foreground uppercase tracking-wide mb-3">Display</h3>
 			<div class="space-y-4">
 				<SettingRow label="Bracket pair colorization" changed={changed('bracketPairColorization')} onReset={rb('bracketPairColorization')}>
@@ -88,7 +97,7 @@
 				</SettingRow>
 
 				<SettingRow label="Minimap size" changed={changed('minimapSize')} onReset={rb('minimapSize')}>
-					<select bind:value={settings.minimapSize} disabled={!settings.minimapEnabled} class="{sel} disabled:opacity-30 disabled:cursor-not-allowed">
+					<select bind:value={settings.minimapSize} disabled={!settings.minimapEnabled} class={`${sel} disabled:opacity-30 disabled:cursor-not-allowed`}>
 						<option value="proportional">Proportional</option>
 						<option value="fill">Fill</option>
 						<option value="fit">Fit</option>
@@ -200,4 +209,3 @@
 		</button>
 	</div>
 </Modal>
-

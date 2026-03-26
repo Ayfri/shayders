@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { CircleAlert, Maximize2, Minimize2 } from '@lucide/svelte';
 	import ShaderCanvasToolbar from '$features/shaders/canvas/ShaderCanvasToolbar.svelte';
+	import { loadSettings } from '$features/shaders/editor/editor-settings';
 	import ShaderInfoModal from '$features/shaders/editor/ShaderInfoModal.svelte';
 	import { FULLSCREEN_TOGGLE_KEY } from '$features/shaders/model/shader-domain';
 	import { ShaderCanvasRuntime } from '$features/shaders/canvas/runtime';
@@ -63,15 +64,21 @@
 	let recordingStartedAt = 0;
 	let recordingShouldDownload = false;
 	let recordingMimeType = '';
+	let editorSettings = $state(loadSettings());
 
 	const runtime = new ShaderCanvasRuntime({
 		getBuffers: () => buffers,
 		getCanvas: () => canvas,
 		getChannels: () => channels,
+		getBufferPreviewsEnabled: () => editorSettings.bufferPreviews,
 		updateBuildTime: (value) => (buildTime = value),
 		updateError: (value) => (error = value),
 		updateThumbnails: (value) => (thumbnails = value),
 		updateUniformValues: (value) => (uniformValues = value),
+	});
+
+	$effect(() => {
+		editorSettings = loadSettings();
 	});
 
 	function isEditingField(element: Element | null): boolean {

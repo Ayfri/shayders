@@ -3,6 +3,8 @@ export interface EditorSettingsData {
 	fontFamily: string;
 	fontSize: number;
 	lineHeight: number;
+	// Tabs
+	bufferPreviews: boolean;
 	// Display
 	bracketPairColorization: boolean;
 	folding: boolean;
@@ -34,6 +36,8 @@ export const EDITOR_DEFAULTS = {
 	fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
 	fontSize: 14,
 	lineHeight: 22,
+	// Tabs
+	bufferPreviews: true,
 	// Display
 	bracketPairColorization: true,
 	folding: true,
@@ -84,6 +88,7 @@ export function settingsToMonaco(s: EditorSettingsData) {
 		fontFamily: s.fontFamily,
 		fontSize: s.fontSize,
 		lineHeight: s.lineHeight,
+		bufferPreviews: s.bufferPreviews,
 		// Display
 		bracketPairColorization: { enabled: s.bracketPairColorization },
 		folding: s.folding,

@@ -235,7 +235,7 @@
 		<div class="flex items-stretch shrink-0 bg-panel border-b border-border overflow-x-auto overflow-y-hidden">
 			{#each buffers as buf (buf.id)}
 				{@const isActive = activeBufferId === buf.id}
-				{@const thumb = thumbnails[buf.id]}
+				{@const thumb = settings.bufferPreviews ? thumbnails[buf.id] : null}
 				<!-- svelte-ignore a11y_interactive_supports_focus -->
 				<div
 					role="tab"

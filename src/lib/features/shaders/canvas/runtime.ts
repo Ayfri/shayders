@@ -14,6 +14,7 @@ interface RuntimeOptions {
 	getBuffers: () => ShaderBuffer[];
 	getCanvas: () => HTMLCanvasElement | null;
 	getChannels: () => ChannelEntry[];
+	getBufferPreviewsEnabled: () => boolean;
 	updateBuildTime: (value: number) => void;
 	updateError: (value: string) => void;
 	updateThumbnails: (value: Record<string, string>) => void;
@@ -200,7 +201,7 @@ export class ShaderCanvasRuntime {
 
 	private captureThumbnails(userOrder: string[]): void {
 		const canvas = this.options.getCanvas();
-		if (!this.gl || !canvas || userOrder.length === 0 || this.thumbnailGenerationPending) return;
+		if (!this.gl || !canvas || userOrder.length === 0 || this.thumbnailGenerationPending || !this.options.getBufferPreviewsEnabled()) return;
 		this.thumbnailGenerationPending = true;
 
 		const id = userOrder[this.thumbnailCursor % userOrder.length];
