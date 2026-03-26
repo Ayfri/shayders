@@ -23,6 +23,7 @@
 	let _settingExternal = false;
 	let _lastTokenSig = '';
 	const ACTIVE_EDITOR_KEY = '__glslActiveEditor';
+	const GOTO_POSITION_COMMAND_ID = '__glslGotoPosition';
 
 	function refreshDynamicTokens(src: string) {
 		const m = monacoRef;
@@ -43,6 +44,7 @@
 	$effect(() => {
 		if (!editorContainer) return;
 		let cancelled = false;
+		let gotoPositionCommand: Monaco.IDisposable | undefined;
 
 		(async () => {
 			const monaco = await import('monaco-editor');
@@ -79,6 +81,20 @@
 
 			const globals = globalThis as Record<string, unknown>;
 			globals[ACTIVE_EDITOR_KEY] = instance;
+			gotoPositionCommand = monaco.editor.registerCommand(
+				GOTO_POSITION_COMMAND_ID,
+				(_accessor, target?: { lineNumber?: number; column?: number; uri?: string }) => {
+					const activeEditor = globals[ACTIVE_EDITOR_KEY];
+					if (activeEditor !== instance) return;
+					const targetLine = typeof target?.lineNumber === 'number' && target.lineNumber > 0 ? target.lineNumber : 1;
+					const targetColumn = typeof target?.column === 'number' && target.column > 0 ? target.column : 1;
+					const model = instance.getModel();
+					if (target?.uri && model && model.uri.toString() !== target.uri) return;
+					instance.focus();
+					instance.revealPositionInCenter({ lineNumber: targetLine, column: targetColumn });
+					instance.setPosition({ lineNumber: targetLine, column: targetColumn });
+				},
+			);
 
 			instance.onDidFocusEditorWidget(() => {
 				globals[ACTIVE_EDITOR_KEY] = instance;
@@ -119,6 +135,7 @@
 			if (globals[ACTIVE_EDITOR_KEY] === currentEditor) {
 				delete globals[ACTIVE_EDITOR_KEY];
 			}
+			gotoPositionCommand?.dispose();
 			editor = null;
 			monacoRef = null;
 			_lastTokenSig = '';

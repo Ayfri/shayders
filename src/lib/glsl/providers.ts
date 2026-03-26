@@ -6,6 +6,7 @@ import { analyzeDocument, resolveType, resolveScopedType } from '$lib/glsl/analy
 
 const DISPOSABLES_KEY = '__glslProviderDisposables';
 const ACTIVE_EDITOR_KEY = '__glslActiveEditor';
+const GOTO_POSITION_COMMAND_ID = '__glslGotoPosition';
 
 export function registerGlslProviders(monaco: typeof Monaco): void {
 	const g = globalThis as Record<string, unknown>;
@@ -192,12 +193,28 @@ interface TypeConstructorOverload {
 	params: { type: string; name: string }[];
 }
 
-function formatLineLink(model: Monaco.editor.ITextModel, line: number): string {
-	return `[line ${line}](${model.uri.toString()}#L${line})`;
+function findDeclarationColumn(model: Monaco.editor.ITextModel, line: number, name: string): number {
+	const lineText = model.getLineContent(line);
+	const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	const match = lineText.match(new RegExp(`\\b${escapedName}\\b`));
+	return match?.index !== undefined ? match.index + 1 : 1;
 }
 
-function formatLineScopedText(label: string, model: Monaco.editor.ITextModel, line: number): string {
-	return `${label} ${formatLineLink(model, line)}.`;
+function buildGotoPositionLink(line: number, column: number, label: string): string {
+	const args = encodeURIComponent(JSON.stringify([{ lineNumber: line, column }]));
+	return `[${label}](command:${GOTO_POSITION_COMMAND_ID}?${args})`;
+}
+
+function formatLineLink(model: Monaco.editor.ITextModel, line: number, column: number): string {
+	return buildGotoPositionLink(line, column, `line ${line}`);
+}
+
+function formatLineScopedText(label: string, model: Monaco.editor.ITextModel, line: number, name: string): string {
+	return `${label} ${formatLineLink(model, line, findDeclarationColumn(model, line, name))}.`;
+}
+
+function formatFunctionParameterText(model: Monaco.editor.ITextModel, line: number, functionName: string, declarationName: string): string {
+	return `Function parameter of ${buildGotoPositionLink(line, findDeclarationColumn(model, line, functionName), functionName)} declared at ${formatLineLink(model, line, findDeclarationColumn(model, line, declarationName))}.`;
 }
 
 function buildTypeConstructorOverloads(typeName: string): TypeConstructorOverload[] | null {
@@ -1050,14 +1067,15 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 			const localVar = enclosingFn?.localVariables.find((v) => v.name === name);
 			if (localVar) {
 				const param = enclosingFn?.params.find((v) => v.name === name);
+				const declarationText = param
+					? formatFunctionParameterText(model, localVar.line, enclosingFn?.name ?? 'anonymous', localVar.name)
+					: formatLineScopedText('Local variable declared at', model, localVar.line, localVar.name);
 				const contents: Monaco.IMarkdownString[] = [
 					{
 						value: formatGlslCodeBlock([`${localVar.type} ${localVar.name};`]),
 						isTrusted: true,
 					},
-					{ value: param
-						? formatLineScopedText(`Function parameter of \`${enclosingFn?.name ?? 'anonymous'}\` declared at`, model, localVar.line)
-						: formatLineScopedText('Local variable declared at', model, localVar.line), isTrusted: true },
+					{ value: declarationText, isTrusted: true },
 				];
 				return {
 					range,
@@ -1087,7 +1105,7 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 							isTrusted: true,
 						}]
 						: []),
-					{ value: formatLineScopedText('User-defined function at', model, fn.line), isTrusted: true },
+						{ value: formatLineScopedText('User-defined function at', model, fn.line, fn.name), isTrusted: true },
 				];
 				return {
 					range,
@@ -1102,7 +1120,7 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 					range,
 					contents: [
 						{ value: `\`\`\`glsl\nstruct ${struct.name} {\n${fields}\n}\n\`\`\``, isTrusted: true },
-						{ value: formatLineScopedText('User-defined struct at', model, struct.line), isTrusted: true },
+						{ value: formatLineScopedText('User-defined struct at', model, struct.line, struct.name), isTrusted: true },
 					],
 				};
 			}
@@ -1126,7 +1144,7 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 						value: formatGlslCodeBlock([`${qualifier}${variable.type} ${variable.name};`.trim()]),
 						isTrusted: true,
 					},
-					{ value: formatLineScopedText('Declared at', model, variable.line), isTrusted: true },
+						{ value: formatLineScopedText('Declared at', model, variable.line, variable.name), isTrusted: true },
 				];
 				return {
 					range,
@@ -1140,7 +1158,7 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 					range,
 					contents: [
 						{ value: `\`\`\`glsl\n#define ${def.name} ${def.value}\n\`\`\``, isTrusted: true },
-						{ value: formatLineScopedText('Preprocessor macro at', model, def.line), isTrusted: true },
+						{ value: formatLineScopedText('Preprocessor macro at', model, def.line, def.name), isTrusted: true },
 					],
 				};
 			}
