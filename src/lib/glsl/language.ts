@@ -1,4 +1,5 @@
 import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
+import { BUILTIN_FUNCTION_NAMES, BUILTIN_VARIABLE_NAMES } from '$lib/glsl/builtins';
 
 // Shared type pattern reused across tokenizer rules (built-in types only)
 const T_BUILTIN = 'float|int|uint|bool|void|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234](?:x[234])?|sampler\\w*';
@@ -74,22 +75,8 @@ export function buildLanguage(extraTypes: string[] = [], uniforms: string[] = []
 		uniforms,
 
 		builtins: [
-			'radians', 'degrees', 'sin', 'cos', 'tan',
-			'asin', 'acos', 'atan', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh',
-			'pow', 'exp', 'log', 'exp2', 'log2', 'sqrt', 'inversesqrt',
-			'abs', 'sign', 'floor', 'trunc', 'round', 'roundEven', 'ceil', 'fract',
-			'mod', 'modf', 'min', 'max', 'clamp', 'mix', 'step', 'smoothstep',
-			'isnan', 'isinf',
-			'length', 'distance', 'dot', 'cross', 'normalize',
-			'faceforward', 'reflect', 'refract',
-			'matrixCompMult', 'outerProduct', 'transpose', 'determinant', 'inverse',
-			'lessThan', 'lessThanEqual', 'greaterThan', 'greaterThanEqual',
-			'equal', 'notEqual', 'any', 'all', 'not',
-			'texture2D', 'textureCube', 'texture2DProj',
-			'texture2DLod', 'textureCubeLod', 'texture2DProjLod',
-			// Built-in variables
-			'gl_Position', 'gl_PointSize', 'gl_FragCoord',
-			'gl_FrontFacing', 'gl_PointCoord', 'gl_FragColor', 'gl_FragData',
+			...BUILTIN_FUNCTION_NAMES,
+			...BUILTIN_VARIABLE_NAMES,
 		],
 
 		operators: [

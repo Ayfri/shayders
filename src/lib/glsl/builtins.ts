@@ -4,6 +4,37 @@ export interface GlslDoc {
 	description: string;
 }
 
+export const BUILTIN_FUNCTION_NAMES = [
+	'radians', 'degrees', 'sin', 'cos', 'tan',
+	'asin', 'acos', 'atan', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh',
+	'pow', 'exp', 'log', 'exp2', 'log2', 'sqrt', 'inversesqrt',
+	'abs', 'sign', 'floor', 'trunc', 'round', 'roundEven', 'ceil', 'fract',
+	'mod', 'modf', 'min', 'max', 'clamp', 'mix', 'step', 'smoothstep',
+	'isnan', 'isinf',
+	'length', 'distance', 'dot', 'cross', 'normalize',
+	'faceforward', 'reflect', 'refract',
+	'matrixCompMult', 'outerProduct', 'transpose', 'determinant', 'inverse',
+	'lessThan', 'lessThanEqual', 'greaterThan', 'greaterThanEqual',
+	'equal', 'notEqual', 'any', 'all', 'not',
+	'texture2D', 'textureCube', 'texture2DProj',
+	'texture2DLod', 'textureCubeLod', 'texture2DProjLod',
+] as const;
+
+export const BUILTIN_VARIABLE_NAMES_FRAGMENT = [
+	'gl_FragCoord',
+	'gl_FragColor',
+	'gl_FrontFacing',
+	'gl_PointCoord',
+	'gl_FragData',
+] as const;
+
+export const BUILTIN_VARIABLE_NAMES_VERTEX = [
+	'gl_Position',
+	'gl_PointSize',
+] as const;
+
+export const BUILTIN_VARIABLE_NAMES = [...BUILTIN_VARIABLE_NAMES_FRAGMENT];
+
 export const BUILTIN_DOCS: Record<string, GlslDoc> = {
 	// Trigonometric
 	radians:     { signature: 'genType radians(genType degrees)', description: 'Converts degrees to radians (`π / 180 × degrees`).' },
@@ -89,11 +120,11 @@ export const BUILTIN_DOCS: Record<string, GlslDoc> = {
 	// Built-in variables
 	gl_Position:       { signature: 'vec4 gl_Position', description: '*(Vertex)* Clip-space output position. Must be written in every vertex shader.' },
 	gl_PointSize:      { signature: 'float gl_PointSize', description: '*(Vertex)* Diameter of rasterised points in pixels.' },
-	gl_FragCoord:      { signature: 'vec4 gl_FragCoord', description: '*(Fragment - read-only)* Window-space position. `.xy` = pixel coords, `.z` = depth [0,1], `.w` = 1/w_clip.' },
-	gl_FragColor:      { signature: 'vec4 gl_FragColor', description: '*(Fragment)* Output colour of the fragment. Alpha determines blending.' },
-	gl_FrontFacing:    { signature: 'bool gl_FrontFacing', description: '*(Fragment - read-only)* `true` if the fragment belongs to a front-facing primitive.' },
-	gl_PointCoord:     { signature: 'vec2 gl_PointCoord', description: '*(Fragment - read-only)* Position within a point-sprite quad. Range [0,1] per axis.' },
-	gl_FragData:       { signature: 'vec4 gl_FragData[n]', description: '*(Fragment)* Output array for MRT (multiple render targets). Use with `GL_EXT_draw_buffers`.' },
+	gl_FragCoord:      { signature: 'vec4 gl_FragCoord', description: '*(read-only)* Window-space position. `.xy` = pixel coords, `.z` = depth [0,1], `.w` = 1/w_clip.' },
+	gl_FragColor:      { signature: 'vec4 gl_FragColor', description: 'Output colour of the fragment. Alpha determines blending.' },
+	gl_FrontFacing:    { signature: 'bool gl_FrontFacing', description: '*(read-only)* `true` if the fragment belongs to a front-facing primitive.' },
+	gl_PointCoord:     { signature: 'vec2 gl_PointCoord', description: '*(read-only)* Position within a point-sprite quad. Range [0,1] per axis.' },
+	gl_FragData:       { signature: 'vec4 gl_FragData[n]', description: 'Output array for MRT (multiple render targets). Use with `GL_EXT_draw_buffers`.' },
 };
 
 // Shayders-specific built-in uniforms injected automatically into every shader.
@@ -115,3 +146,11 @@ export const UNIFORM_DOCS: Record<string, { signature: string; description: stri
 	uBufferC:    { signature: 'uniform sampler2D uBufferC',  description: 'Buffer C offscreen texture. Sample: `texture2D(uBufferC, gl_FragCoord.xy / uResolution)`' },
 	uBufferD:    { signature: 'uniform sampler2D uBufferD',  description: 'Buffer D offscreen texture. Sample: `texture2D(uBufferD, gl_FragCoord.xy / uResolution)`' },
 };
+
+export const BUILTIN_VARIABLE_DOC_ENTRIES = Object.entries(BUILTIN_DOCS).filter(
+	([name]) => BUILTIN_VARIABLE_NAMES_FRAGMENT.includes(name as (typeof BUILTIN_VARIABLE_NAMES_FRAGMENT)[number])
+);
+
+export const BUILTIN_FUNCTION_DOC_ENTRIES = Object.entries(BUILTIN_DOCS).filter(
+	([name]) => (BUILTIN_FUNCTION_NAMES as readonly string[]).includes(name)
+);

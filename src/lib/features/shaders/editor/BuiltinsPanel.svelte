@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { BUILTIN_DOCS } from '$lib/glsl/builtins';
+	import { BUILTIN_DOCS, BUILTIN_FUNCTION_DOC_ENTRIES, BUILTIN_VARIABLE_DOC_ENTRIES } from '$lib/glsl/builtins';
 	import { ChevronDown, ChevronRight, Variable } from '@lucide/svelte';
 
 	type MarkdownPart = string | { type: 'italic' | 'bold' | 'code'; content: string };
@@ -119,9 +119,8 @@
 		return 'text-cyan-400';
 	}
 
-	// Extract gl_* built-in variables from builtins doc
-	const glBuiltins = Object.entries(BUILTIN_DOCS)
-		.filter(([k]) => k.startsWith('gl_'))
+	// Fragment-only built-in variables are shown in the panel for now.
+	const glBuiltins = BUILTIN_VARIABLE_DOC_ENTRIES
 		.map(([name, doc]) => {
 			const match = doc.signature.match(/^(\S+)/);
 			const type = match ? match[1] : 'unknown';
@@ -130,8 +129,7 @@
 		.sort((a, b) => a.name.localeCompare(b.name));
 
 	// Extract all non-gl_* functions from builtins doc
-	const glslFunctions = Object.entries(BUILTIN_DOCS)
-		.filter(([k]) => !k.startsWith('gl_'))
+	const glslFunctions = BUILTIN_FUNCTION_DOC_ENTRIES
 		.map(([name, doc]) => {
 			const firstLine = doc.signature.split('\n')[0];
 			const match = firstLine.match(/^(\S+)\s+(\w+)/);
