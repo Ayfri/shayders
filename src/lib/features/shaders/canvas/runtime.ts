@@ -270,7 +270,7 @@ export class ShaderCanvasRuntime {
 			uDeltaTime: `${(deltaTime * 1000).toFixed(2)}ms`,
 			uFrameCount: this.frameCount.toString(),
 			uFrameRate: `${this.fps.toFixed(1)} fps`,
-			uMouse: `${this.mouseX.toFixed(0)}, ${this.mouseY.toFixed(0)}`,
+			uMouse: `${this.mouseX.toFixed(0)}, ${this.mouseY.toFixed(0)}, ${this.isMouseDown ? 1 : 0}`,
 			uResolution: `${width} × ${height}`,
 			uTime: `${elapsed.toFixed(2)}s`,
 		});
