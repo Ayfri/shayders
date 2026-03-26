@@ -1,6 +1,7 @@
 import type { ChannelEntry } from '$features/shaders/model/shader-content';
 
 interface ChannelTexState {
+	lastVideoTime: number;
 	stream: MediaStream | null;
 	texture: WebGLTexture;
 	url: string;
@@ -11,12 +12,17 @@ interface ChannelUniformLocs {
 	channels: (WebGLUniformLocation | null)[];
 }
 
+interface ChannelTextureManagerOptions {
+	autoplayVideos?: boolean;
+}
+
 export class ChannelTextureManager {
 	private readonly channelsById = new Map<number, ChannelTexState>();
 
 	public constructor(
 		private readonly getChannels: () => ChannelEntry[],
 		private readonly getGl: () => WebGLRenderingContext | null,
+		private readonly options: ChannelTextureManagerOptions = {},
 	) {}
 
 	public bind(
@@ -120,9 +126,24 @@ export class ChannelTextureManager {
 
 		for (const state of this.channelsById.values()) {
 			if (!state.videoEl || state.videoEl.readyState < 2) continue;
+			if (state.videoEl.currentTime === state.lastVideoTime) continue;
 			gl.bindTexture(gl.TEXTURE_2D, state.texture);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, state.videoEl);
 			gl.bindTexture(gl.TEXTURE_2D, null);
+			state.lastVideoTime = state.videoEl.currentTime;
+		}
+	}
+
+	public pauseVideos(): void {
+		for (const state of this.channelsById.values()) {
+			state.videoEl?.pause();
+		}
+	}
+
+	public playVideos(): void {
+		for (const state of this.channelsById.values()) {
+			if (!state.videoEl) continue;
+			void state.videoEl.play().catch(() => {});
 		}
 	}
 
@@ -163,7 +184,13 @@ export class ChannelTextureManager {
 		image.onerror = () => console.error('Failed to load image:', channel.url);
 		image.src = channel.url;
 		this.initTexture(texture, minFilter, magFilter, wrapMode);
-		this.channelsById.set(channel.id, { stream: null, texture, url: this.getStateKey(channel), videoEl: null });
+		this.channelsById.set(channel.id, {
+			lastVideoTime: -1,
+			stream: null,
+			texture,
+			url: this.getStateKey(channel),
+			videoEl: null,
+		});
 	}
 
 	private createVideoTexture(
@@ -183,10 +210,18 @@ export class ChannelTextureManager {
 		videoEl.playsInline = true;
 		videoEl.preload = 'auto';
 		videoEl.src = channel.url;
-		videoEl.play().catch(() => {});
+		if (this.options.autoplayVideos !== false) {
+			videoEl.play().catch(() => {});
+		}
 
 		this.initTexture(texture, minFilter, magFilter, wrapMode);
-		this.channelsById.set(channel.id, { stream: null, texture, url: this.getStateKey(channel), videoEl });
+		this.channelsById.set(channel.id, {
+			lastVideoTime: -1,
+			stream: null,
+			texture,
+			url: this.getStateKey(channel),
+			videoEl,
+		});
 	}
 
 	private createWebcamTexture(
@@ -201,13 +236,21 @@ export class ChannelTextureManager {
 		videoEl.muted = true;
 		videoEl.playsInline = true;
 
-		const state: ChannelTexState = { stream: null, texture, url: this.getStateKey(channel), videoEl };
+		const state: ChannelTexState = {
+			lastVideoTime: -1,
+			stream: null,
+			texture,
+			url: this.getStateKey(channel),
+			videoEl,
+		};
 		this.channelsById.set(channel.id, state);
 		navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'user' } })
 			.then((stream) => {
 				state.stream = stream;
 				videoEl.srcObject = stream;
-				videoEl.play().catch(() => {});
+				if (this.options.autoplayVideos !== false) {
+					videoEl.play().catch(() => {});
+				}
 			})
 			.catch((error) => console.error('Webcam error:', error));
 		this.initTexture(texture, minFilter, magFilter, wrapMode);
@@ -240,4 +283,3 @@ export class ChannelTextureManager {
 		gl.bindTexture(gl.TEXTURE_2D, null);
 	}
 }
-

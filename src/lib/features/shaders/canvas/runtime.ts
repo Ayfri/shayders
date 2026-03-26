@@ -1,13 +1,18 @@
-import { BUFFER_UNIFORM_NAMES, CHANNEL_UNIFORM_NAMES, THUMB_SIZE } from '$features/shaders/model/shader-domain';
+import { CHANNEL_UNIFORM_NAMES, THUMB_SIZE } from '$features/shaders/model/shader-domain';
 import type { ChannelEntry, ShaderBuffer } from '$features/shaders/model/shader-content';
 import { ChannelTextureManager } from './channel-textures';
 import {
-	buildLocs,
+	applyStandardUniforms,
+	bindBufferTextures,
+	buildBufferStates,
 	buildProgram,
 	createFbo,
 	createQuadBuffer,
+	destroyBufferStates,
+	drawQuad,
 	type InternalBufState,
 	type ProgramLocs,
+	resizeBufferTextures,
 } from './gl-utils';
 
 interface RuntimeOptions {
@@ -129,37 +134,20 @@ export class ShaderCanvasRuntime {
 		const errors: string[] = [];
 
 		this.destroyBuffers();
-		for (const id of renderOrder) {
-			const buffer = buffers.find((candidate) => candidate.id === id);
-			if (!buffer) continue;
-
-			const { err, program } = buildProgram(this.gl, commonCode ? `${commonCode}\n${buffer.code}` : buffer.code, buffer.label);
-			if (err) errors.push(err);
-
-			const state: InternalBufState = {
-				fbo: [null, null],
-				locs: program ? buildLocs(this.gl, program) : null,
-				prevIdx: 0,
-				program,
-				texture: [null, null],
-			};
-
-			if (id !== 'image') {
-				const canvas = this.options.getCanvas();
-				const width = canvas?.width ?? 800;
-				const height = canvas?.height ?? 600;
-				const first = createFbo(this.gl, width, height, this.fboTexType);
-				const second = createFbo(this.gl, width, height, this.fboTexType);
-				if (first) {
-					state.fbo[0] = first.fbo;
-					state.texture[0] = first.texture;
-				}
-				if (second) {
-					state.fbo[1] = second.fbo;
-					state.texture[1] = second.texture;
-				}
-			}
-
+		const canvas = this.options.getCanvas();
+		const width = canvas?.width ?? 800;
+		const height = canvas?.height ?? 600;
+		const buildResult = buildBufferStates({
+			buffers,
+			commonCode,
+			fboTextureType: this.fboTexType,
+			gl: this.gl,
+			height,
+			renderOrder,
+			width,
+		});
+		errors.push(...buildResult.errors);
+		for (const [id, state] of buildResult.states.entries()) {
 			this.bufferStates.set(id, state);
 		}
 
@@ -180,23 +168,6 @@ export class ShaderCanvasRuntime {
 
 	public syncChannels(): void {
 		if (this.gl) this.channelTextures.sync();
-	}
-
-	private bindBufferTextures(locs: ProgramLocs, currentTarget: string, order: string[]): void {
-		if (!this.gl) return;
-		for (let index = 0; index < order.length && index < BUFFER_UNIFORM_NAMES.length; index += 1) {
-			this.gl.activeTexture(this.gl.TEXTURE0 + index);
-			if (order[index] === currentTarget) {
-				this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-				continue;
-			}
-
-			const loc = locs.buffers[index];
-			const bufferState = this.bufferStates.get(order[index]);
-			const texture = bufferState?.texture[bufferState.prevIdx] ?? null;
-			this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
-			if (loc && texture) this.gl.uniform1i(loc, index);
-		}
 	}
 
 	private captureThumbnails(userOrder: string[]): void {
@@ -322,37 +293,19 @@ void main() {
 
 	private destroyBuffers(): void {
 		if (!this.gl) return;
-		for (const state of this.bufferStates.values()) {
-			if (state.program) this.gl.deleteProgram(state.program);
-			for (let index = 0; index < 2; index += 1) {
-				if (state.fbo[index]) this.gl.deleteFramebuffer(state.fbo[index]);
-				if (state.texture[index]) this.gl.deleteTexture(state.texture[index]);
-			}
-		}
-		this.bufferStates.clear();
+		destroyBufferStates(this.gl, this.bufferStates);
 	}
 
 	private drawQuad(locs: ProgramLocs): void {
-		if (!this.gl || !this.quadBuffer) return;
-		this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.quadBuffer);
-		this.gl.enableVertexAttribArray(locs.aPosition);
-		this.gl.vertexAttribPointer(locs.aPosition, 2, this.gl.FLOAT, false, 0, 0);
-		this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+		if (!this.gl) return;
+		drawQuad(this.gl, this.quadBuffer, locs.aPosition);
 	}
 
 	private ensureFboSize(width: number, height: number): void {
 		if (!this.gl || (this.fboWidth === width && this.fboHeight === height)) return;
 		this.fboHeight = height;
 		this.fboWidth = width;
-		for (const [id, state] of this.bufferStates.entries()) {
-			if (id === 'image') continue;
-			for (const texture of state.texture) {
-				if (!texture) continue;
-				this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
-				this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, width, height, 0, this.gl.RGBA, this.fboTexType, null);
-				this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-			}
-		}
+		resizeBufferTextures(this.gl, this.bufferStates, width, height, this.fboTexType);
 	}
 
 	private renderFrame(): void {
@@ -391,13 +344,31 @@ void main() {
 			this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, id === 'image' ? null : (state.fbo[1 - state.prevIdx] ?? null));
 			this.gl.useProgram(state.program);
 			this.gl.viewport(0, 0, width, height);
-			this.bindBufferTextures(state.locs, id, userOrder);
+			bindBufferTextures(this.gl, state.locs, id, userOrder, (bufferId) => {
+				const bufferState = this.bufferStates.get(bufferId);
+				return bufferState?.texture[bufferState.prevIdx] ?? null;
+			});
 			this.channelTextures.bind(
 				state.locs,
-				(channel) => this.bufferStates.get(channel.bufferId!)?.texture[this.bufferStates.get(channel.bufferId!)?.prevIdx ?? 0] ?? null,
+				(channel) => {
+					if (!channel.bufferId) return null;
+					const bufferState = this.bufferStates.get(channel.bufferId);
+					return bufferState?.texture[bufferState.prevIdx] ?? null;
+				},
 				CHANNEL_UNIFORM_NAMES.length,
 			);
-			this.setStandardUniforms(state.locs, elapsed, deltaTime, now, width, height);
+			applyStandardUniforms(this.gl, state.locs, {
+				deltaTime,
+				elapsed,
+				fps: this.fps,
+				frameCount: this.frameCount,
+				height,
+				isMouseDown: this.isMouseDown,
+				mouseX: this.mouseX,
+				mouseY: this.mouseY,
+				now,
+				width,
+			});
 			this.drawQuad(state.locs);
 		}
 
@@ -412,26 +383,6 @@ void main() {
 		}
 
 		this.animationId = requestAnimationFrame(() => this.renderFrame());
-	}
-
-	private setStandardUniforms(
-		locs: ProgramLocs,
-		elapsed: number,
-		deltaTime: number,
-		now: Date,
-		width: number,
-		height: number,
-	): void {
-		if (!this.gl) return;
-		const secondsOfDay = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
-		if (locs.uTime) this.gl.uniform1f(locs.uTime, elapsed);
-		if (locs.uResolution) this.gl.uniform2f(locs.uResolution, width, height);
-		if (locs.uMouse) this.gl.uniform3f(locs.uMouse, this.mouseX, this.mouseY, this.isMouseDown ? 1 : 0);
-		if (locs.uDate) this.gl.uniform4f(locs.uDate, now.getFullYear(), now.getMonth() + 1, now.getDate(), secondsOfDay);
-		if (locs.uFrameRate) this.gl.uniform1f(locs.uFrameRate, this.fps);
-		if (locs.uDeltaTime) this.gl.uniform1f(locs.uDeltaTime, deltaTime);
-		if (locs.uFrameCount) this.gl.uniform1i(locs.uFrameCount, this.frameCount);
-		if (locs.uAspect) this.gl.uniform1f(locs.uAspect, width / height);
 	}
 
 	private syncCanvasSize(): void {

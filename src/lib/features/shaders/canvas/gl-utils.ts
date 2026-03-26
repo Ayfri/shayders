@@ -1,4 +1,5 @@
 import { BUFFER_UNIFORM_NAMES, CHANNEL_UNIFORM_NAMES } from '$features/shaders/model/shader-domain';
+import type { ShaderBuffer } from '$features/shaders/model/shader-content';
 
 export interface ProgramLocs {
 	aPosition: number;
@@ -20,6 +21,34 @@ export interface InternalBufState {
 	prevIdx: number;
 	program: WebGLProgram | null;
 	texture: [WebGLTexture | null, WebGLTexture | null];
+}
+
+interface StandardUniformValues {
+	deltaTime?: number;
+	elapsed: number;
+	fps?: number;
+	frameCount: number;
+	height: number;
+	isMouseDown: boolean;
+	mouseX: number;
+	mouseY: number;
+	now?: Date;
+	width: number;
+}
+
+interface BuildBufferStatesInput {
+	buffers: ShaderBuffer[];
+	commonCode: string;
+	fboTextureType: number;
+	gl: WebGLRenderingContext;
+	height: number;
+	renderOrder: string[];
+	width: number;
+}
+
+interface BuildBufferStatesOutput {
+	errors: string[];
+	states: Map<string, InternalBufState>;
 }
 
 const VERTEX_CODE = `attribute vec4 aPosition;
@@ -112,6 +141,123 @@ export function createQuadBuffer(gl: WebGLRenderingContext): WebGLBuffer | null 
 	return quadBuffer;
 }
 
+export function bindBufferTextures(
+	gl: WebGLRenderingContext,
+	locs: ProgramLocs,
+	currentTarget: string,
+	order: string[],
+	getBufferTexture: (id: string) => WebGLTexture | null,
+): void {
+	for (let index = 0; index < order.length && index < BUFFER_UNIFORM_NAMES.length; index += 1) {
+		gl.activeTexture(gl.TEXTURE0 + index);
+		if (order[index] === currentTarget) {
+			gl.bindTexture(gl.TEXTURE_2D, null);
+			continue;
+		}
+
+		const loc = locs.buffers[index];
+		const texture = getBufferTexture(order[index]);
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		if (loc && texture) gl.uniform1i(loc, index);
+	}
+}
+
+export function applyStandardUniforms(
+	gl: WebGLRenderingContext,
+	locs: ProgramLocs,
+	values: StandardUniformValues,
+): void {
+	if (locs.uTime) gl.uniform1f(locs.uTime, values.elapsed);
+	if (locs.uResolution) gl.uniform2f(locs.uResolution, values.width, values.height);
+	if (locs.uMouse) gl.uniform3f(locs.uMouse, values.mouseX, values.mouseY, values.isMouseDown ? 1 : 0);
+	if (locs.uFrameCount) gl.uniform1i(locs.uFrameCount, values.frameCount);
+	if (locs.uAspect) gl.uniform1f(locs.uAspect, values.width / values.height);
+	if (locs.uFrameRate && values.fps !== undefined) gl.uniform1f(locs.uFrameRate, values.fps);
+	if (locs.uDeltaTime && values.deltaTime !== undefined) gl.uniform1f(locs.uDeltaTime, values.deltaTime);
+
+	if (locs.uDate && values.now) {
+		const secondsOfDay = values.now.getHours() * 3600 + values.now.getMinutes() * 60 + values.now.getSeconds();
+		gl.uniform4f(locs.uDate, values.now.getFullYear(), values.now.getMonth() + 1, values.now.getDate(), secondsOfDay);
+	}
+}
+
+export function resizeBufferTextures(
+	gl: WebGLRenderingContext,
+	bufferStates: ReadonlyMap<string, InternalBufState>,
+	width: number,
+	height: number,
+	textureType: number,
+): void {
+	for (const [id, state] of bufferStates.entries()) {
+		if (id === 'image') continue;
+
+		for (const texture of state.texture) {
+			if (!texture) continue;
+			gl.bindTexture(gl.TEXTURE_2D, texture);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, textureType, null);
+			gl.bindTexture(gl.TEXTURE_2D, null);
+		}
+	}
+}
+
+export function drawQuad(gl: WebGLRenderingContext, quadBuffer: WebGLBuffer | null, positionLocation: number): void {
+	if (!quadBuffer || positionLocation < 0) return;
+	gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+	gl.enableVertexAttribArray(positionLocation);
+	gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+export function destroyBufferStates(gl: WebGLRenderingContext, bufferStates: Map<string, InternalBufState>): void {
+	for (const state of bufferStates.values()) {
+		if (state.program) gl.deleteProgram(state.program);
+		for (let index = 0; index < 2; index += 1) {
+			if (state.fbo[index]) gl.deleteFramebuffer(state.fbo[index]);
+			if (state.texture[index]) gl.deleteTexture(state.texture[index]);
+		}
+	}
+	bufferStates.clear();
+}
+
+export function buildBufferStates(input: BuildBufferStatesInput): BuildBufferStatesOutput {
+	const errors: string[] = [];
+	const states = new Map<string, InternalBufState>();
+
+	for (const id of input.renderOrder) {
+		const buffer = input.buffers.find((candidate) => candidate.id === id);
+		if (!buffer) continue;
+
+		const source = input.commonCode ? `${input.commonCode}\n${buffer.code}` : buffer.code;
+		const { err, program } = buildProgram(input.gl, source, buffer.label);
+		if (err) errors.push(err);
+
+		const state: InternalBufState = {
+			fbo: [null, null],
+			locs: program ? buildLocs(input.gl, program) : null,
+			prevIdx: 0,
+			program,
+			texture: [null, null],
+		};
+
+		if (id !== 'image') {
+			const first = createFbo(input.gl, input.width, input.height, input.fboTextureType);
+			const second = createFbo(input.gl, input.width, input.height, input.fboTextureType);
+			if (first) {
+				state.fbo[0] = first.fbo;
+				state.texture[0] = first.texture;
+			}
+			if (second) {
+				state.fbo[1] = second.fbo;
+				state.texture[1] = second.texture;
+			}
+		}
+
+		states.set(id, state);
+	}
+
+	return { errors, states };
+}
+
 function compileShader(gl: WebGLRenderingContext, type: number, source: string): WebGLShader | null {
 	const shader = gl.createShader(type);
 	if (!shader) return null;
@@ -123,4 +269,3 @@ function compileShader(gl: WebGLRenderingContext, type: number, source: string):
 	}
 	return shader;
 }
-
