@@ -187,6 +187,113 @@ interface BuiltinOverload {
 	params: { raw: string; type: string; name: string }[];
 }
 
+interface TypeConstructorOverload {
+	raw: string;
+	params: { type: string; name: string }[];
+}
+
+function formatLineLink(model: Monaco.editor.ITextModel, line: number): string {
+	return `[line ${line}](${model.uri.toString()}#L${line})`;
+}
+
+function formatLineScopedText(label: string, model: Monaco.editor.ITextModel, line: number): string {
+	return `${label} ${formatLineLink(model, line)}.`;
+}
+
+function buildTypeConstructorOverloads(typeName: string): TypeConstructorOverload[] | null {
+	const scalarConstructors: Record<string, string[]> = {
+		float: ['float(float x)', 'float(int x)', 'float(uint x)', 'float(bool x)'],
+		int:   ['int(int x)', 'int(float x)', 'int(uint x)', 'int(bool x)'],
+		uint:  ['uint(uint x)', 'uint(float x)', 'uint(int x)', 'uint(bool x)'],
+		bool:  ['bool(bool x)', 'bool(float x)', 'bool(int x)', 'bool(uint x)'],
+	};
+	const scalar = scalarConstructors[typeName];
+	if (scalar) {
+		return scalar.map((raw) => ({
+			raw,
+			params: raw.slice(raw.indexOf('(') + 1, raw.lastIndexOf(')')).split(',').map((part) => {
+				const tokens = part.trim().split(/\s+/).filter(Boolean);
+				return {
+					type: tokens.slice(0, -1).join(' '),
+					name: tokens[tokens.length - 1] ?? '',
+				};
+			}),
+		}));
+	}
+
+	const vecMatch = typeName.match(/^([biu]?vec)(\d)$/);
+	if (!vecMatch) return null;
+
+	const prefix = vecMatch[1];
+	const size = parseInt(vecMatch[2], 10);
+	const scalarType = prefix === 'ivec' ? 'int' : prefix === 'uvec' ? 'uint' : prefix === 'bvec' ? 'bool' : 'float';
+	const overloads = new Map<string, TypeConstructorOverload>();
+
+	const addOverload = (params: { type: string; name: string }[]): void => {
+		const raw = `${typeName}(${params.map((param) => `${param.type} ${param.name}`).join(', ')})`;
+		overloads.set(raw, { raw, params });
+	};
+
+	addOverload([{ type: scalarType, name: 'x' }]);
+	addOverload([{ type: typeName, name: 'v' }]);
+
+	const buildPartitions = (remaining: number, current: number[]): void => {
+		if (remaining === 0) {
+			const params = current.map((part, index) => ({
+				type: part === 1 ? scalarType : `${prefix}${part}`,
+				name: String.fromCharCode(97 + index),
+			}));
+			addOverload(params);
+			return;
+		}
+
+		for (let part = 1; part <= remaining; part++) {
+			current.push(part);
+			buildPartitions(remaining - part, current);
+			current.pop();
+		}
+	};
+
+	buildPartitions(size, []);
+	return [...overloads.values()];
+}
+
+function formatOverloadLines(overloads: string[], activeIndex: number | null = null): string[] {
+	return overloads.map((line, index) => (index === activeIndex ? `→ ${line}` : line));
+}
+
+function formatTypeConstructorOverloadList(typeName: string, activeIndex: number | null = null): string[] | null {
+	const overloads = buildTypeConstructorOverloads(typeName);
+	if (!overloads) return null;
+	return formatOverloadLines(overloads.map((overload) => overload.raw), activeIndex);
+}
+
+function resolveTypeConstructorOverloadIndex(
+	typeName: string,
+	args: string[],
+	doc: ReturnType<typeof analyzeDocument>,
+	lineNumber: number,
+): number | null {
+	const overloads = buildTypeConstructorOverloads(typeName);
+	if (!overloads) return null;
+
+	for (let index = 0; index < overloads.length; index++) {
+		const overload = overloads[index];
+		if (overload.params.length !== args.length) continue;
+		let matches = true;
+		for (let argIndex = 0; argIndex < args.length; argIndex++) {
+			const argType = inferExpressionType(args[argIndex], doc, lineNumber);
+			if (!argType || !isTypeAcceptable(argType, new Set([overload.params[argIndex].type]))) {
+				matches = false;
+				break;
+			}
+		}
+		if (matches) return index;
+	}
+
+	return null;
+}
+
 function parseBuiltinOverloads(signature: string): BuiltinOverload[] {
 	return signature
 		.split('\n')
@@ -866,21 +973,22 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 				const contents: Monaco.IMarkdownString[] = [];
 				const selectedOverload = overloadResolution?.overload ?? overloads[selectedIndex] ?? overloads[0] ?? null;
 				const activeParamIndex = callInfo?.activeArgIndex ?? null;
-				if (selectedOverload) {
-					contents.push({
-						value: `**→ Current Overload**: \`${formatOverloadRaw(selectedOverload)}\``,
-						isTrusted: true,
-					});
-				}
 
 				if (orderedOverloads.length > 0) {
 					const expandedSignatures: string[] = [];
 					const seen = new Set<string>();
+					let activeSignatureMarked = false;
 					for (const { overload } of orderedOverloads) {
+						const isSelected = selectedOverload?.raw === overload.raw;
 						for (const expanded of expandBuiltinOverload(overload)) {
 							if (seen.has(expanded)) continue;
 							seen.add(expanded);
-							expandedSignatures.push(expanded);
+							if (!activeSignatureMarked && isSelected) {
+								expandedSignatures.push(`→ ${expanded}`);
+								activeSignatureMarked = true;
+							} else {
+								expandedSignatures.push(expanded);
+							}
 						}
 					}
 					contents.push({
@@ -911,8 +1019,19 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 			// GLSL type
 			const typeDoc = TYPE_DOCS[name];
 			if (typeDoc) {
+				const doc = analyzeDocument(model.getValue());
+				const activeCursor = getActiveCursorPositionForModel(model, position);
+				const activeCursorColumn = activeCursor.lineNumber === position.lineNumber
+					? activeCursor.column
+					: null;
+				const callInfo = extractCallInfoAtFunctionName(lineText, word.endColumn, activeCursorColumn);
+				const activeConstructorIndex = callInfo
+					? resolveTypeConstructorOverloadIndex(name, callInfo.args, doc, position.lineNumber)
+					: null;
+				const constructorDocs = formatTypeConstructorOverloadList(name, activeConstructorIndex);
 				const contents: Monaco.IMarkdownString[] = [
 					{ value: `\`\`\`glsl\n${typeDoc.struct}\n\`\`\``, isTrusted: true },
+					...(constructorDocs ? [{ value: `**Constructors**  \n${formatGlslCodeBlock(constructorDocs)}`, isTrusted: true }] : []),
 					{ value: typeDoc.description, isTrusted: true },
 				];
 				return {
@@ -930,12 +1049,15 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 			);
 			const localVar = enclosingFn?.localVariables.find((v) => v.name === name);
 			if (localVar) {
+				const param = enclosingFn?.params.find((v) => v.name === name);
 				const contents: Monaco.IMarkdownString[] = [
 					{
 						value: formatGlslCodeBlock([`${localVar.type} ${localVar.name};`]),
 						isTrusted: true,
 					},
-					{ value: `Local variable declared at line ${localVar.line}.`, isTrusted: true },
+					{ value: param
+						? formatLineScopedText(`Function parameter of \`${enclosingFn?.name ?? 'anonymous'}\` declared at`, model, localVar.line)
+						: formatLineScopedText('Local variable declared at', model, localVar.line), isTrusted: true },
 				];
 				return {
 					range,
@@ -965,7 +1087,7 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 							isTrusted: true,
 						}]
 						: []),
-					{ value: `User-defined function at line ${fn.line}.`, isTrusted: true },
+					{ value: formatLineScopedText('User-defined function at', model, fn.line), isTrusted: true },
 				];
 				return {
 					range,
@@ -980,7 +1102,7 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 					range,
 					contents: [
 						{ value: `\`\`\`glsl\nstruct ${struct.name} {\n${fields}\n}\n\`\`\``, isTrusted: true },
-						{ value: `User-defined struct at line ${struct.line}.`, isTrusted: true },
+						{ value: formatLineScopedText('User-defined struct at', model, struct.line), isTrusted: true },
 					],
 				};
 			}
@@ -1004,7 +1126,7 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 						value: formatGlslCodeBlock([`${qualifier}${variable.type} ${variable.name};`.trim()]),
 						isTrusted: true,
 					},
-					{ value: `Declared at line ${variable.line}.`, isTrusted: true },
+					{ value: formatLineScopedText('Declared at', model, variable.line), isTrusted: true },
 				];
 				return {
 					range,
@@ -1018,7 +1140,7 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 					range,
 					contents: [
 						{ value: `\`\`\`glsl\n#define ${def.name} ${def.value}\n\`\`\``, isTrusted: true },
-						{ value: `Preprocessor macro at line ${def.line}.`, isTrusted: true },
+						{ value: formatLineScopedText('Preprocessor macro at', model, def.line), isTrusted: true },
 					],
 				};
 			}

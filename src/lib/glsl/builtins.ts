@@ -87,7 +87,7 @@ export const BUILTIN_DOCS: Record<string, GlslDoc> = {
 			maxVal: 'Upper inclusive bound.',
 		},
 		examples: [
-			'float v = clamp(uv.x, 0.0, 1.0);',
+			'float v = clamp(2.5, 0.0, 1.0);  // result: 1.0',
 			'vec3 c = clamp(color, vec3(0.0), vec3(1.0));',
 		],
 	},
@@ -101,8 +101,8 @@ export const BUILTIN_DOCS: Record<string, GlslDoc> = {
 			a: 'Interpolation factor or boolean selector.',
 		},
 		examples: [
-			'vec3 color = mix(baseColor, highlightColor, 0.35);',
-			'float fogged = mix(sceneDepth, fogDepth, fogAmount);',
+			'float value = mix(2.0, 4.0, 0.25);  // result: 2.5',
+			'vec3 color = mix(vec3(0.0), vec3(1.0), 0.35);  // result: vec3(0.35)',
 		],
 	},
 	step:        { signature: 'genType step(genType edge, genType x)\ngenType step(float edge, genType x)', description: 'Returns 0 if `x < edge`, else 1.' },
@@ -121,7 +121,7 @@ export const BUILTIN_DOCS: Record<string, GlslDoc> = {
 			p1: 'Second point/vector.',
 		},
 		examples: [
-			'float d = distance(gl_FragCoord.xy / uResolution, uMouse.xy / uResolution);',
+			'float d = distance(vec2(0.0), vec2(3.0, 4.0));  // result: 5.0',
 		],
 	},
 	dot:         { signature: 'float dot(genType x, genType y)', description: 'Dot product (sum of component-wise products).' },
@@ -134,7 +134,7 @@ export const BUILTIN_DOCS: Record<string, GlslDoc> = {
 			x: 'Input vector.',
 		},
 		examples: [
-			'vec3 n = normalize(normal);',
+			'vec2 n = normalize(vec2(3.0, 4.0));  // result: vec2(0.6, 0.8)',
 		],
 	},
 	faceforward: { signature: 'genType faceforward(genType N, genType I, genType Nref)', description: 'Returns *N* if `dot(Nref, I) < 0`, otherwise −*N*.' },
