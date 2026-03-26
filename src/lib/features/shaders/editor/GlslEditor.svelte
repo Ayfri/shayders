@@ -1,12 +1,12 @@
 <script lang="ts">
 	import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
-	import { buildLanguage, conf } from '$lib/glsl/language';
-	import { analyzeDocument } from '$lib/glsl/analyze';
-	import { registerGlslProviders } from '$lib/glsl/providers';
-	import { applyErrors, applyHints } from '$lib/glsl/markers';
-	import { registerMaterialDarkerTheme } from '$lib/themes/material-darker';
-	import { loadSettings, saveSettings, settingsToMonaco, EDITOR_DEFAULTS } from '$features/shaders/editor/editor-settings';
+	import { saveSettings, settingsToMonaco } from '$features/shaders/editor/editor-settings';
 	import type { EditorSettingsData } from '$features/shaders/editor/editor-settings';
+	import { analyzeDocument } from '$lib/glsl/analyze';
+	import { buildLanguage, conf } from '$lib/glsl/language';
+	import { applyErrors, applyHints } from '$lib/glsl/markers';
+	import { registerGlslProviders } from '$lib/glsl/providers';
+	import { registerMaterialDarkerTheme } from '$lib/themes/material-darker';
 
 	interface Props {
 		value: string;
@@ -22,6 +22,7 @@
 	let monacoRef = $state<typeof Monaco | null>(null);
 	let _settingExternal = false;
 	let _lastTokenSig = '';
+	const ACTIVE_EDITOR_KEY = '__glslActiveEditor';
 
 	function refreshDynamicTokens(src: string) {
 		const m = monacoRef;
@@ -76,6 +77,17 @@
 				...settingsToMonaco(settings),
 			});
 
+			const globals = globalThis as Record<string, unknown>;
+			globals[ACTIVE_EDITOR_KEY] = instance;
+
+			instance.onDidFocusEditorWidget(() => {
+				globals[ACTIVE_EDITOR_KEY] = instance;
+			});
+
+			instance.onDidChangeCursorPosition(() => {
+				globals[ACTIVE_EDITOR_KEY] = instance;
+			});
+
 			instance.onDidChangeModelContent(() => {
 				if (_settingExternal) return;
 				value = instance.getValue();
@@ -100,8 +112,13 @@
 		})();
 
 		return () => {
+			const globals = globalThis as Record<string, unknown>;
+			const currentEditor = editor;
 			cancelled = true;
-			editor?.dispose();
+			currentEditor?.dispose();
+			if (globals[ACTIVE_EDITOR_KEY] === currentEditor) {
+				delete globals[ACTIVE_EDITOR_KEY];
+			}
 			editor = null;
 			monacoRef = null;
 			_lastTokenSig = '';
@@ -156,5 +173,3 @@
 		min-height: 0;
 	}
 </style>
-
-

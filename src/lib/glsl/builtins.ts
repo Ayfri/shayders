@@ -2,6 +2,9 @@ export interface GlslDoc {
 	/** Overloads separated by `\n`. */
 	signature: string;
 	description: string;
+	returns?: string;
+	params?: Record<string, string>;
+	examples?: string[];
 }
 
 export const BUILTIN_FUNCTION_NAMES = [
@@ -74,8 +77,34 @@ export const BUILTIN_DOCS: Record<string, GlslDoc> = {
 	modf:        { signature: 'genType modf(genType x, out genType i)', description: 'Separates *x* into its integer and fractional parts. Returns the fractional part, writes the integer part to *i*.' },
 	min:         { signature: 'genType min(genType x, genType y)\ngenType min(genType x, float y)', description: 'Returns the smaller of *x* and *y*.' },
 	max:         { signature: 'genType max(genType x, genType y)\ngenType max(genType x, float y)', description: 'Returns the larger of *x* and *y*.' },
-	clamp:       { signature: 'genType clamp(genType x, genType minVal, genType maxVal)\ngenType clamp(genType x, float minVal, float maxVal)', description: 'Clamps *x* to `[minVal, maxVal]`.' },
-	mix:         { signature: 'genType mix(genType x, genType y, genType a)\ngenType mix(genType x, genType y, float a)\ngenType mix(genType x, genType y, genBType a)', description: 'Linear interpolation: `x*(1−a) + y*a`. Boolean overload selects *x* (false) or *y* (true) per component.' },
+	clamp:       {
+		signature: 'genType clamp(genType x, genType minVal, genType maxVal)\ngenType clamp(genType x, float minVal, float maxVal)',
+		description: 'Clamps *x* to `[minVal, maxVal]`.',
+		returns: 'The input value clamped to the closed interval `[minVal, maxVal]` component-wise.',
+		params: {
+			x: 'Input value to clamp.',
+			minVal: 'Lower inclusive bound.',
+			maxVal: 'Upper inclusive bound.',
+		},
+		examples: [
+			'float v = clamp(uv.x, 0.0, 1.0);',
+			'vec3 c = clamp(color, vec3(0.0), vec3(1.0));',
+		],
+	},
+	mix:         {
+		signature: 'genType mix(genType x, genType y, genType a)\ngenType mix(genType x, genType y, float a)\ngenType mix(genType x, genType y, genBType a)',
+		description: 'Linear interpolation: `x*(1−a) + y*a`. Boolean overload selects *x* (false) or *y* (true) per component.',
+		returns: 'Interpolated value between *x* and *y*.',
+		params: {
+			x: 'Start value.',
+			y: 'End value.',
+			a: 'Interpolation factor or boolean selector.',
+		},
+		examples: [
+			'vec3 color = mix(baseColor, highlightColor, 0.35);',
+			'float fogged = mix(sceneDepth, fogDepth, fogAmount);',
+		],
+	},
 	step:        { signature: 'genType step(genType edge, genType x)\ngenType step(float edge, genType x)', description: 'Returns 0 if `x < edge`, else 1.' },
 	smoothstep:  { signature: 'genType smoothstep(genType edge0, genType edge1, genType x)\ngenType smoothstep(float edge0, float edge1, genType x)', description: 'Smooth Hermite interpolation 0→1 for `edge0 < x < edge1`.' },
 	isnan:       { signature: 'genBType isnan(genType x)', description: 'Returns true if *x* is NaN.' },
@@ -83,10 +112,31 @@ export const BUILTIN_DOCS: Record<string, GlslDoc> = {
 
 	// Geometric
 	length:      { signature: 'float length(genType x)', description: 'Euclidean length of vector *x*.' },
-	distance:    { signature: 'float distance(genType p0, genType p1)', description: 'Euclidean distance between *p0* and *p1*.' },
+	distance:    {
+		signature: 'float distance(genType p0, genType p1)',
+		description: 'Euclidean distance between *p0* and *p1*.',
+		returns: 'Non-negative scalar distance.',
+		params: {
+			p0: 'First point/vector.',
+			p1: 'Second point/vector.',
+		},
+		examples: [
+			'float d = distance(gl_FragCoord.xy / uResolution, uMouse.xy / uResolution);',
+		],
+	},
 	dot:         { signature: 'float dot(genType x, genType y)', description: 'Dot product (sum of component-wise products).' },
 	cross:       { signature: 'vec3 cross(vec3 x, vec3 y)', description: 'Cross product of *x* and *y* (3D only).' },
-	normalize:   { signature: 'genType normalize(genType x)', description: 'Returns *x* scaled so its length is 1.' },
+	normalize:   {
+		signature: 'genType normalize(genType x)',
+		description: 'Returns *x* scaled so its length is 1.',
+		returns: 'Unit-length vector in the same direction as *x*.',
+		params: {
+			x: 'Input vector.',
+		},
+		examples: [
+			'vec3 n = normalize(normal);',
+		],
+	},
 	faceforward: { signature: 'genType faceforward(genType N, genType I, genType Nref)', description: 'Returns *N* if `dot(Nref, I) < 0`, otherwise −*N*.' },
 	reflect:     { signature: 'genType reflect(genType I, genType N)', description: 'Reflection of incident *I* off surface with normal *N*: `I − 2·dot(N,I)·N`. *N* must be normalized.' },
 	refract:     { signature: 'genType refract(genType I, genType N, float eta)', description: 'Refraction vector for incident *I*, normal *N*, and refractive index ratio *eta*. *I* and *N* must be normalized.' },
@@ -110,7 +160,20 @@ export const BUILTIN_DOCS: Record<string, GlslDoc> = {
 	not:               { signature: 'bvecN not(bvecN x)', description: 'Component-wise logical NOT.' },
 
 	// Texture (GLSL ES 1.0 / WebGL 1)
-	texture2D:         { signature: 'vec4 texture2D(sampler2D sampler, vec2 coord)\nvec4 texture2D(sampler2D sampler, vec2 coord, float bias)', description: 'Samples a 2D texture at normalized coordinates *coord*. Optional *bias* is added to the computed LOD.' },
+	texture2D:         {
+		signature: 'vec4 texture2D(sampler2D sampler, vec2 coord)\nvec4 texture2D(sampler2D sampler, vec2 coord, float bias)',
+		description: 'Samples a 2D texture at normalized coordinates *coord*. Optional *bias* is added to the computed LOD.',
+		returns: 'Sampled texel as RGBA.',
+		params: {
+			sampler: '2D texture sampler.',
+			coord: 'Normalized UV coordinates.',
+			bias: 'Optional LOD bias.',
+		},
+		examples: [
+			'vec2 uv = gl_FragCoord.xy / uResolution;',
+			'vec4 tex = texture2D(uChannel0, uv);',
+		],
+	},
 	textureCube:       { signature: 'vec4 textureCube(samplerCube sampler, vec3 coord)\nvec4 textureCube(samplerCube sampler, vec3 coord, float bias)', description: 'Samples a cube-map texture. *coord* is used as a direction vector.' },
 	texture2DProj:     { signature: 'vec4 texture2DProj(sampler2D sampler, vec3 coord)\nvec4 texture2DProj(sampler2D sampler, vec4 coord)', description: 'Projective 2D texture lookup. Divides `.st` by `.q` (or `.p`).' },
 	texture2DLod:      { signature: 'vec4 texture2DLod(sampler2D sampler, vec2 coord, float lod)', description: 'Explicit-LOD 2D texture lookup (vertex shader only in ES 1.0).' },
