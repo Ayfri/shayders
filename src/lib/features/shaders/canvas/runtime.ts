@@ -22,11 +22,17 @@ interface RuntimeOptions {
 
 const FLOAT_TEXTURE_TYPE = 0x1406;
 const UNSIGNED_BYTE_TEXTURE_TYPE = 0x1401;
+const THUMBNAIL_CAPTURE_INTERVAL_MS = 400;
 
 export class ShaderCanvasRuntime {
 	private animationId = 0;
 	private readonly bufferStates = new Map<string, InternalBufState>();
 	private readonly channelTextures: ChannelTextureManager;
+	private thumbFbo: WebGLFramebuffer | null = null;
+	private thumbLocPosition = -1;
+	private thumbLocTex: WebGLUniformLocation | null = null;
+	private thumbProgram: WebGLProgram | null = null;
+	private thumbTexture: WebGLTexture | null = null;
 	private fboHeight = 0;
 	private fboTexType = UNSIGNED_BYTE_TEXTURE_TYPE;
 	private fboWidth = 0;
@@ -35,6 +41,11 @@ export class ShaderCanvasRuntime {
 	private lastThumbTime = 0;
 	private frameCount = 0;
 	private fps = 0;
+	private readonly thumbnailCache: Record<string, string> = {};
+	private thumbnailCursor = 0;
+	private thumbnailGenerationPending = false;
+	private thumbnailOutputCanvas: HTMLCanvasElement | null = null;
+	private thumbnailOutputContext: CanvasRenderingContext2D | null = null;
 	private quadBuffer: WebGLBuffer | null = null;
 	private resizeObserver: ResizeObserver | null = null;
 	private startTime = Date.now();
@@ -51,6 +62,17 @@ export class ShaderCanvasRuntime {
 
 	public destroy(): void {
 		cancelAnimationFrame(this.animationId);
+		if (this.gl) {
+			if (this.thumbProgram) this.gl.deleteProgram(this.thumbProgram);
+			if (this.thumbFbo) this.gl.deleteFramebuffer(this.thumbFbo);
+			if (this.thumbTexture) this.gl.deleteTexture(this.thumbTexture);
+		}
+		this.thumbProgram = null;
+		this.thumbFbo = null;
+		this.thumbTexture = null;
+		this.thumbLocPosition = -1;
+		this.thumbLocTex = null;
+		this.revokeThumbnailUrls();
 		this.resizeObserver?.disconnect();
 		this.resizeObserver = null;
 		this.channelTextures.destroy();
@@ -93,6 +115,10 @@ export class ShaderCanvasRuntime {
 		this.lastFrameTime = 0;
 		this.fboHeight = 0;
 		this.fboWidth = 0;
+		this.thumbnailGenerationPending = false;
+		this.revokeThumbnailUrls();
+		for (const key of Object.keys(this.thumbnailCache)) delete this.thumbnailCache[key];
+		this.thumbnailCursor = 0;
 		this.options.updateError('');
 
 		const buffers = this.options.getBuffers();
@@ -165,7 +191,8 @@ export class ShaderCanvasRuntime {
 			}
 
 			const loc = locs.buffers[index];
-			const texture = this.bufferStates.get(order[index])?.texture[1 - (this.bufferStates.get(order[index])?.prevIdx ?? 0)] ?? null;
+			const bufferState = this.bufferStates.get(order[index]);
+			const texture = bufferState?.texture[bufferState.prevIdx] ?? null;
 			this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
 			if (loc && texture) this.gl.uniform1i(loc, index);
 		}
@@ -173,43 +200,123 @@ export class ShaderCanvasRuntime {
 
 	private captureThumbnails(userOrder: string[]): void {
 		const canvas = this.options.getCanvas();
-		if (!this.gl || !canvas) return;
+		if (!this.gl || !canvas || userOrder.length === 0 || this.thumbnailGenerationPending) return;
+		this.thumbnailGenerationPending = true;
 
-		const thumbnails: Record<string, string> = {};
-		const width = canvas.width;
-		const height = canvas.height;
-
-		for (const id of userOrder) {
-			const readFbo = this.bufferStates.get(id)?.fbo[this.bufferStates.get(id)?.prevIdx ?? 0] ?? null;
-			if (!readFbo) continue;
-
-			const pixels = new Uint8Array(width * height * 4);
-			this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, readFbo);
-			this.gl.readPixels(0, 0, width, height, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
-			this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-
-			const full = document.createElement('canvas');
-			full.height = height;
-			full.width = width;
-			const fullContext = full.getContext('2d');
-			if (!fullContext) continue;
-
-			const imageData = fullContext.createImageData(width, height);
-			for (let row = 0; row < height; row += 1) {
-				const source = (height - 1 - row) * width * 4;
-				imageData.data.set(pixels.subarray(source, source + width * 4), row * width * 4);
-			}
-			fullContext.putImageData(imageData, 0, 0);
-
-			const thumb = document.createElement('canvas');
-			thumb.height = THUMB_SIZE.height;
-			thumb.width = THUMB_SIZE.width;
-			thumb.getContext('2d')?.drawImage(full, 0, 0, THUMB_SIZE.width, THUMB_SIZE.height);
-			thumbnails[id] = thumb.toDataURL('image/jpeg', 0.8);
+		const id = userOrder[this.thumbnailCursor % userOrder.length];
+		this.thumbnailCursor = (this.thumbnailCursor + 1) % userOrder.length;
+		const state = this.bufferStates.get(id);
+		const sourceTexture = state?.texture[state?.prevIdx ?? 0] ?? null;
+		if (!sourceTexture) {
+			this.thumbnailGenerationPending = false;
+			return;
 		}
 
-		thumbnails.image = canvas.toDataURL('image/jpeg', 0.8);
-		this.options.updateThumbnails(thumbnails);
+		this.setupThumbPass();
+		if (!this.thumbFbo || !this.thumbProgram || !this.thumbTexture || this.thumbLocPosition < 0 || !this.thumbLocTex) {
+			this.thumbnailGenerationPending = false;
+			return;
+		}
+
+		this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.thumbFbo);
+		this.gl.viewport(0, 0, THUMB_SIZE.width, THUMB_SIZE.height);
+		this.gl.useProgram(this.thumbProgram);
+		this.gl.activeTexture(this.gl.TEXTURE0);
+		this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTexture);
+		this.gl.uniform1i(this.thumbLocTex, 0);
+
+		this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.quadBuffer);
+		this.gl.enableVertexAttribArray(this.thumbLocPosition);
+		this.gl.vertexAttribPointer(this.thumbLocPosition, 2, this.gl.FLOAT, false, 0, 0);
+		this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+
+		const pixels = new Uint8Array(THUMB_SIZE.width * THUMB_SIZE.height * 4);
+		this.gl.readPixels(0, 0, THUMB_SIZE.width, THUMB_SIZE.height, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
+		this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+
+		this.ensureThumbnailCanvases();
+		if (!this.thumbnailOutputContext || !this.thumbnailOutputCanvas) {
+			this.thumbnailGenerationPending = false;
+			return;
+		}
+
+		this.thumbnailOutputContext.putImageData(new ImageData(new Uint8ClampedArray(pixels.buffer), THUMB_SIZE.width, THUMB_SIZE.height), 0, 0);
+
+		void Promise.all([
+			this.canvasToObjectUrl(this.thumbnailOutputCanvas),
+			this.canvasToObjectUrl(canvas),
+		]).then(([bufferThumb, imageThumb]) => {
+			if (bufferThumb) this.setThumbnailUrl(id, bufferThumb);
+			if (imageThumb) this.setThumbnailUrl('image', imageThumb);
+			this.options.updateThumbnails({ ...this.thumbnailCache });
+		}).finally(() => {
+			this.thumbnailGenerationPending = false;
+		});
+	}
+
+	private setupThumbPass(): void {
+		if (!this.gl || this.thumbFbo) return;
+
+		const fbo = createFbo(this.gl, THUMB_SIZE.width, THUMB_SIZE.height, UNSIGNED_BYTE_TEXTURE_TYPE);
+		if (!fbo) return;
+		this.thumbFbo = fbo.fbo;
+		this.thumbTexture = fbo.texture;
+
+		const { program } = buildProgram(
+			this.gl,
+			`precision mediump float;
+uniform sampler2D uTex;
+void main() {
+	vec2 vUv = gl_FragCoord.xy / vec2(${THUMB_SIZE.width}.0, ${THUMB_SIZE.height}.0);
+	vUv.y = 1.0 - vUv.y;
+	gl_FragColor = texture2D(uTex, vUv);
+}`,
+			'thumb',
+		);
+
+		if (!program) return;
+		this.thumbProgram = program;
+		this.thumbLocPosition = this.gl.getAttribLocation(program, 'aPosition');
+		this.thumbLocTex = this.gl.getUniformLocation(program, 'uTex');
+	}
+
+	private canvasToObjectUrl(canvas: HTMLCanvasElement): Promise<string | null> {
+		return new Promise((resolve) => {
+			canvas.toBlob((blob) => {
+				if (!blob) {
+					resolve(null);
+					return;
+				}
+
+				resolve(URL.createObjectURL(blob));
+			}, 'image/jpeg', 0.8);
+		});
+	}
+
+	private setThumbnailUrl(id: string, url: string): void {
+		const previousUrl = this.thumbnailCache[id];
+		this.thumbnailCache[id] = url;
+		if (previousUrl && previousUrl !== url) {
+			URL.revokeObjectURL(previousUrl);
+		}
+	}
+
+	private revokeThumbnailUrls(): void {
+		for (const url of Object.values(this.thumbnailCache)) {
+			URL.revokeObjectURL(url);
+		}
+	}
+
+	private ensureThumbnailCanvases(): void {
+		if (!this.thumbnailOutputCanvas) {
+			this.thumbnailOutputCanvas = document.createElement('canvas');
+			this.thumbnailOutputContext = this.thumbnailOutputCanvas.getContext('2d');
+		}
+
+		if (this.thumbnailOutputCanvas) {
+			this.thumbnailOutputCanvas.width = THUMB_SIZE.width;
+			this.thumbnailOutputCanvas.height = THUMB_SIZE.height;
+		}
 	}
 
 	private destroyBuffers(): void {
@@ -298,7 +405,7 @@ export class ShaderCanvasRuntime {
 			if (state) state.prevIdx = 1 - state.prevIdx;
 		}
 
-		if (currentTime - this.lastThumbTime > 500) {
+		if (currentTime - this.lastThumbTime > THUMBNAIL_CAPTURE_INTERVAL_MS) {
 			this.lastThumbTime = currentTime;
 			this.captureThumbnails(userOrder);
 		}
