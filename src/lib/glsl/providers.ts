@@ -188,6 +188,88 @@ interface BuiltinOverload {
 	params: { raw: string; type: string; name: string }[];
 }
 
+interface WorkspaceDoc {
+	model: Monaco.editor.ITextModel;
+	doc: ReturnType<typeof analyzeDocument>;
+}
+
+interface WorkspaceSymbolMatch {
+	model: Monaco.editor.ITextModel | null;
+	name: string;
+	line: number;
+	type: string | null;
+	kind: 'function' | 'struct' | 'variable' | 'define';
+}
+
+function isWorkspaceModel(model: Monaco.editor.ITextModel): boolean {
+	return model.getLanguageId() === 'glsl';
+}
+
+function getWorkspaceDocs(monaco: typeof Monaco): WorkspaceDoc[] {
+	return monaco.editor.getModels().filter(isWorkspaceModel).map((model) => ({
+		model,
+		doc: analyzeDocument(model.getValue()),
+	}));
+}
+
+function findLocalSymbol(doc: ReturnType<typeof analyzeDocument>, name: string, cursorLine: number): WorkspaceSymbolMatch | null {
+	const enclosingFn = doc.functions.find((fn) => cursorLine >= fn.line && cursorLine <= fn.bodyEndLine);
+	if (enclosingFn) {
+		const local = enclosingFn.localVariables.find((variable) => variable.name === name);
+		if (local) {
+			return {
+				kind: 'variable',
+				line: local.line,
+				model: null,
+				name: local.name,
+				type: local.type,
+			};
+		}
+	}
+
+	const fn = doc.functions.find((functionDoc) => functionDoc.name === name);
+	if (fn) return { kind: 'function', line: fn.line, model: null, name, type: fn.returnType };
+
+	const st = doc.structs.find((struct) => struct.name === name);
+	if (st) return { kind: 'struct', line: st.line, model: null, name, type: name };
+
+	const variable = doc.variables.find((docVariable) => docVariable.name === name);
+	if (variable) return { kind: 'variable', line: variable.line, model: null, name, type: variable.type };
+
+	const def = doc.defines.find((define) => define.name === name);
+	if (def) return { kind: 'define', line: def.line, model: null, name, type: null };
+
+	return null;
+}
+
+function findWorkspaceSymbol(
+	monaco: typeof Monaco,
+	name: string,
+	cursorModel: Monaco.editor.ITextModel,
+	cursorLine: number,
+): WorkspaceSymbolMatch | null {
+	const docs = getWorkspaceDocs(monaco);
+	const current = docs.find((entry) => entry.model.uri.toString() === cursorModel.uri.toString());
+	if (current) {
+		const localMatch = findLocalSymbol(current.doc, name, cursorLine);
+		if (localMatch) return { ...localMatch, model: current.model };
+	}
+
+	for (const entry of docs) {
+		if (entry.model.uri.toString() === cursorModel.uri.toString()) continue;
+		const fn = entry.doc.functions.find((functionDoc) => functionDoc.name === name);
+		if (fn) return { kind: 'function', line: fn.line, model: entry.model, name, type: fn.returnType };
+		const st = entry.doc.structs.find((struct) => struct.name === name);
+		if (st) return { kind: 'struct', line: st.line, model: entry.model, name, type: name };
+		const variable = entry.doc.variables.find((docVariable) => docVariable.name === name);
+		if (variable) return { kind: 'variable', line: variable.line, model: entry.model, name, type: variable.type };
+		const def = entry.doc.defines.find((define) => define.name === name);
+		if (def) return { kind: 'define', line: def.line, model: entry.model, name, type: null };
+	}
+
+	return null;
+}
+
 interface TypeConstructorOverload {
 	raw: string;
 	params: { type: string; name: string }[];
@@ -905,6 +987,7 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 		provideHover(model, position): Monaco.languages.Hover | null {
 			const word = model.getWordAtPosition(position);
 			if (!word) return null;
+			const workspaceDocs = getWorkspaceDocs(monaco);
 
 			const name = word.word;
 			const range: Monaco.IRange = {
@@ -922,12 +1005,16 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 				const ownerMatch    = textBeforeDot.match(/(\w+)\s*$/);
 				if (ownerMatch) {
 					const ownerName = ownerMatch[1];
-					const docM      = analyzeDocument(model.getValue());
+					const docM = analyzeDocument(model.getValue());
+					const ownerSymbol = findWorkspaceSymbol(monaco, ownerName, model, position.lineNumber);
 					const ownerType = resolveScopedType(docM, ownerName, position.lineNumber)
+						?? ownerSymbol?.type
 						?? (BUILTIN_DOCS[ownerName]?.signature.match(/^(\w+)/)?.[1]);
 					if (ownerType) {
 						// Struct field
-						const structM = docM.structs.find((s) => s.name === ownerType);
+						const structM = workspaceDocs
+							.map((entry) => entry.doc.structs.find((struct) => struct.name === ownerType))
+							.find((struct): struct is NonNullable<typeof struct> => struct !== undefined);
 						if (structM) {
 							const field = structM.fields.find((f) => f.name === name);
 							if (field) {
@@ -1083,6 +1170,63 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 				};
 			}
 
+			const workspaceMatch = findWorkspaceSymbol(monaco, name, model, position.lineNumber);
+			if (workspaceMatch?.model && workspaceMatch.line > 0) {
+				const targetModel = workspaceMatch.model;
+				const targetLineText = targetModel.getLineContent(workspaceMatch.line);
+				const targetCol = targetLineText.indexOf(name);
+				const startColumn = targetCol >= 0 ? targetCol + 1 : 1;
+				const endColumn = targetCol >= 0 ? targetCol + name.length + 1 : Number.MAX_SAFE_INTEGER;
+				const contents: Monaco.IMarkdownString[] = [];
+
+				if (workspaceMatch.kind === 'function' && workspaceMatch.type) {
+					const fn = workspaceDocs.find((entry) => entry.model.uri.toString() === targetModel.uri.toString())?.doc.functions.find((functionDoc) => functionDoc.name === name);
+					if (fn) {
+						const params = fn.params.map((param) => ({
+							type: `${param.qualifier && param.qualifier !== 'in' ? `${param.qualifier} ` : ''}${param.type}`,
+							name: param.name,
+						}));
+						contents.push({ value: formatGlslCodeBlock([formatUserFunctionSignature(fn.returnType, fn.name, params)]), isTrusted: true });
+						if (params.length > 0) {
+							contents.push({ value: ['**Parameters**', ...params.map((param) => `- \`${param.name}\` (\`${param.type}\`)`)].join('  \n'), isTrusted: true });
+						}
+						contents.push({ value: formatLineScopedText('User-defined function at', targetModel, fn.line, fn.name), isTrusted: true });
+					}
+				} else if (workspaceMatch.kind === 'struct') {
+					const struct = workspaceDocs.find((entry) => entry.model.uri.toString() === targetModel.uri.toString())?.doc.structs.find((structDoc) => structDoc.name === name);
+					if (struct) {
+						const fields = struct.fields.map((field) => `  ${field.type} ${field.name};`).join('\n');
+						contents.push({ value: `\`\`\`glsl\nstruct ${struct.name} {\n${fields}\n}\n\`\`\``, isTrusted: true });
+						contents.push({ value: formatLineScopedText('User-defined struct at', targetModel, struct.line, struct.name), isTrusted: true });
+					}
+				} else if (workspaceMatch.kind === 'variable') {
+					const variable = workspaceDocs.find((entry) => entry.model.uri.toString() === targetModel.uri.toString())?.doc.variables.find((docVariable) => docVariable.name === name);
+					if (variable) {
+						const qualifier = variable.qualifier ? `${variable.qualifier} ` : '';
+						contents.push({ value: formatGlslCodeBlock([`${qualifier}${variable.type} ${variable.name};`.trim()]), isTrusted: true });
+						contents.push({ value: formatLineScopedText('Declared at', targetModel, variable.line, variable.name), isTrusted: true });
+					}
+				} else if (workspaceMatch.kind === 'define') {
+					const def = workspaceDocs.find((entry) => entry.model.uri.toString() === targetModel.uri.toString())?.doc.defines.find((define) => define.name === name);
+					if (def) {
+						contents.push({ value: `\`\`\`glsl\n#define ${def.name} ${def.value}\n\`\`\``, isTrusted: true });
+						contents.push({ value: formatLineScopedText('Preprocessor macro at', targetModel, def.line, def.name), isTrusted: true });
+					}
+				}
+
+				if (contents.length > 0) {
+					return {
+						range: {
+							startLineNumber: position.lineNumber,
+							endLineNumber: position.lineNumber,
+							startColumn,
+							endColumn,
+						},
+						contents,
+					};
+				}
+			}
+
 			const fn = doc.functions.find((f) => f.name === name);
 			if (fn) {
 				const activeCursor = getActiveCursorPositionForModel(model, position);
@@ -1175,46 +1319,20 @@ function registerDefinition(monaco: typeof Monaco): Monaco.IDisposable {
 			if (!word) return null;
 
 			const name = word.word;
-			const doc  = analyzeDocument(model.getValue());
-			const cursorLine = position.lineNumber;
+			const workspaceSymbol = findWorkspaceSymbol(monaco, name, model, position.lineNumber);
+			if (!workspaceSymbol?.model) return null;
 
-			// Resolve declaration line, preferring function-local scope when applicable
-			const findDeclLine = (): number | null => {
-				// Check local variables of the enclosing function first
-				const enclosingFn = doc.functions.find(
-					(fn) => cursorLine >= fn.line && cursorLine <= fn.bodyEndLine,
-				);
-				if (enclosingFn) {
-					const local = enclosingFn.localVariables.find((v) => v.name === name);
-					if (local) return local.line;
-				}
-
-				// Fall back to global scope
-				const fn  = doc.functions.find((f) => f.name === name);
-				if (fn) return fn.line;
-				const st  = doc.structs.find((s) => s.name === name);
-				if (st) return st.line;
-				const v   = doc.variables.find((v) => v.name === name);
-				if (v) return v.line;
-				const def = doc.defines.find((d) => d.name === name);
-				if (def) return def.line;
-				return null;
-			};
-
-			const declLine = findDeclLine();
-			if (declLine === null) return null;
-
-			// Find the exact column of the identifier on its declaration line
-			const lineText = model.getLineContent(declLine);
+			const targetModel = workspaceSymbol.model;
+			const lineText = targetModel.getLineContent(workspaceSymbol.line);
 			const colStart = lineText.indexOf(name);
 			const startCol = colStart >= 0 ? colStart + 1 : 1;
 			const endCol   = colStart >= 0 ? colStart + name.length + 1 : Number.MAX_SAFE_INTEGER;
 
 			return {
-				uri:   model.uri,
+				uri:   targetModel.uri,
 				range: {
-					startLineNumber: declLine,
-					endLineNumber:   declLine,
+					startLineNumber: workspaceSymbol.line,
+					endLineNumber:   workspaceSymbol.line,
 					startColumn:     startCol,
 					endColumn:       endCol,
 				},
@@ -1258,7 +1376,10 @@ function registerSignatureHelp(monaco: typeof Monaco): Monaco.IDisposable {
 
 			if (!sigSource) {
 				const doc = analyzeDocument(model.getValue());
-				const fn  = doc.functions.find((f) => f.name === wordBefore.word);
+				const fn = doc.functions.find((f) => f.name === wordBefore.word)
+					?? getWorkspaceDocs(monaco)
+						.map((entry) => entry.doc.functions.find((functionDoc) => functionDoc.name === wordBefore.word))
+						.find((functionDoc): functionDoc is NonNullable<typeof functionDoc> => functionDoc !== undefined);
 				if (fn) {
 					const paramList = fn.params
 						.map((p) => `${p.qualifier && p.qualifier !== 'in' ? p.qualifier + ' ' : ''}${p.type} ${p.name}`)

@@ -366,10 +366,11 @@ const CONSTRUCTOR_TYPE_RE =
  *  - Expression statements whose result is immediately discarded
  *    (e.g. `vec3(1.0);`, `float(x);`).
  */
-export function findUnused(src: string, doc: GlslDocument): UnusedItem[] {
+export function findUnused(src: string, doc: GlslDocument, workspaceSrcs: string[] = [src]): UnusedItem[] {
 	const clean      = stripComments(src);
 	const srcLines   = src.split('\n');
 	const cleanLines = clean.split('\n');
+	const workspaceClean = workspaceSrcs.map((source) => stripComments(source)).join('\n');
 	const result: UnusedItem[] = [];
 	const structNames = doc.structs.map((s) => s.name);
 
@@ -377,7 +378,7 @@ export function findUnused(src: string, doc: GlslDocument): UnusedItem[] {
 	for (const fn of doc.functions) {
 		if (fn.name === 'main') continue;
 
-		const occurrences = (clean.match(new RegExp(`\\b${escapeRe(fn.name)}\\b`, 'g')) ?? []).length;
+		const occurrences = (workspaceClean.match(new RegExp(`\\b${escapeRe(fn.name)}\\b`, 'g')) ?? []).length;
 		// ≤ 1 → only appears in the function header itself
 		if (occurrences <= 1) {
 			const lineContent = srcLines[fn.line - 1] ?? '';
@@ -398,7 +399,7 @@ export function findUnused(src: string, doc: GlslDocument): UnusedItem[] {
 	// Unused uniforms (shown as grayed-out, no warning)
 	for (const v of doc.variables) {
 		if (v.qualifier !== 'uniform') continue;
-		const occurrences = (clean.match(new RegExp(`\\b${escapeRe(v.name)}\\b`, 'g')) ?? []).length;
+		const occurrences = (workspaceClean.match(new RegExp(`\\b${escapeRe(v.name)}\\b`, 'g')) ?? []).length;
 		if (occurrences <= 1) {
 			const lineContent = srcLines[v.line - 1] ?? '';
 			const col = lineContent.indexOf(v.name);
@@ -420,7 +421,7 @@ export function findUnused(src: string, doc: GlslDocument): UnusedItem[] {
 		if (v.qualifier && v.qualifier !== 'const') continue;
 		if (v.arraySize !== undefined) continue;
 
-		const occurrences = (clean.match(new RegExp(`\\b${escapeRe(v.name)}\\b`, 'g')) ?? []).length;
+		const occurrences = (workspaceClean.match(new RegExp(`\\b${escapeRe(v.name)}\\b`, 'g')) ?? []).length;
 		if (occurrences <= 1) {
 			const lineContent = srcLines[v.line - 1] ?? '';
 			const col = lineContent.indexOf(v.name);

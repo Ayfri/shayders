@@ -357,7 +357,7 @@
 		{#if channelsOpen}
 			<ChannelsPanel {channels} {onChannelChange} {buffers} {thumbnails} />
 		{/if}
-		<GlslEditor bind:value {errors} {onRun} {settings} />
+		<GlslEditor bind:value {buffers} {activeBufferId} {errors} {onRun} {settings} onBufferFocus={onTabChange} />
 		<BuiltinsPanel {uniforms} {presentNames} onToggle={onToggleUniform} bind:open={panelOpen} />
 	</div>
 {/if}

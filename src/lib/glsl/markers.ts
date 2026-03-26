@@ -71,7 +71,11 @@ export function applyHints(
 ): void {
 	const src    = model.getValue();
 	const doc    = analyzeDocument(src);
-	const unused = findUnused(src, doc);
+	const workspaceSrcs = monaco.editor
+		.getModels()
+		.filter((workspaceModel) => workspaceModel.getLanguageId() === 'glsl')
+		.map((workspaceModel) => workspaceModel.getValue());
+	const unused = findUnused(src, doc, workspaceSrcs);
 
 	const markers: Monaco.editor.IMarkerData[] = unused.map((item) => ({
 		severity: item.kind === 'uniform'
