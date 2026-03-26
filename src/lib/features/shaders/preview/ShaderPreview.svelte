@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { CHANNEL_UNIFORM_NAMES } from '$features/shaders/model/shader-domain';
+	import { BUFFER_UNIFORM_NAMES, CHANNEL_UNIFORM_NAMES } from '$features/shaders/model/shader-domain';
 	import type { ChannelEntry, ShaderBuffer } from '$features/shaders/model/shader-content';
+	import { buildLocs, buildProgram, createFbo, createQuadBuffer, type InternalBufState } from '../canvas/gl-utils';
 
 	interface Props {
 		buffers: ShaderBuffer[];
@@ -17,61 +18,26 @@
 	let mouseY = 0;
 
 	let gl: WebGLRenderingContext | null = null;
-	let program: WebGLProgram | null = null;
+	let quadBuffer: WebGLBuffer | null = null;
 	let animationFrame = 0;
 	let frameCount = 0;
 	let freezeTime = 0;
 	let startTime = Date.now();
+	let canvasWidth = 0;
+	let canvasHeight = 0;
+	let fboTextureType = 0x1401;
+	let userOrder: string[] = [];
+	const bufferStates = new Map<string, InternalBufState>();
+	let resizeObserver: ResizeObserver | null = null;
 
 	interface ChannelTexState {
 		texture: WebGLTexture;
+		lastVideoTime: number;
 		videoEl: HTMLVideoElement | null;
 	}
 
 	const channelTexStates = new Map<number, ChannelTexState>();
 	let channelsLoaded = false;
-
-	function compileShader(gl: WebGLRenderingContext, source: string, type: number): WebGLShader | null {
-		const shader = gl.createShader(type);
-		if (!shader) return null;
-		gl.shaderSource(shader, source);
-		gl.compileShader(shader);
-
-		if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-			console.error('Shader error:', gl.getShaderInfoLog(shader));
-			gl.deleteShader(shader);
-			return null;
-		}
-		return shader;
-	}
-
-	function createProgram(gl: WebGLRenderingContext, fragmentSource: string): WebGLProgram | null {
-		const vertexSrc = `
-			precision highp float;
-			attribute vec2 position;
-			void main() { gl_Position = vec4(position, 0.0, 1.0); }
-		`;
-		const vs = compileShader(gl, vertexSrc, gl.VERTEX_SHADER);
-		const fs = compileShader(gl, fragmentSource, gl.FRAGMENT_SHADER);
-
-		if (!vs || !fs) return null;
-
-		const prog = gl.createProgram();
-		if (!prog) return null;
-
-		gl.attachShader(prog, vs);
-		gl.attachShader(prog, fs);
-		gl.linkProgram(prog);
-
-		if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-			console.error('Program error:', gl.getProgramInfoLog(prog));
-			return null;
-		}
-
-		gl.deleteShader(vs);
-		gl.deleteShader(fs);
-		return prog;
-	}
 
 	function getTextureParams(channel: ChannelEntry) {
 		if (!gl) {
@@ -120,8 +86,34 @@
 		gl.bindTexture(gl.TEXTURE_2D, null);
 	}
 
-	function bindChannelTextures() {
-		if (!gl || !program) {
+	function bindBufferTextures(locs: InternalBufState['locs'], currentTarget: string) {
+		if (!gl) {
+			return;
+		}
+
+		for (let index = 0; index < userOrder.length && index < BUFFER_UNIFORM_NAMES.length; index += 1) {
+			gl.activeTexture(gl.TEXTURE0 + index);
+			if (userOrder[index] === currentTarget) {
+				gl.bindTexture(gl.TEXTURE_2D, null);
+				continue;
+			}
+
+			const location = locs?.buffers[index] ?? null;
+			if (!location) {
+				continue;
+			}
+
+			const state = bufferStates.get(userOrder[index]);
+			const texture = state?.texture[state?.prevIdx ?? 0] ?? null;
+			gl.bindTexture(gl.TEXTURE_2D, texture);
+			if (texture) {
+				gl.uniform1i(location, index);
+			}
+		}
+	}
+
+	function bindChannelTextures(locs: InternalBufState['locs']) {
+		if (!gl) {
 			return;
 		}
 
@@ -130,7 +122,7 @@
 				continue;
 			}
 
-			const location = gl.getUniformLocation(program, CHANNEL_UNIFORM_NAMES[id]);
+			const location = locs?.channels[id] ?? null;
 			if (!location) {
 				continue;
 			}
@@ -140,6 +132,109 @@
 			gl.bindTexture(gl.TEXTURE_2D, state.texture);
 			gl.uniform1i(location, unit);
 		}
+	}
+
+	function setStandardUniforms(locs: InternalBufState['locs'], elapsed: number, width: number, height: number) {
+		if (!gl) {
+			return;
+		}
+
+		gl.uniform1f(locs?.uTime ?? null, elapsed);
+		gl.uniform2f(locs?.uResolution ?? null, width, height);
+		gl.uniform3f(
+			locs?.uMouse ?? null,
+			isHovered ? mouseX : -1,
+			isHovered ? mouseY : -1,
+			isHovered ? 1 : 0
+		);
+		gl.uniform1i(locs?.uFrameCount ?? null, frameCount);
+		gl.uniform1f(locs?.uAspect ?? null, width / height);
+	}
+
+	function resizeBufferTargets(width: number, height: number) {
+		if (!gl) {
+			return;
+		}
+
+		for (const [id, state] of bufferStates.entries()) {
+			if (id === 'image') {
+				continue;
+			}
+
+			for (const texture of state.texture) {
+				if (!texture) {
+					continue;
+				}
+
+				gl.bindTexture(gl.TEXTURE_2D, texture);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, fboTextureType, null);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+			}
+		}
+	}
+
+	function syncCanvasSize() {
+		if (!canvas) {
+			return false;
+		}
+
+		const nextWidth = canvas.clientWidth;
+		const nextHeight = canvas.clientHeight;
+		if (nextWidth <= 0 || nextHeight <= 0) {
+			return false;
+		}
+
+		if (nextWidth === canvasWidth && nextHeight === canvasHeight) {
+			return true;
+		}
+
+		canvasWidth = nextWidth;
+		canvasHeight = nextHeight;
+		canvas.width = nextWidth;
+		canvas.height = nextHeight;
+		resizeBufferTargets(nextWidth, nextHeight);
+		return true;
+	}
+
+	function updateCanvasSizeFromObserver(width: number, height: number) {
+		canvasWidth = Math.max(1, Math.floor(width));
+		canvasHeight = Math.max(1, Math.floor(height));
+	}
+
+	function drawQuad(positionLocation: number) {
+		if (!gl || !quadBuffer || positionLocation < 0) {
+			return;
+		}
+
+		gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+		gl.enableVertexAttribArray(positionLocation);
+		gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	}
+
+	function destroyPrograms() {
+		if (!gl) {
+			bufferStates.clear();
+			return;
+		}
+
+		for (const state of bufferStates.values()) {
+			if (state.program) {
+				gl.deleteProgram(state.program);
+			}
+
+			for (let index = 0; index < state.fbo.length; index += 1) {
+				if (state.fbo[index]) {
+					gl.deleteFramebuffer(state.fbo[index]);
+				}
+
+				if (state.texture[index]) {
+					gl.deleteTexture(state.texture[index]);
+				}
+			}
+		}
+
+		bufferStates.clear();
 	}
 
 	function disposeChannelTextures() {
@@ -194,6 +289,7 @@
 
 				channelTexStates.set(channel.id, {
 					texture,
+					lastVideoTime: -1,
 					videoEl: video,
 				});
 				continue;
@@ -229,116 +325,226 @@
 
 			channelTexStates.set(channel.id, {
 				texture,
+				lastVideoTime: -1,
 				videoEl: null,
 			});
 		}
 	}
 
+	function pauseChannelVideos() {
+		for (const state of channelTexStates.values()) {
+			state.videoEl?.pause();
+		}
+	}
+
+	function playChannelVideos() {
+		for (const state of channelTexStates.values()) {
+			if (!state.videoEl) {
+				continue;
+			}
+
+			void state.videoEl.play().catch(() => {});
+		}
+	}
+
+	function buildPrograms() {
+		if (!gl || !canvas) {
+			return;
+		}
+
+		cancelAnimationFrame(animationFrame);
+		destroyPrograms();
+		frameCount = 0;
+		freezeTime = 0;
+		startTime = Date.now();
+
+		userOrder = buffers.filter((buffer) => buffer.id !== 'common' && buffer.id !== 'image').map((buffer) => buffer.id);
+		const commonCode = buffers.find((buffer) => buffer.id === 'common')?.code ?? '';
+		const renderOrder = [...userOrder, 'image'];
+
+		const imageBuffer = buffers.find((buffer) => buffer.id === 'image');
+		if (!imageBuffer) {
+			return;
+		}
+
+		for (const id of renderOrder) {
+			const buffer = buffers.find((candidate) => candidate.id === id);
+			if (!buffer) {
+				continue;
+			}
+
+			const source = commonCode ? `${commonCode}\n${buffer.code}` : buffer.code;
+			const { err, program } = buildProgram(gl, source, buffer.label);
+			if (err) {
+				console.error('Shader preview error:', err);
+			}
+
+			const state: InternalBufState = {
+				fbo: [null, null],
+				locs: program ? buildLocs(gl, program) : null,
+				prevIdx: 0,
+				program,
+				texture: [null, null],
+			};
+
+			if (id !== 'image') {
+				const width = canvasWidth > 0 ? canvasWidth : canvas.clientWidth || 1;
+				const height = canvasHeight > 0 ? canvasHeight : canvas.clientHeight || 1;
+				const first = createFbo(gl, width, height, fboTextureType);
+				const second = createFbo(gl, width, height, fboTextureType);
+
+				if (first) {
+					state.fbo[0] = first.fbo;
+					state.texture[0] = first.texture;
+				}
+
+				if (second) {
+					state.fbo[1] = second.fbo;
+					state.texture[1] = second.texture;
+				}
+			}
+
+			bufferStates.set(id, state);
+		}
+
+		if (!quadBuffer) {
+			quadBuffer = createQuadBuffer(gl);
+		}
+
+		animationFrame = requestAnimationFrame(animate);
+	}
+
+	function animate() {
+		if (!gl || !canvas) {
+			animationFrame = requestAnimationFrame(animate);
+			return;
+		}
+
+		if (!syncCanvasSize()) {
+			animationFrame = requestAnimationFrame(animate);
+			return;
+		}
+
+		const now = Date.now();
+		const elapsed = (now - startTime) / 1000;
+		const time = isHovered ? elapsed : freezeTime;
+		const passOrder = [...userOrder, 'image'];
+
+		if (isHovered) {
+			loadChannelTextures();
+		} else if (frameCount === 0) {
+			freezeTime = elapsed;
+		}
+
+		for (const state of channelTexStates.values()) {
+			if (!state.videoEl || state.videoEl.readyState < 2) {
+				continue;
+			}
+
+				if (state.videoEl.currentTime === state.lastVideoTime) {
+					continue;
+				}
+
+			gl.bindTexture(gl.TEXTURE_2D, state.texture);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, state.videoEl);
+			gl.bindTexture(gl.TEXTURE_2D, null);
+				state.lastVideoTime = state.videoEl.currentTime;
+		}
+
+		for (const id of passOrder) {
+			const state = bufferStates.get(id);
+			if (!state?.program || !state.locs) {
+				continue;
+			}
+
+			gl.bindFramebuffer(gl.FRAMEBUFFER, id === 'image' ? null : state.fbo[1 - state.prevIdx]);
+			gl.useProgram(state.program);
+			gl.viewport(0, 0, canvasWidth, canvasHeight);
+			bindBufferTextures(state.locs, id);
+			bindChannelTextures(state.locs);
+			setStandardUniforms(state.locs, time, canvasWidth, canvasHeight);
+			drawQuad(state.locs.aPosition);
+		}
+
+		for (const id of userOrder) {
+			const state = bufferStates.get(id);
+			if (state) {
+				state.prevIdx = 1 - state.prevIdx;
+			}
+		}
+
+		frameCount += 1;
+		animationFrame = requestAnimationFrame(animate);
+	}
+
 	onMount(() => {
 		if (!canvas) return;
-		const w = canvas.clientWidth;
-		const h = canvas.clientHeight;
+		const w = canvas.clientWidth || 1;
+		const h = canvas.clientHeight || 1;
 		canvas.width = w;
 		canvas.height = h;
+		canvasWidth = w;
+		canvasHeight = h;
 
 		gl = canvas.getContext('webgl', { preserveDrawingBuffer: true });
 		if (!gl) return;
 
-		const imageBuffer = buffers.find((b) => b.id === 'image');
-		if (!imageBuffer) return;
+		if (gl.getExtension('OES_texture_float')) {
+			gl.getExtension('OES_texture_float_linear');
+			fboTextureType = 0x1406;
+		}
 
-		program = createProgram(gl, imageBuffer.code);
-		if (!program) return;
-
-		const posLoc = gl.getAttribLocation(program, 'position');
-		const vao = gl.createBuffer();
-		gl.bindBuffer(gl.ARRAY_BUFFER, vao);
-		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-		gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
-		gl.enableVertexAttribArray(posLoc);
-
-		const animate = () => {
-			if (!gl || !program) {
-				animationFrame = requestAnimationFrame(animate);
+		resizeObserver = new ResizeObserver((entries) => {
+			const entry = entries[0];
+			if (!entry) {
 				return;
 			}
 
-			const now = Date.now();
-			const elapsed = (now - startTime) / 1000;
-			const time = isHovered ? elapsed : freezeTime;
-
-			if (!isHovered && frameCount === 0) {
-				freezeTime = elapsed;
-			}
-
-			if (isHovered) {
-				loadChannelTextures();
-			}
-
-			for (const state of channelTexStates.values()) {
-				if (!state.videoEl || state.videoEl.readyState < 2) {
-					continue;
-				}
-
-				gl.bindTexture(gl.TEXTURE_2D, state.texture);
-				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, state.videoEl);
-				gl.bindTexture(gl.TEXTURE_2D, null);
-			}
-
-			gl.useProgram(program);
-			bindChannelTextures();
-			gl.uniform1f(gl.getUniformLocation(program, 'uTime'), time);
-			gl.uniform2f(gl.getUniformLocation(program, 'uResolution'), w, h);
-			gl.uniform3f(
-				gl.getUniformLocation(program, 'uMouse'),
-				isHovered ? mouseX : -1,
-				isHovered ? mouseY : -1,
-				isHovered ? 1 : 0
-			);
-			gl.uniform1i(gl.getUniformLocation(program, 'uFrameCount'), frameCount);
-			gl.uniform1f(gl.getUniformLocation(program, 'uAspect'), w / h);
-
-			gl.viewport(0, 0, w, h);
-			gl.clear(gl.COLOR_BUFFER_BIT);
-			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-			frameCount++;
-			animationFrame = requestAnimationFrame(animate);
-		};
-
-		animate();
+			updateCanvasSizeFromObserver(entry.contentRect.width, entry.contentRect.height);
+		});
+		resizeObserver.observe(canvas);
 
 		return () => {
 			cancelAnimationFrame(animationFrame);
+			resizeObserver?.disconnect();
+			resizeObserver = null;
+			destroyPrograms();
 			disposeChannelTextures();
-			if (program) {
-				gl?.deleteProgram(program);
+			if (quadBuffer) {
+				gl?.deleteBuffer(quadBuffer);
 			}
 		};
 	});
 
 	$effect(() => {
-		const channelSignature = channels
-			.map((channel) => `${channel.id}:${channel.type}:${channel.url ?? ''}`)
-			.join('|');
+		if (!gl) return;
 
-		if (!gl) {
-			return;
-		}
+		buildPrograms();
+	});
+
+	$effect(() => {
+		if (!gl) return;
 
 		disposeChannelTextures();
-		if (isHovered && channelSignature.length > 0) {
-			loadChannelTextures();
+		loadChannelTextures();
+		if (isHovered) {
+			playChannelVideos();
 		}
 	});
 
 	function handleMouseEnter() {
 		isHovered = true;
 		loadChannelTextures();
+		playChannelVideos();
+		if (freezeTime === 0) {
+			freezeTime = (Date.now() - startTime) / 1000;
+		}
 	}
 
 	function handleMouseLeave() {
 		isHovered = false;
+		pauseChannelVideos();
+		freezeTime = (Date.now() - startTime) / 1000;
 	}
 
 	function handleMouseMove(e: MouseEvent) {
@@ -357,4 +563,3 @@
 	onmousemove={handleMouseMove}
 	title={name}
 ></canvas>
-
