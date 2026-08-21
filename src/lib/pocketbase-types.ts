@@ -5,15 +5,16 @@
 import type PocketBase from 'pocketbase'
 import type { RecordService } from 'pocketbase'
 
-export enum Collections {
-	Authorigins = "_authOrigins",
-	Externalauths = "_externalAuths",
-	Mfas = "_mfas",
-	Otps = "_otps",
-	Superusers = "_superusers",
-	Shaders = "shaders",
-	Users = "users",
-}
+export const Collections = {
+	Authorigins: "_authOrigins",
+	Externalauths: "_externalAuths",
+	Mfas: "_mfas",
+	Otps: "_otps",
+	Superusers: "_superusers",
+	Shaders: "shaders",
+	Users: "users",
+} as const
+export type Collections = typeof Collections[keyof typeof Collections]
 
 // Alias types for improved usability
 export type IsoDateString = string
@@ -93,11 +94,12 @@ export type SuperusersRecord = {
 	verified?: boolean
 }
 
-export enum ShadersVisiblityOptions {
-	"public" = "public",
-	"unlisted" = "unlisted",
-	"private" = "private",
-}
+export const ShadersVisiblityOptions = {
+	"public": "public",
+	"unlisted": "unlisted",
+	"private": "private",
+} as const
+export type ShadersVisiblityOptions = typeof ShadersVisiblityOptions[keyof typeof ShadersVisiblityOptions]
 export type ShadersRecord<Tcontent = unknown> = {
 	content: null | Tcontent
 	created: IsoAutoDateString
