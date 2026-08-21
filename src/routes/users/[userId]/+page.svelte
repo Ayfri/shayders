@@ -332,7 +332,7 @@
 				<div class="mt-8 rounded-xl border border-border bg-surface px-4 py-4 sm:px-5">
 					<div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 						<div>
-							<p class="text-[11px] font-mono uppercase tracking-[0.18em] text-cyan-300/80">Storage quota</p>
+							<p class="text-11 font-mono uppercase tracking-[0.18em] text-cyan-300/80">Storage quota</p>
 							{#if ownerQuota}
 								<p class="mt-1 text-lg font-semibold text-foreground">
 									{formatBytes(ownerQuota.usedBytes)} / {formatBytes(ownerQuota.totalBytes)}

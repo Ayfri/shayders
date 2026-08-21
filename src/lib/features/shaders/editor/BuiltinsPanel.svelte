@@ -180,7 +180,7 @@
 		<div class="overflow-y-auto max-h-100 mb-2 text-xs">
 			<!-- Uniforms -->
 			{#if sortedUniforms.length > 0}
-				<div class="px-4 pt-1 pb-0.5 text-[10px] uppercase tracking-widest text-subtle font-semibold">
+				<div class="px-4 pt-1 pb-0.5 text-10 uppercase tracking-widest text-subtle font-semibold">
 					Uniforms
 				</div>
 				{#each sortedUniforms as u (u.name)}
@@ -192,31 +192,31 @@
 							class="relative flex items-center justify-center w-3.5 shrink-0 self-center cursor-pointer"
 						>
 							<span class="block group-hover:hidden w-1.5 h-1.5 rounded-full {present ? 'bg-green-400/70' : 'bg-border'}"></span>
-							<span class="hidden group-hover:block text-[11px] font-bold leading-none {present ? 'text-red-400' : 'text-cyan-400'}">{present ? '−' : '+'}</span>
+							<span class="hidden group-hover:block text-11 font-bold leading-none {present ? 'text-red-400' : 'text-cyan-400'}">{present ? '−' : '+'}</span>
 						</button>
-						<span class="{present ? getTypeColor(u.type) : 'text-subtle'} font-mono shrink-0 text-[11px]">{u.type}</span>
-						<span class="{present ? 'text-foreground' : 'text-muted'} font-mono shrink-0 font-semibold text-[11px]">{u.name}</span>
+						<span class="{present ? getTypeColor(u.type) : 'text-subtle'} font-mono shrink-0 text-11">{u.type}</span>
+						<span class="{present ? 'text-foreground' : 'text-muted'} font-mono shrink-0 font-semibold text-11">{u.name}</span>
 						{#if u.description}
-							<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-[11px]">
+							<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-11">
 								{u.description}
 							</span>
 						{/if}
 						{#if u.value !== undefined}
-							<span class="ml-auto font-mono text-green-400 shrink-0 tabular-nums text-[11px]">{u.value}</span>
+							<span class="ml-auto font-mono text-green-400 shrink-0 tabular-nums text-11">{u.value}</span>
 						{/if}
 					</div>
 				{/each}
 			{/if}
 
 			<!-- GLSL built-in variables -->
-			<div class="px-4 pt-2 pb-0.5 text-[10px] uppercase tracking-widest text-subtle font-semibold">
+			<div class="px-4 pt-2 pb-0.5 text-10 uppercase tracking-widest text-subtle font-semibold">
 				Built-in Variables
 			</div>
 			{#each glBuiltins as v (v.name)}
 				<div class="flex items-baseline gap-1 px-4 py-1 hover:bg-panel group">
-					<span class="{getTypeColor(v.type)} font-mono shrink-0 text-[11px] whitespace-nowrap">{v.type}</span>
-					<span class="text-foreground font-mono shrink-0 font-semibold text-[11px] whitespace-nowrap">{v.name}</span>
-					<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-[11px]">
+					<span class="{getTypeColor(v.type)} font-mono shrink-0 text-11 whitespace-nowrap">{v.type}</span>
+					<span class="text-foreground font-mono shrink-0 font-semibold text-11 whitespace-nowrap">{v.name}</span>
+					<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-11">
 						{#each v.markdownParts as part, i (`${typeof part === 'string' ? part : `${part.type}:${part.content}`}:${i}`)}
 							{#if typeof part === 'string'}
 								{part}
@@ -233,23 +233,23 @@
 			{/each}
 
 			<!-- GLSL built-in functions -->
-			<div class="px-4 pt-2 pb-0.5 text-[10px] uppercase tracking-widest text-subtle font-semibold">
+			<div class="px-4 pt-2 pb-0.5 text-10 uppercase tracking-widest text-subtle font-semibold">
 				Functions
 			</div>
 			{#each groupedFunctions as [returnType, functions] (returnType)}
-				<div class="px-4 pt-3 pb-0.5 text-[10px] uppercase tracking-widest text-cyan-400 font-semibold">
+				<div class="px-4 pt-3 pb-0.5 text-10 uppercase tracking-widest text-cyan-400 font-semibold">
 					{returnType}
 				</div>
 				{#each functions as fn (fn.name)}
 					<div class="flex items-baseline gap-1 px-4 py-1 hover:bg-panel group">
-						<span class="font-mono shrink-0 text-[11px] whitespace-nowrap">
+						<span class="font-mono shrink-0 text-11 whitespace-nowrap">
 							{#if fn.parsedSignature}
 								<span class={getTypeColor(fn.parsedSignature.returnType)}>{fn.parsedSignature.returnType}</span><span class="text-foreground">{' '}{fn.parsedSignature.functionName}(</span>{#each fn.parsedSignature.params as param, i (`${param.type}:${param.name}:${i}`)}{#if i > 0}<span class="text-foreground">,</span>{ ' '}{/if}<span class={getTypeColor(param.type)}>{param.type}</span><span class="text-white">{' '}{param.name}</span>{/each}<span class="text-foreground">)</span>
 							{:else}
 								<span class="text-blue-300">{fn.signature}</span>
 							{/if}
 						</span>
-						<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-[11px]">
+						<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-11">
 							{#each fn.markdownParts as part, i (`${typeof part === 'string' ? part : `${part.type}:${part.content}`}:${i}`)}
 								{#if typeof part === 'string'}
 									{part}

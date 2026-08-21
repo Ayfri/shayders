@@ -117,7 +117,7 @@
 		<div class="ml-auto flex min-w-0 items-center gap-2">
 			{@render captureButtons()}
 			{#if isRecording}
-				<span class="rounded border border-red-500/40 bg-red-950/25 px-2 py-1 font-mono text-[10px] text-red-300">
+				<span class="rounded border border-red-500/40 bg-red-950/25 px-2 py-1 font-mono text-10 text-red-300">
 					{formatDuration(recordingElapsedMs)} / {formatDuration(recordingLimitMs)}
 				</span>
 			{/if}
@@ -137,7 +137,7 @@
 		<div class="ml-auto flex min-w-0 items-center gap-2">
 			{@render captureButtons()}
 			{#if isRecording}
-				<span class="rounded border border-red-500/40 bg-red-950/25 px-2 py-1 font-mono text-[10px] text-red-300">
+				<span class="rounded border border-red-500/40 bg-red-950/25 px-2 py-1 font-mono text-10 text-red-300">
 					{formatDuration(recordingElapsedMs)} / {formatDuration(recordingLimitMs)}
 				</span>
 			{/if}

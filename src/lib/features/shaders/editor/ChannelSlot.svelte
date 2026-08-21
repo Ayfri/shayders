@@ -163,9 +163,9 @@
 	</div>
 
 	{#if uploadError}
-		<p class="px-0.5 text-[10px] leading-relaxed text-red-400">{uploadError}</p>
+		<p class="px-0.5 text-10 leading-relaxed text-red-400">{uploadError}</p>
 	{:else if uploadStatus}
-		<p class="px-0.5 text-[10px] leading-relaxed text-cyan-400">{uploadStatus}</p>
+		<p class="px-0.5 text-10 leading-relaxed text-cyan-400">{uploadStatus}</p>
 	{/if}
 
 	{#if channel?.type && channel.type !== 'buffer'}

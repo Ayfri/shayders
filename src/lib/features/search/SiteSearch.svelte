@@ -139,7 +139,7 @@
 			bind:value={query}
 			placeholder="Search shaders or creators"
 			aria-label="Search shaders or creators"
-			class="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-subtle"
+			class="min-w-0 flex-1 bg-transparent text-13 text-foreground outline-none placeholder:text-subtle"
 			onfocus={handleFocus}
 			onblur={handleBlur}
 			onkeydown={handleKeydown}
@@ -162,7 +162,7 @@
 			{:else if results && (results.shaders.length > 0 || results.users.length > 0)}
 				<div class="flex flex-col">
 					{#if results.shaders.length > 0}
-						<div class="border-b border-border px-3 py-2 text-[10px] font-medium uppercase tracking-[0.16em] text-subtle first:border-t-0">
+						<div class="border-b border-border px-3 py-2 text-10 font-medium uppercase tracking-[0.16em] text-subtle first:border-t-0">
 							Shaders
 						</div>
 						{#each results.shaders as shader (shader.id)}
@@ -184,7 +184,7 @@
 									{/if}
 								</div>
 								<div class="min-w-0">
-									<p class="truncate text-[13px] font-medium text-foreground">{shader.name}</p>
+									<p class="truncate text-13 font-medium text-foreground">{shader.name}</p>
 									<p class="mt-1 truncate text-xs text-muted">by {shader.authorName}</p>
 									<p class="mt-1 truncate text-xs text-subtle">
 										{shader.description || formatUserHandle(shader.authorUsername, shader.authorId)}
@@ -195,7 +195,7 @@
 					{/if}
 
 					{#if results.users.length > 0}
-						<div class="border-b border-t border-border px-3 py-2 text-[10px] font-medium uppercase tracking-[0.16em] text-subtle">
+						<div class="border-b border-t border-border px-3 py-2 text-10 font-medium uppercase tracking-[0.16em] text-subtle">
 							Creators
 						</div>
 						{#each results.users as user (user.id)}
@@ -211,7 +211,7 @@
 									</div>
 								{/if}
 								<div class="min-w-0">
-									<p class="truncate text-[13px] font-medium text-foreground">{user.displayName}</p>
+									<p class="truncate text-13 font-medium text-foreground">{user.displayName}</p>
 									<p class="mt-1 truncate text-xs text-muted">{formatUserHandle(user.username, user.id)}</p>
 								</div>
 							</a>

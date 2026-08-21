@@ -19,4 +19,11 @@
 
 	--font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
 	--font-sans: 'Roboto', 'Segoe UI', system-ui, sans-serif;
+
+	--text-10: 0.625rem;
+	--text-10--line-height: 1;
+	--text-11: 0.6875rem;
+	--text-11--line-height: 1;
+	--text-13: 0.8125rem;
+	--text-13--line-height: 1.25;
 }

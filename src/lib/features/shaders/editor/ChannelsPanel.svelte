@@ -219,7 +219,7 @@
 
 <div class="grid grid-cols-2 gap-2 p-3 bg-panel border-b border-border shrink-0 max-h-96 overflow-y-auto">
 	{#if !auth.isLoggedIn}
-		<div class="col-span-2 rounded border border-border bg-background/60 px-2 py-1.5 text-[10px] leading-relaxed text-muted">
+		<div class="col-span-2 rounded border border-border bg-background/60 px-2 py-1.5 text-10 leading-relaxed text-muted">
 			Images are still optimized in a worker, but uploads stay local until you log in. Buffer and webcam channels still work normally.
 		</div>
 	{/if}
