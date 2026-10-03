@@ -1,4 +1,4 @@
-import type { ChannelEntry } from '$features/shaders/model/shader-content';
+import type { ChannelEntry } from '#features/shaders/model/shader-content.js';
 
 interface ChannelTexState {
 	lastVideoTime: number;
@@ -14,6 +14,8 @@ interface ChannelUniformLocs {
 
 interface ChannelTextureManagerOptions {
 	autoplayVideos?: boolean;
+	/** Called once an image texture is uploaded, lets on-demand renderers draw a fresh frame. */
+	onTextureLoad?: () => void;
 }
 
 export class ChannelTextureManager {
@@ -180,6 +182,7 @@ export class ChannelTextureManager {
 			currentGl.texImage2D(currentGl.TEXTURE_2D, 0, currentGl.RGBA, currentGl.RGBA, currentGl.UNSIGNED_BYTE, image);
 			if (channel.filter === 'linear-mipmap') currentGl.generateMipmap(currentGl.TEXTURE_2D);
 			this.updateTextureParams(texture, minFilter, magFilter, wrapMode);
+			this.options.onTextureLoad?.();
 		};
 		image.onerror = () => console.error('Failed to load image:', channel.url);
 		image.src = channel.url;
