@@ -67,6 +67,11 @@ export function registerMaterialDarkerTheme(monaco: typeof Monaco) {
 			{ token: 'storage.type.function',   foreground: '82AAFF' },
 			// Uniforms
 			{ token: 'variable.uniform',        foreground: 'FF7B7B' },
+			/** Semantic tokens with no matching rule fall back to the root style and would wipe the lexer colors, every emitted type needs a rule. */
+			{ token: 'variable.readonly',       foreground: 'F78C6C' },
+			{ token: 'variable.property',       foreground: 'B2CCD6' },
+			{ token: 'parameter',               foreground: 'F78C6C', fontStyle: 'italic' },
+			{ token: 'macro',                   foreground: 'F78C6C' },
 			// Predefined symbols (gl_Position, gl_FragColor...)
 			{ token: 'variable.predefined',     foreground: '82AAFF', fontStyle: 'italic' },
 			{ token: 'predefined',              foreground: '82AAFF', fontStyle: 'italic' },
@@ -75,7 +80,7 @@ export function registerMaterialDarkerTheme(monaco: typeof Monaco) {
 			// Constants
 			{ token: 'constant',                foreground: 'F78C6C' },
 			{ token: 'constant.numeric',        foreground: 'F78C6C' },
-			{ token: 'constant.language',       foreground: 'FF5370' },
+			{ token: 'constant.language',       foreground: 'F78C6C' },
 			// Numbers
 			{ token: 'number',                  foreground: 'F78C6C' },
 			{ token: 'number.float',            foreground: 'F78C6C' },

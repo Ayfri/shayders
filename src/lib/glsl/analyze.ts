@@ -65,7 +65,7 @@ function buildTypeRe(structNames: string[]): string {
 	return `(?:${BUILTIN_TYPE_RE.slice(3, -1)}|${structNames.map(escapeReAnalyze).join('|')})`;
 }
 
-function stripComments(src: string): string {
+export function stripComments(src: string): string {
 	// Replace block comments with equal-length whitespace (preserves line numbers)
 	let out = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
 	// Replace line comments

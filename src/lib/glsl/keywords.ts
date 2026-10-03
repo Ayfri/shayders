@@ -1,6 +1,6 @@
 export const GLSL_KEYWORDS: readonly string[] = [
 	'attribute', 'const', 'uniform', 'varying',
-	'break', 'continue', 'do', 'for', 'while',
+	'break', 'continue', 'do', 'for', 'while', 'switch', 'case', 'default',
 	'if', 'else', 'in', 'out', 'inout',
 	'true', 'false',
 	'lowp', 'mediump', 'highp', 'precision', 'invariant',

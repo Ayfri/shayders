@@ -3,6 +3,8 @@ import { BUILTIN_DOCS, UNIFORM_DOCS } from '#lib/glsl/builtins.js';
 import { TYPE_DOCS, GLSL_TYPES, getSwizzles } from '#lib/glsl/types.js';
 import { GLSL_KEYWORDS, GLSL_PREPROCESSOR } from '#lib/glsl/keywords.js';
 import { analyzeModel, resolveType, resolveScopedType, type GlslDocument } from '#lib/glsl/analyze.js';
+import { registerColorProvider } from '#lib/glsl/color-provider.js';
+import { registerSemanticTokens } from '#lib/glsl/semantic-tokens.js';
 
 const DISPOSABLES_KEY = '__glslProviderDisposables';
 const ACTIVE_EDITOR_KEY = '__glslActiveEditor';
@@ -19,6 +21,8 @@ export function registerGlslProviders(monaco: typeof Monaco): void {
 		registerDefinition(monaco),
 		registerSignatureHelp(monaco),
 		registerInlayHints(monaco),
+		registerSemanticTokens(monaco),
+		registerColorProvider(monaco),
 	];
 }
 
@@ -751,6 +755,36 @@ function swizzleResultType(sourceType: string, swizzle: string): string {
 	return `vec${n}`;
 }
 
+/** Member chain ending the text, indexing included: `gl_FragCoord.xy`, `lights[i].color`. */
+const MEMBER_CHAIN_RE = /([a-zA-Z_]\w*(?:\s*\[[^\]]*\])*(?:\s*\.\s*[a-zA-Z_]\w*(?:\s*\[[^\]]*\])*)*)\s*$/;
+
+/**
+ * Resolves the type of the member chain ending `textBeforeDot` by walking struct fields and swizzles from its root symbol.
+ * @example resolveMemberChain(monaco, model, 'gl_FragCoord.xy', 3) // { expression: 'gl_FragCoord.xy', type: 'vec2' }
+ */
+function resolveMemberChain(
+	monaco: typeof Monaco,
+	model: Monaco.editor.ITextModel,
+	textBeforeDot: string,
+	lineNumber: number,
+): { expression: string; type: string } | null {
+	const expression = textBeforeDot.match(MEMBER_CHAIN_RE)?.[1];
+	if (!expression) return null;
+	const [root, ...members] = expression.replace(/\s*\[[^\]]*\]/g, '').split('.').map((part) => part.trim());
+	let type = resolveScopedType(analyzeModel(model), root, lineNumber)
+		?? findWorkspaceSymbol(monaco, root, model, lineNumber)?.type
+		?? BUILTIN_DOCS[root]?.signature.match(/^(\w+)/)?.[1]
+		?? null;
+	const structs = getWorkspaceDocs(monaco).flatMap((entry) => entry.doc.structs);
+	for (const member of members) {
+		if (!type) return null;
+		const ownerType: string = type;
+		const field = structs.find((struct) => struct.name === ownerType)?.fields.find((candidate) => candidate.name === member);
+		type = field?.type ?? (getSwizzles(ownerType).includes(member) ? swizzleResultType(ownerType, member) : null);
+	}
+	return type ? { expression, type } : null;
+}
+
 function registerCompletion(monaco: typeof Monaco): Monaco.IDisposable {
 	return monaco.languages.registerCompletionItemProvider('glsl', {
 		triggerCharacters: ['.', '#'],
@@ -761,14 +795,8 @@ function registerCompletion(monaco: typeof Monaco): Monaco.IDisposable {
 
 			// Member access completions after a dot
 			if (context.triggerCharacter === '.') {
-				const lineText   = model.getLineContent(position.lineNumber);
-				const before     = lineText.slice(0, position.column - 2);
-				const wordBefore = before.match(/(\w+)\s*$/)?.[1];
-				if (!wordBefore) return { suggestions: [] };
-
-				const doc  = analyzeModel(model);
-				const type = resolveScopedType(doc, wordBefore, position.lineNumber)
-					?? (BUILTIN_DOCS[wordBefore]?.signature.match(/^(\w+)/)?.[1]);
+				const lineText = model.getLineContent(position.lineNumber);
+				const type = resolveMemberChain(monaco, model, lineText.slice(0, position.column - 2), position.lineNumber)?.type;
 				if (!type) return { suggestions: [] };
 
 				const dotRange: Monaco.IRange = {
@@ -779,7 +807,7 @@ function registerCompletion(monaco: typeof Monaco): Monaco.IDisposable {
 				};
 
 				// Struct field completions
-				const struct = doc.structs.find((s) => s.name === type);
+				const struct = getWorkspaceDocs(monaco).flatMap((entry) => entry.doc.structs).find((s) => s.name === type);
 				if (struct) {
 					return {
 						suggestions: struct.fields.map((f, i) => ({
@@ -831,17 +859,14 @@ function registerCompletion(monaco: typeof Monaco): Monaco.IDisposable {
 			// Check for member access even when triggerCharacter is not '.' (e.g. Ctrl+Space mid-word)
 			const lineText = model.getLineContent(position.lineNumber);
 			const textBefore = lineText.slice(0, position.column - 1);
-			const memberMatch = textBefore.match(/(\w+)\s*\.\s*(\w*)$/);
+			const memberMatch = textBefore.match(/^(.*?)\s*\.\s*\w*$/);
 			if (memberMatch && context.triggerCharacter !== '.') {
-				const wordBefore = memberMatch[1];
-				const doc = analyzeModel(model);
-				const type = resolveScopedType(doc, wordBefore, position.lineNumber)
-					?? (BUILTIN_DOCS[wordBefore]?.signature.match(/^(\w+)/)?.[1]);
+				const type = resolveMemberChain(monaco, model, memberMatch[1], position.lineNumber)?.type;
 				if (type) {
 					const range = completionRange(monaco, model, position);
 
 					// Struct field completions
-					const struct = doc.structs.find((s) => s.name === type);
+					const struct = getWorkspaceDocs(monaco).flatMap((entry) => entry.doc.structs).find((s) => s.name === type);
 					if (struct) {
 						return {
 							suggestions: struct.fields.map((f, i) => ({
@@ -1001,16 +1026,10 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 			const lineText  = model.getLineContent(position.lineNumber);
 			const charBefore = lineText[word.startColumn - 2];
 			if (charBefore === '.') {
-				const textBeforeDot = lineText.slice(0, word.startColumn - 2);
-				const ownerMatch    = textBeforeDot.match(/(\w+)\s*$/);
-				if (ownerMatch) {
-					const ownerName = ownerMatch[1];
-					const docM = analyzeModel(model);
-					const ownerSymbol = findWorkspaceSymbol(monaco, ownerName, model, position.lineNumber);
-					const ownerType = resolveScopedType(docM, ownerName, position.lineNumber)
-						?? ownerSymbol?.type
-						?? (BUILTIN_DOCS[ownerName]?.signature.match(/^(\w+)/)?.[1]);
-					if (ownerType) {
+				const owner = resolveMemberChain(monaco, model, lineText.slice(0, word.startColumn - 2), position.lineNumber);
+				if (owner) {
+					const { expression: ownerName, type: ownerType } = owner;
+					{
 						// Struct field
 						const structM = workspaceDocs
 							.map((entry) => entry.doc.structs.find((struct) => struct.name === ownerType))

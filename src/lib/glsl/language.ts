@@ -1,8 +1,5 @@
 import type * as Monaco from 'monaco-editor/editor';
-import { BUILTIN_FUNCTION_NAMES, BUILTIN_VARIABLE_NAMES } from '#lib/glsl/builtins.js';
-
-// Shared type pattern reused across tokenizer rules (built-in types only)
-const T_BUILTIN = 'float|int|uint|bool|void|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234](?:x[234])?|sampler\\w*';
+import { BUILTIN_FUNCTION_NAMES, BUILTIN_VARIABLE_NAMES, UNIFORM_DOCS } from '#lib/glsl/builtins.js';
 
 export const conf = {
 	comments: {
@@ -18,16 +15,19 @@ export const conf = {
 		{ open: '[', close: ']' },
 		{ open: '{', close: '}' },
 		{ open: '(', close: ')' },
-		{ open: "'", close: "'", notIn: ['string', 'comment'] },
-		{ open: '"',  close: '"',  notIn: ['string'] },
+		{ open: '/*', close: ' */', notIn: ['string', 'comment'] },
 	],
 	surroundingPairs: [
 		{ open: '{', close: '}' },
 		{ open: '[', close: ']' },
 		{ open: '(', close: ')' },
-		{ open: '"', close: '"' },
-		{ open: "'", close: "'" },
 	],
+	folding: {
+		markers: {
+			start: /^\s*(?:\/\/\s*#?region\b|#\s*if)/,
+			end: /^\s*(?:\/\/\s*#?endregion\b|#\s*endif)/,
+		},
+	},
 	indentationRules: {
 		increaseIndentPattern: /^\s*(\bcase\b.*:|\bdefault\b.*:|.*\{[^}]*)\s*$/,
 		decreaseIndentPattern: /^\s*\}.*$/,
@@ -35,144 +35,104 @@ export const conf = {
 	wordPattern: /(-?\d*\.\d\w*)|([a-zA-Z_]\w*)/,
 } satisfies Monaco.languages.LanguageConfiguration;
 
-export function buildLanguage(extraTypes: string[] = [], uniforms: string[] = []): Monaco.languages.IMonarchLanguage {
-	// Extend the type regex with any user-defined struct names so that rules
-	// matching `<type> <name>` also work for struct-typed declarations.
-	const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-	const T = extraTypes.length > 0
-		? `${T_BUILTIN}|${extraTypes.map(escRe).join('|')}`
-		: T_BUILTIN;
+/**
+ * Lexical grammar only, it never depends on the document: user structs, functions, uniforms, macros and parameters
+ * are colored by the semantic tokens provider so typing never recompiles the tokenizer.
+ */
+export const language = {
+	tokenPostfix: '.glsl',
+	defaultToken: 'invalid',
 
-	return {
-		tokenPostfix: '.glsl',
-		defaultToken: 'invalid',
+	keywords: [
+		'attribute', 'const', 'uniform', 'varying', 'buffer', 'shared',
+		'in', 'out', 'inout', 'centroid', 'flat', 'smooth', 'invariant', 'layout',
+		'lowp', 'mediump', 'highp', 'precision', 'struct',
+	],
 
-		keywords: [
-			'attribute', 'const', 'uniform', 'varying',
-			'break', 'continue', 'do', 'for', 'while',
-			'if', 'else', 'in', 'out', 'inout',
-			'true', 'false',
-			'lowp', 'mediump', 'highp', 'precision', 'invariant',
-			'discard', 'return', 'struct',
-			'layout', 'flat', 'smooth', 'centroid',
-		],
+	controlKeywords: ['break', 'case', 'continue', 'default', 'discard', 'do', 'else', 'for', 'if', 'return', 'switch', 'while'],
 
-		types: [
-			'float', 'int', 'uint', 'void', 'bool',
-			'mat2', 'mat3', 'mat4',
-			'mat2x2', 'mat2x3', 'mat2x4',
-			'mat3x2', 'mat3x3', 'mat3x4',
-			'mat4x2', 'mat4x3', 'mat4x4',
-			'vec2', 'vec3', 'vec4',
-			'ivec2', 'ivec3', 'ivec4',
-			'uvec2', 'uvec3', 'uvec4',
-			'bvec2', 'bvec3', 'bvec4',
-			'sampler2D', 'samplerCube', 'sampler3D',
-			'sampler2DShadow', 'samplerCubeShadow',
-			...extraTypes,
-		],
+	constants: ['true', 'false'],
 
-		uniforms,
+	types: [
+		'void', 'bool', 'int', 'uint', 'float',
+		'vec2', 'vec3', 'vec4', 'ivec2', 'ivec3', 'ivec4', 'uvec2', 'uvec3', 'uvec4', 'bvec2', 'bvec3', 'bvec4',
+		'mat2', 'mat3', 'mat4', 'mat2x2', 'mat2x3', 'mat2x4', 'mat3x2', 'mat3x3', 'mat3x4', 'mat4x2', 'mat4x3', 'mat4x4',
+		'sampler2D', 'sampler3D', 'samplerCube', 'sampler2DArray', 'sampler2DShadow', 'samplerCubeShadow', 'sampler2DArrayShadow',
+		'isampler2D', 'isampler3D', 'isamplerCube', 'isampler2DArray', 'usampler2D', 'usampler3D', 'usamplerCube', 'usampler2DArray',
+	],
 
-		builtins: [
-			...BUILTIN_FUNCTION_NAMES,
-			...BUILTIN_VARIABLE_NAMES,
-		],
+	builtins: [...BUILTIN_FUNCTION_NAMES, ...BUILTIN_VARIABLE_NAMES, 'dFdx', 'dFdy', 'fwidth', 'texture', 'textureLod'],
 
-		operators: [
-			'=', '>', '<', '!', '~', '?', ':', '==', '<=', '>=', '!=',
-			'&&', '||', '^^', '++', '--',
-			'+', '-', '*', '/', '&', '|', '^', '%', '<<', '>>',
-			'+=', '-=', '*=', '/=', '&=', '|=', '^=', '%=', '<<=', '>>=',
-		],
+	uniforms: Object.keys(UNIFORM_DOCS),
 
-		symbols: /[=><!~?:&|+\-*/^%]+/,
+	operators: [
+		'=', '>', '<', '!', '~', '?', ':', '==', '<=', '>=', '!=',
+		'&&', '||', '^^', '++', '--',
+		'+', '-', '*', '/', '&', '|', '^', '%', '<<', '>>',
+		'+=', '-=', '*=', '/=', '&=', '|=', '^=', '%=', '<<=', '>>=',
+	],
 
-		tokenizer: {
-			root: [
-				// Preprocessor directives
-				// Match the whole #directive line as one token (no state needed, no optional groups)
-				[/#[ \t]*(?:define|undef|if|ifdef|ifndef|elif|else|endif|version|extension|pragma|line|error)\b[^\n]*/, 'meta.preprocessor'],
+	symbols: /[=><!~?:&|+\-*/^%]+/,
 
-				// Qualified declarations WITH precision qualifier
-				// uniform|attribute|varying  lowp|mediump|highp  <type>  <name>
-				[
-					new RegExp(`(uniform|attribute|varying)(\\s+)(lowp|mediump|highp)(\\s+)(${T})(\\s+)([a-zA-Z_]\\w*)`),
-					['keyword', 'white', 'keyword', 'white', 'keyword.type', 'white', 'variable.uniform'],
-				],
+	tokenizer: {
+		root: [
+			[/(#\s*define)(\s+)([a-zA-Z_]\w*)/, ['meta.preprocessor', 'white', 'macro']],
+			[/#\s*[a-zA-Z_]\w*/, 'meta.preprocessor'],
 
-				// Qualified declarations WITHOUT precision qualifier
-				// uniform|attribute|varying  <type>  <name>
-				[
-					new RegExp(`(uniform|attribute|varying)(\\s+)(${T})(\\s+)([a-zA-Z_]\\w*)`),
-					['keyword', 'white', 'keyword.type', 'white', 'variable.uniform'],
-				],
+			/** Members and swizzles (`p.xy`, `light.color`), checked before numbers so `.5` stays a float. */
+			[/(\.)([a-zA-Z_]\w*)/, ['delimiter', 'variable.property']],
 
-				// Struct declarations and struct-typed variable declarations: struct Name
-				[/(struct)(\s+)([a-zA-Z_]\w*)/, ['keyword', 'white', 'keyword.type']],
-
-				// Function declarations: <type> <name>(
-				[
-					new RegExp(`(${T})(\\s+)([a-zA-Z_]\\w*)(?=\\s*\\()`),
-					['keyword.type', 'white', 'entity.name.function'],
-				],
-				// Function calls: identifier immediately followed by '(' (not a keyword/type/builtin)
-				[
-					/[a-zA-Z_]\w*(?=\s*\()/,
-					{
-						cases: {
-							'@keywords':  'keyword',
-							'@types':     'keyword.type',
-							'@builtins':  'predefined',
-							'@uniforms':  'variable.uniform',
-							'@default':   'entity.name.function',
-						},
+			[
+				/[a-zA-Z_]\w*(?=\s*\()/,
+				{
+					cases: {
+						'@controlKeywords': 'keyword.control',
+						'@keywords': 'keyword',
+						'@types': 'keyword.type',
+						'@builtins': 'predefined',
+						'@default': 'entity.name.function',
 					},
-				],
-				// Identifiers / keywords / types / builtins
-				[
-					/[a-zA-Z_]\w*/,
-					{
-						cases: {
-							'@keywords':  'keyword',
-							'@types':     'keyword.type',
-							'@builtins':  'predefined',
-							'@uniforms':  'variable.uniform',
-							'@default':   'identifier',
-						},
+				},
+			],
+			[
+				/[a-zA-Z_]\w*/,
+				{
+					cases: {
+						'@controlKeywords': 'keyword.control',
+						'@keywords': 'keyword',
+						'@constants': 'constant.language',
+						'@types': 'keyword.type',
+						'@builtins': 'predefined',
+						'@uniforms': 'variable.uniform',
+						'@default': 'identifier',
 					},
-				],
-
-				// Whitespace & comments
-				{ include: '@whitespace' },
-
-				// Brackets & operators
-				[/[{}()[\]]/, '@brackets'],
-				[/[<>](?!@symbols)/,  '@brackets'],
-				[/@symbols/, { cases: { '@operators': 'operator', '@default': '' } }],
-
-				// Numbers
-				[/\d*\.\d+(?:[eE][+-]?\d+)?[fF]?/, 'number.float'],
-				[/\d+\.\d*(?:[eE][+-]?\d+)?[fF]?/, 'number.float'],
-				[/0[xX][0-9a-fA-F]+[uU]?/, 'number.hex'],
-				[/\d+[uUfF]?/, 'number'],
-
-				// Delimiters
-				[/[;,.]/, 'delimiter'],
+				},
 			],
 
-			whitespace: [
-				[/[ \t\r\n]+/, 'white'],
-				[/\/\*/,        'comment', '@blockComment'],
-				[/\/\/[^\n]*/,  'comment'],
-			],
+			{ include: '@whitespace' },
 
-			blockComment: [
-				[/[^/*]+/, 'comment'],
-				[/\/\*/,   'comment', '@push'],
-				[/\*\//,   'comment', '@pop'],
-				[/[/*]/,   'comment'],
-			],
-		},
-	} satisfies Monaco.languages.IMonarchLanguage;
-}
+			[/[{}()[\]]/, '@brackets'],
+			[/@symbols/, { cases: { '@operators': 'operator', '@default': '' } }],
+
+			[/(?:\d+\.\d*|\.\d+)(?:[eE][+-]?\d+)?[fF]?/, 'number.float'],
+			[/\d+[eE][+-]?\d+[fF]?/, 'number.float'],
+			[/0[xX][0-9a-fA-F]+[uU]?/, 'number.hex'],
+			[/\d+[uUfF]?/, 'number'],
+
+			[/[;,.]/, 'delimiter'],
+			[/\\$/, 'meta.preprocessor'],
+		],
+
+		whitespace: [
+			[/[ \t\r\n]+/, 'white'],
+			[/\/\*/, 'comment', '@blockComment'],
+			[/\/\/.*$/, 'comment'],
+		],
+
+		blockComment: [
+			[/[^/*]+/, 'comment'],
+			[/\*\//, 'comment', '@pop'],
+			[/[/*]/, 'comment'],
+		],
+	},
+} satisfies Monaco.languages.IMonarchLanguage;

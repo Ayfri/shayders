@@ -2,8 +2,7 @@
 	import type * as Monaco from 'monaco-editor/editor';
 	import { editorSettings, settingsToMonaco } from '#features/shaders/editor/editor-settings.svelte.js';
 	import type { ShaderBuffer } from '#features/shaders/model/shader-content.js';
-	import { analyzeModel } from '#lib/glsl/analyze.js';
-	import { buildLanguage, conf } from '#lib/glsl/language.js';
+	import { conf, language } from '#lib/glsl/language.js';
 	import { applyErrors, applyHints } from '#lib/glsl/markers.js';
 	import { registerGlslProviders } from '#lib/glsl/providers.js';
 	import { registerMaterialDarkerTheme } from '#lib/themes/material-darker.js';
@@ -28,7 +27,6 @@
 	let editor = $state.raw<Monaco.editor.IStandaloneCodeEditor | null>(null);
 	let monacoApi = $state.raw<typeof Monaco | null>(null);
 	let analysisTimer = 0;
-	let lastTokenSignature = '';
 	let settingExternalValue = false;
 	let workspaceId = '';
 
@@ -49,18 +47,9 @@
 		return monaco.editor.getModel(uri) ?? monaco.editor.createModel(buffer.code, 'glsl', uri);
 	}
 
-	/** Re-tokenizes user structs/uniforms and refreshes unused-symbol hints across every buffer of the workspace. */
+	/** Refreshes unused-symbol hints across every buffer of the workspace. */
 	function refreshAnalysis(monaco: typeof Monaco): void {
 		const models = getWorkspaceModels(monaco);
-		const docs = models.map(analyzeModel);
-		const structNames = [...new Set(docs.flatMap((doc) => doc.structs.map((struct) => struct.name)))];
-		const uniformNames = [...new Set(docs.flatMap((doc) => doc.variables.filter((variable) => variable.qualifier === 'uniform').map((variable) => variable.name)))];
-		const tokenSignature = `${structNames.join(',')}|${uniformNames.join(',')}`;
-		if (tokenSignature !== lastTokenSignature) {
-			lastTokenSignature = tokenSignature;
-			monaco.languages.setMonarchTokensProvider('glsl', buildLanguage(structNames, uniformNames));
-		}
-
 		const sources = models.map((model) => model.getValue());
 		for (const model of models) applyHints(monaco, model, sources);
 	}
@@ -87,12 +76,11 @@
 
 			self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 			workspaceId = crypto.randomUUID();
-			lastTokenSignature = '';
 			if (!monaco.languages.getLanguages().some((language) => language.id === 'glsl')) {
 				monaco.languages.register({ id: 'glsl' });
 			}
 			monaco.languages.setLanguageConfiguration('glsl', conf);
-			monaco.languages.setMonarchTokensProvider('glsl', buildLanguage());
+			monaco.languages.setMonarchTokensProvider('glsl', language);
 			registerMaterialDarkerTheme(monaco);
 			registerGlslProviders(monaco);
 
@@ -108,6 +96,7 @@
 				language: 'glsl',
 				model: initialModel,
 				padding: { top: 16 },
+				'semanticHighlighting.enabled': true,
 				theme: 'material-darker',
 				wordBasedSuggestions: 'off',
 				...settingsToMonaco(editorSettings),
