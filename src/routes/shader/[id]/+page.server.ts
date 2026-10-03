@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import type { ShadersResponse, UsersResponse } from '#lib/pocketbase-types.js';
 import { deserializeShaderContent, hydrateChannels } from '#features/shaders/model/shader-content.js';
+import { toIsoDate } from '#lib/site.js';
 
 export const load: PageServerLoad = async ({ locals, params }) => {
 	const shader = await locals.pb
@@ -21,7 +22,9 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		shader: {
 			id: shader.id,
 			name: shader.name,
+			created: toIsoDate(shader.created),
 			description: shader.description ?? '',
+			updated: toIsoDate(shader.updated),
 			buffers: deserializeShaderContent(shader.content).buffers,
 			channels: hydrateChannels(shader.content),
 			visiblity,

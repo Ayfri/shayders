@@ -2,6 +2,7 @@
 	import { ArrowRight, CodeXml } from '@lucide/svelte';
 	import ShaderPreview from '#features/shaders/preview/ShaderPreview.svelte';
 	import SeoHead from '#components/SeoHead.svelte';
+	import { buildSiteUrl, getShaderPath, SITE_DESCRIPTION, SITE_URL } from '#lib/site.js';
 	import {
 		getShaderSortLabel,
 		SHADER_SORT_OPTIONS,
@@ -30,8 +31,25 @@
 </script>
 
 <SeoHead
-	title="Shayders - GLSL Shader Editor"
-	description="Discover amazing WebGL shaders created by the community. A modern GLSL shader editor for creating and experimenting with fragment shaders in real-time."
+	title="Shayders - Online GLSL Shader Editor and Gallery"
+	description="Write WebGL fragment shaders in GLSL with a live preview, multipass buffers and texture channels, then share them and explore the community gallery."
+	jsonLd={{
+		'@type': 'CollectionPage',
+		about: 'GLSL fragment shaders',
+		isPartOf: { '@id': `${SITE_URL}/#website` },
+		mainEntity: {
+			'@type': 'ItemList',
+			itemListElement: shaders.map((shader, index) => ({
+				'@type': 'ListItem',
+				name: shader.name,
+				position: index + 1,
+				url: buildSiteUrl(getShaderPath(shader.id)),
+			})),
+			numberOfItems: data.totalShaders,
+		},
+		name: 'Explore Shaders',
+		url: SITE_URL,
+	}}
 />
 
 <div class="min-h-full bg-background text-foreground p-6 lg:p-10">
@@ -40,7 +58,7 @@
 			<div>
 				<h1 class="text-3xl font-bold text-foreground sm:text-4xl">Explore Shaders</h1>
 				<p class="mt-2 max-w-2xl text-sm leading-6 text-muted">
-					Discover work from the community and open any shader instantly in the editor.
+					{SITE_DESCRIPTION} Open any shader below to read its code and tweak it live in the editor.
 				</p>
 				<p class="mt-3 text-sm text-subtle">
 					{data.totalShaders} public shader{data.totalShaders !== 1 ? 's' : ''}, {visibleAuthors} creator{visibleAuthors !== 1 ? 's' : ''} on this page.

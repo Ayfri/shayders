@@ -9,6 +9,7 @@
 <SeoHead
 	title="Login - Shayders"
 	description="Sign in to your Shayders account to create and share GLSL shaders."
+	robots="noindex, follow"
 />
 
 <div class="min-h-screen flex flex-col items-center justify-center bg-background">

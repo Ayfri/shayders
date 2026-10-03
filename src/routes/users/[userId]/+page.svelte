@@ -16,6 +16,7 @@
 	import SeoHead from '#components/SeoHead.svelte';
 	import ShaderPreview from '#features/shaders/preview/ShaderPreview.svelte';
 	import { getAvatarUrl, pb } from '#lib/pocketbase.js';
+	import { buildSiteUrl, getShaderPath, getUserProfilePath, type JsonLdNode, SITE_NAME, toIsoDate } from '#lib/site.js';
 	import {
 		SHADER_IMAGE_MAX_BYTES,
 		SHADER_VIDEO_MAX_BYTES,
@@ -37,8 +38,29 @@
 	const isVerified = $derived(auth.user?.verified ?? data.profileUser.verified);
 	const avatarUrl = $derived((isOwner && auth.user && getAvatarUrl(auth.user)) || data.profileUser.avatarUrl);
 
-	const title = $derived(`${displayName}'s Shaders - Shayders`);
-	const description = $derived(`Explore GLSL shader creations by ${displayName}. ${data.shaders.length} public shader${data.shaders.length !== 1 ? 's' : ''} available.`);
+	const publicShaders = $derived(data.shaders.filter((shader) => shader.visiblity === 'public'));
+	const profileUrl = $derived(buildSiteUrl(getUserProfilePath(data.profileUser.id)));
+	const title = $derived(`${data.profileUser.name}'s Shaders - ${SITE_NAME}`);
+	const description = $derived(`Explore GLSL shader creations by ${data.profileUser.name}. ${publicShaders.length} public shader${publicShaders.length !== 1 ? 's' : ''} available.`);
+	const jsonLd = $derived<JsonLdNode>({
+		'@type': 'ProfilePage',
+		mainEntity: {
+			'@id': `${profileUrl}#person`,
+			'@type': 'Person',
+			image: data.profileUser.avatarUrl ?? undefined,
+			name: data.profileUser.name,
+			url: profileUrl,
+		},
+		hasPart: publicShaders.map((shader) => ({
+			'@type': 'SoftwareSourceCode',
+			author: { '@id': `${profileUrl}#person` },
+			dateCreated: toIsoDate(shader.created),
+			name: shader.name,
+			programmingLanguage: 'GLSL',
+			url: buildSiteUrl(getShaderPath(shader.id)),
+		})),
+		url: profileUrl,
+	});
 	const currentSortLabel = $derived(getShaderSortLabel(data.selectedSort));
 
 	let deletedIds = $state(new Set<string>());
@@ -145,6 +167,10 @@
 	{title}
 	{description}
 	ogType="profile"
+	ogImage={data.profileUser.avatarUrl ?? undefined}
+	ogImageAlt={data.profileUser.avatarUrl ? `${data.profileUser.name}'s avatar` : undefined}
+	robots={publicShaders.length > 0 ? undefined : 'noindex, follow'}
+	{jsonLd}
 />
 
 <div class="min-h-full bg-background text-foreground p-6 lg:p-10">

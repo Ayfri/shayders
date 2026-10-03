@@ -11,6 +11,7 @@
 <SeoHead
 	title="Verify Email - Shayders"
 	description="Verify your email address to complete your Shayders account registration."
+	robots="noindex, nofollow"
 />
 
 <div class="min-h-screen flex flex-col items-center justify-center bg-background">
