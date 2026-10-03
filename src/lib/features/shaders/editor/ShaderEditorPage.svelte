@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { beforeNavigate, goto, replaceState } from '$app/navigation';
-	import { auth, SessionExpiredError, throwIfAuthenticatedApiError } from '$features/auth/auth-client.svelte';
-	import EditorPanel from '$features/shaders/editor/EditorPanel.svelte';
-	import ShaderCanvas from '$features/shaders/canvas/ShaderCanvas.svelte';
-	import { pb } from '$lib/pocketbase';
-	import type { ShadersVisiblityOptions } from '$lib/pocketbase-types';
+	import { beforeNavigate, goto } from '$app/navigation';
+	import { auth, SessionExpiredError, throwIfAuthenticatedApiError } from '#features/auth/auth-client.svelte.js';
+	import EditorPanel from '#features/shaders/editor/EditorPanel.svelte';
+	import ShaderCanvas from '#features/shaders/canvas/ShaderCanvas.svelte';
+	import { pb } from '#lib/pocketbase.js';
+	import type { ShadersVisiblityOptions } from '#lib/pocketbase-types.js';
 	import {
 		addCommonBuffer,
 		addUserBuffer,
@@ -14,25 +14,25 @@
 		resolveInitialBuffers,
 		resolveInitialChannels,
 		withLatestBufferCode,
-	} from '$features/shaders/editor/buffers';
+	} from '#features/shaders/editor/buffers.js';
 	import {
 		forkShaderRecord,
 		readShaderMutationId,
 		saveShaderDraft,
 		saveShaderRecord,
-	} from '$features/shaders/editor/persistence';
+	} from '#features/shaders/editor/persistence.js';
 	import {
 		addUniformLine,
-		buildUniformEntries,
+		buildUniformCatalog,
 		parseUniforms,
 		removeUniformLine,
-	} from '$features/shaders/editor/uniforms';
+	} from '#features/shaders/editor/uniforms.js';
 	import {
 		listUnpersistedBinaryChannels,
 		type ChannelEntry,
 		type ShaderBuffer,
-	} from '$features/shaders/model/shader-content';
-	import { shaderState } from '$features/shaders/model/shader-state.svelte';
+	} from '#features/shaders/model/shader-content.js';
+	import { shaderState } from '#features/shaders/model/shader-state.svelte.js';
 
 	interface Props {
 		authorId?: string;
@@ -165,9 +165,8 @@
 		rerunShader();
 	}
 
-	const allUniforms = $derived.by(() => buildUniformEntries(buffers, editorValue, uniformValues));
-
-	const presentNames = $derived.by(() => new Set(parseUniforms(editorValue).map((u) => u.name)));
+	const uniformCatalog = $derived(buildUniformCatalog(buffers, editorValue));
+	const presentNames = $derived(new Set(parseUniforms(editorValue).map((u) => u.name)));
 
 	function toggleUniform(name: string, type: string) {
 		if (presentNames.has(name)) {
@@ -178,13 +177,13 @@
 		run();
 	}
 
-	let _compileTimer = 0;
+	/** Debounced recompile on every edit, the effect cleanup cancels the pending run. */
 	$effect(() => {
-		const _code = editorValue;
-		clearTimeout(_compileTimer);
-		_compileTimer = setTimeout(() => run(), 800);
-		if (_firstCompile) { _firstCompile = false; return; }
-		isDirty = true;
+		void editorValue;
+		const timer = window.setTimeout(run, 800);
+		if (_firstCompile) _firstCompile = false;
+		else isDirty = true;
+		return () => window.clearTimeout(timer);
 	});
 
 	function saveDraftLocally(): boolean {
@@ -237,7 +236,7 @@
 				assetCleanupKeys = [];
 				isDirty = false;
 				if (isNew) {
-					replaceState(`/shader/${recordId}`, {});
+					goto(`/shader/${recordId}`, { shallow: true, replace: true });
 				}
 			}
 		} catch (e) {
@@ -298,7 +297,9 @@
 		}
 	}
 
-	beforeNavigate(({ cancel }) => {
+	beforeNavigate(({ cancel, shallow }) => {
+		if (shallow) return;
+
 		if (!viewOnly && isDirty && !confirm('You have unsaved changes. Leave anyway?')) {
 			cancel();
 		}
@@ -327,8 +328,9 @@
 	<EditorPanel
 		bind:value={editorValue}
 		errors={error}
-		onRun={() => run()}
-		uniforms={allUniforms}
+		onRun={run}
+		uniforms={uniformCatalog}
+		{uniformValues}
 		{presentNames}
 		onToggleUniform={toggleUniform}
 		bind:panelOpen
@@ -348,5 +350,3 @@
 		{viewOnly}
 	/>
 </div>
-
-

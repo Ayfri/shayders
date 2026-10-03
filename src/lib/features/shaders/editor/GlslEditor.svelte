@@ -1,13 +1,12 @@
 <script lang="ts">
-	import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
-	import { saveSettings, settingsToMonaco } from '$features/shaders/editor/editor-settings';
-	import type { EditorSettingsData } from '$features/shaders/editor/editor-settings';
-	import { analyzeDocument } from '$lib/glsl/analyze';
-	import { buildLanguage, conf } from '$lib/glsl/language';
-	import { applyErrors, applyHints } from '$lib/glsl/markers';
-	import { registerGlslProviders } from '$lib/glsl/providers';
-	import { registerMaterialDarkerTheme } from '$lib/themes/material-darker';
-	import type { ShaderBuffer } from '$features/shaders/model/shader-content';
+	import type * as Monaco from 'monaco-editor/editor';
+	import { editorSettings, settingsToMonaco } from '#features/shaders/editor/editor-settings.svelte.js';
+	import type { ShaderBuffer } from '#features/shaders/model/shader-content.js';
+	import { analyzeModel } from '#lib/glsl/analyze.js';
+	import { buildLanguage, conf } from '#lib/glsl/language.js';
+	import { applyErrors, applyHints } from '#lib/glsl/markers.js';
+	import { registerGlslProviders } from '#lib/glsl/providers.js';
+	import { registerMaterialDarkerTheme } from '#lib/themes/material-darker.js';
 
 	interface Props {
 		activeBufferId: string;
@@ -16,314 +15,219 @@
 		errors?: string;
 		onBufferFocus?: (id: string) => void;
 		onRun?: () => void;
-		settings: EditorSettingsData;
 	}
 
-	let { activeBufferId, buffers, value = $bindable(), errors = '', onBufferFocus, onRun, settings }: Props = $props();
+	let { activeBufferId, buffers, value = $bindable(), errors = '', onBufferFocus, onRun }: Props = $props();
 
-	let editorContainer = $state<HTMLElement | null>(null);
-	let editor = $state<Monaco.editor.IStandaloneCodeEditor | null>(null);
-	let monacoRef = $state<typeof Monaco | null>(null);
-	let workspaceId = '';
-	let _settingExternal = false;
-	let _lastTokenSig = '';
 	const ACTIVE_EDITOR_KEY = '__glslActiveEditor';
+	const ANALYSIS_DEBOUNCE_MS = 120;
 	const GOTO_POSITION_COMMAND_ID = '__glslGotoPosition';
 	const WORKSPACE_SCHEME = 'glsl-buffer';
 
-	const workspaceModelUri = (monaco: typeof Monaco, bufferId: string): Monaco.Uri => (
-		monaco.Uri.from({
-			authority: workspaceId,
-			path: `/${bufferId}`,
-			scheme: WORKSPACE_SCHEME,
-		})
-	);
+	let editorContainer = $state<HTMLElement | null>(null);
+	let editor = $state.raw<Monaco.editor.IStandaloneCodeEditor | null>(null);
+	let monacoApi = $state.raw<typeof Monaco | null>(null);
+	let analysisTimer = 0;
+	let lastTokenSignature = '';
+	let settingExternalValue = false;
+	let workspaceId = '';
 
-	function isWorkspaceModel(model: Monaco.editor.ITextModel): boolean {
-		return model.uri.scheme === WORKSPACE_SCHEME && model.uri.authority === workspaceId;
+	function bufferIdFromPath(path: string): string {
+		return path.startsWith('/') ? path.slice(1) : path;
 	}
 
 	function getWorkspaceModels(monaco: typeof Monaco): Monaco.editor.ITextModel[] {
-		return monaco.editor.getModels().filter(isWorkspaceModel);
+		return monaco.editor.getModels().filter((model) => model.uri.scheme === WORKSPACE_SCHEME && model.uri.authority === workspaceId);
 	}
 
 	function getWorkspaceModel(monaco: typeof Monaco, bufferId: string): Monaco.editor.ITextModel | null {
 		return getWorkspaceModels(monaco).find((model) => model.uri.path === `/${bufferId}`) ?? null;
 	}
 
-	function bufferIdFromPath(path: string): string {
-		return path.startsWith('/') ? path.slice(1) : path;
-	}
-
-	function bufferIdFromModel(model: Monaco.editor.ITextModel): string {
-		return bufferIdFromPath(model.uri.path);
-	}
-
 	function ensureWorkspaceModel(monaco: typeof Monaco, buffer: ShaderBuffer): Monaco.editor.ITextModel {
-		const uri = workspaceModelUri(monaco, buffer.id);
+		const uri = monaco.Uri.from({ authority: workspaceId, path: `/${buffer.id}`, scheme: WORKSPACE_SCHEME });
 		return monaco.editor.getModel(uri) ?? monaco.editor.createModel(buffer.code, 'glsl', uri);
 	}
 
-	function refreshDynamicTokens(monaco: typeof Monaco) {
+	/** Re-tokenizes user structs/uniforms and refreshes unused-symbol hints across every buffer of the workspace. */
+	function refreshAnalysis(monaco: typeof Monaco): void {
 		const models = getWorkspaceModels(monaco);
-		const sig = models
-			.map((model) => analyzeDocument(model.getValue()))
-			.map((doc) => `${doc.structs.map((s) => s.name).join(',')}|${doc.variables.filter((v) => v.qualifier === 'uniform').map((v) => v.name).join(',')}`)
-			.join('||');
-		if (sig === _lastTokenSig) return;
-		_lastTokenSig = sig;
-		const structNames: string[] = [];
-		const uniformNames: string[] = [];
-		for (const model of models) {
-			const doc = analyzeDocument(model.getValue());
-			for (const struct of doc.structs) {
-				if (!structNames.includes(struct.name)) structNames.push(struct.name);
-			}
-			for (const variable of doc.variables) {
-				if (variable.qualifier === 'uniform' && !uniformNames.includes(variable.name)) {
-					uniformNames.push(variable.name);
-				}
-			}
+		const docs = models.map(analyzeModel);
+		const structNames = [...new Set(docs.flatMap((doc) => doc.structs.map((struct) => struct.name)))];
+		const uniformNames = [...new Set(docs.flatMap((doc) => doc.variables.filter((variable) => variable.qualifier === 'uniform').map((variable) => variable.name)))];
+		const tokenSignature = `${structNames.join(',')}|${uniformNames.join(',')}`;
+		if (tokenSignature !== lastTokenSignature) {
+			lastTokenSignature = tokenSignature;
+			monaco.languages.setMonarchTokensProvider('glsl', buildLanguage(structNames, uniformNames));
 		}
-		monaco.languages.setMonarchTokensProvider('glsl', buildLanguage(structNames, uniformNames));
+
+		const sources = models.map((model) => model.getValue());
+		for (const model of models) applyHints(monaco, model, sources);
 	}
 
-	function refreshWorkspaceHints(monaco: typeof Monaco): void {
-		for (const model of getWorkspaceModels(monaco)) {
-			applyHints(monaco, model);
-		}
+	function scheduleAnalysis(monaco: typeof Monaco): void {
+		window.clearTimeout(analysisTimer);
+		analysisTimer = window.setTimeout(() => refreshAnalysis(monaco), ANALYSIS_DEBOUNCE_MS);
 	}
-
-	function syncWorkspaceModels(monaco: typeof Monaco): void {
-		const nextWorkspaceBuffers = buffers;
-		const nextIds = nextWorkspaceBuffers.map((buffer) => buffer.id);
-
-		for (const model of getWorkspaceModels(monaco)) {
-			const bufferId = bufferIdFromModel(model);
-			if (!nextIds.includes(bufferId)) {
-				model.dispose();
-			}
-		}
-
-		for (const buffer of nextWorkspaceBuffers) {
-			const model = ensureWorkspaceModel(monaco, buffer);
-			if (buffer.id === activeBufferId) {
-				if (model.getValue() !== value) {
-					model.setValue(value);
-				}
-			} else if (model.getValue() !== buffer.code) {
-				model.setValue(buffer.code);
-			}
-		}
-
-		const activeModel = getWorkspaceModel(monaco, activeBufferId);
-		if (editor && activeModel && editor.getModel() !== activeModel) {
-			editor.setModel(activeModel);
-		}
-
-		if (activeModel) {
-			refreshDynamicTokens(monaco);
-			refreshWorkspaceHints(monaco);
-		}
-	}
-
-	// Editor lifecycle
 
 	$effect(() => {
-		if (!editorContainer) return;
+		const container = editorContainer;
+		if (!container) return;
 		let cancelled = false;
-		let editorOpener: Monaco.IDisposable | undefined;
-		let gotoPositionCommand: Monaco.IDisposable | undefined;
+		const disposables: Monaco.IDisposable[] = [];
+		const globals = globalThis as Record<string, unknown>;
 
-		(async () => {
-			const monaco = await import('monaco-editor');
-			if (cancelled || !editorContainer) return;
-			workspaceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+		void (async () => {
+			const [monaco, , { default: EditorWorker }] = await Promise.all([
+				import('monaco-editor/editor'),
+				import('monaco-editor/features/register.all'),
+				import('monaco-editor/editor/editor.worker?worker'),
+			]);
+			if (cancelled) return;
 
-			// Register language + theme once
-			if (!monaco.languages.getLanguages().find((l) => l.id === 'glsl')) {
+			self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
+			workspaceId = crypto.randomUUID();
+			lastTokenSignature = '';
+			if (!monaco.languages.getLanguages().some((language) => language.id === 'glsl')) {
 				monaco.languages.register({ id: 'glsl' });
 			}
-			monaco.languages.setMonarchTokensProvider('glsl', buildLanguage([], []));
-			for (const buffer of buffers) {
-				ensureWorkspaceModel(monaco, buffer);
-			}
-			const initialModel = getWorkspaceModel(monaco, activeBufferId) ?? getWorkspaceModels(monaco)[0] ?? null;
-			if (initialModel && initialModel.getValue() !== value && bufferIdFromModel(initialModel) === activeBufferId) {
-				initialModel.setValue(value);
-			}
-			if (initialModel) {
-				refreshDynamicTokens(monaco);
-			}
 			monaco.languages.setLanguageConfiguration('glsl', conf);
-
-			const EditorWorker = await import('monaco-editor/esm/vs/editor/editor.worker?worker');
-			self.MonacoEnvironment = { getWorker: () => new EditorWorker.default() };
-
+			monaco.languages.setMonarchTokensProvider('glsl', buildLanguage());
 			registerMaterialDarkerTheme(monaco);
 			registerGlslProviders(monaco);
 
-			const instance = monaco.editor.create(editorContainer, {
-				model: initialModel ?? undefined,
-				language: 'glsl',
-				theme: 'material-darker',
+			for (const buffer of buffers) ensureWorkspaceModel(monaco, buffer);
+			const initialModel = getWorkspaceModel(monaco, activeBufferId) ?? getWorkspaceModels(monaco)[0] ?? null;
+			if (initialModel?.uri.path === `/${activeBufferId}` && initialModel.getValue() !== value) {
+				initialModel.setValue(value);
+			}
+
+			const instance = monaco.editor.create(container, {
 				automaticLayout: true,
 				fixedOverflowWidgets: true,
+				language: 'glsl',
+				model: initialModel,
 				padding: { top: 16 },
+				theme: 'material-darker',
 				wordBasedSuggestions: 'off',
-				...settingsToMonaco(settings),
+				...settingsToMonaco(editorSettings),
 			});
-
-			const globals = globalThis as Record<string, unknown>;
 			globals[ACTIVE_EDITOR_KEY] = instance;
-			editorOpener = monaco.editor.registerEditorOpener({
-				openCodeEditor(source, resource, selectionOrPosition) {
-					if (source !== instance) return false;
-					if (resource.scheme !== WORKSPACE_SCHEME || resource.authority !== workspaceId) return false;
-					const targetModel = monaco.editor.getModel(resource);
-					if (!targetModel) return false;
-					onBufferFocus?.(bufferIdFromPath(resource.path));
 
-					instance.setModel(targetModel);
-					instance.focus();
+			disposables.push(
+				instance,
+				monaco.editor.registerEditorOpener({
+					openCodeEditor(source, resource, selectionOrPosition) {
+						if (source !== instance || resource.scheme !== WORKSPACE_SCHEME || resource.authority !== workspaceId) return false;
+						const targetModel = monaco.editor.getModel(resource);
+						if (!targetModel) return false;
+						onBufferFocus?.(bufferIdFromPath(resource.path));
+						instance.setModel(targetModel);
+						instance.focus();
 
-					if (selectionOrPosition) {
-						if ('startLineNumber' in selectionOrPosition) {
+						if (selectionOrPosition && 'startLineNumber' in selectionOrPosition) {
 							instance.setSelection(selectionOrPosition);
 							instance.revealRangeInCenter(selectionOrPosition);
-						} else {
+						} else if (selectionOrPosition) {
 							instance.setPosition(selectionOrPosition);
 							instance.revealPositionInCenter(selectionOrPosition);
 						}
-					}
 
-					globals[ACTIVE_EDITOR_KEY] = instance;
-					return true;
-				},
-			});
-			gotoPositionCommand = monaco.editor.registerCommand(
-				GOTO_POSITION_COMMAND_ID,
-				(_accessor, target?: { lineNumber?: number; column?: number; uri?: string }) => {
-					const activeEditor = globals[ACTIVE_EDITOR_KEY];
-					if (activeEditor !== instance) return;
-					const targetLine = typeof target?.lineNumber === 'number' && target.lineNumber > 0 ? target.lineNumber : 1;
-					const targetColumn = typeof target?.column === 'number' && target.column > 0 ? target.column : 1;
+						globals[ACTIVE_EDITOR_KEY] = instance;
+						return true;
+					},
+				}),
+				monaco.editor.registerCommand(
+					GOTO_POSITION_COMMAND_ID,
+					(_accessor, target?: { lineNumber?: number; column?: number; uri?: string }) => {
+						if (globals[ACTIVE_EDITOR_KEY] !== instance) return;
+						const model = instance.getModel();
+						if (target?.uri && model && model.uri.toString() !== target.uri) return;
+						const position = {
+							column: target?.column && target.column > 0 ? target.column : 1,
+							lineNumber: target?.lineNumber && target.lineNumber > 0 ? target.lineNumber : 1,
+						};
+						instance.focus();
+						instance.revealPositionInCenter(position);
+						instance.setPosition(position);
+					},
+				),
+				instance.onDidFocusEditorWidget(() => (globals[ACTIVE_EDITOR_KEY] = instance)),
+				instance.onDidChangeCursorPosition(() => (globals[ACTIVE_EDITOR_KEY] = instance)),
+				instance.onDidChangeModelContent(() => {
+					if (settingExternalValue) return;
 					const model = instance.getModel();
-					if (target?.uri && model && model.uri.toString() !== target.uri) return;
-					instance.focus();
-					instance.revealPositionInCenter({ lineNumber: targetLine, column: targetColumn });
-					instance.setPosition({ lineNumber: targetLine, column: targetColumn });
-				},
+					if (!model) return;
+					value = model.getValue();
+					scheduleAnalysis(monaco);
+				}),
 			);
 
-			instance.onDidFocusEditorWidget(() => {
-				globals[ACTIVE_EDITOR_KEY] = instance;
-			});
+			if (onRun) instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, onRun);
 
-			instance.onDidChangeCursorPosition(() => {
-				globals[ACTIVE_EDITOR_KEY] = instance;
-			});
-
-			instance.onDidChangeModelContent(() => {
-				if (_settingExternal) return;
-				const model = instance.getModel();
-				if (!model) return;
-				value = model.getValue();
-				refreshDynamicTokens(monaco);
-				refreshWorkspaceHints(monaco);
-			});
-
-			if (onRun) {
-				instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, onRun);
-			}
-
-			// Initial error markers + hints
 			const model = instance.getModel();
-			if (model) {
-				applyErrors(monaco, model, errors);
-				refreshWorkspaceHints(monaco);
-			}
+			if (model) applyErrors(monaco, model, errors);
+			refreshAnalysis(monaco);
 
-			monacoRef = monaco;
+			monacoApi = monaco;
 			editor = instance;
 		})();
 
 		return () => {
-			const globals = globalThis as Record<string, unknown>;
-			const currentEditor = editor;
 			cancelled = true;
-			currentEditor?.dispose();
-			for (const model of monacoRef ? getWorkspaceModels(monacoRef) : []) {
-				model.dispose();
-			}
-			if (globals[ACTIVE_EDITOR_KEY] === currentEditor) {
-				delete globals[ACTIVE_EDITOR_KEY];
-			}
-			editorOpener?.dispose();
-			gotoPositionCommand?.dispose();
+			window.clearTimeout(analysisTimer);
+			if (globals[ACTIVE_EDITOR_KEY] === editor) delete globals[ACTIVE_EDITOR_KEY];
+			for (const disposable of disposables) disposable.dispose();
+			for (const model of monacoApi ? getWorkspaceModels(monacoApi) : []) model.dispose();
 			editor = null;
-			monacoRef = null;
-			_lastTokenSig = '';
+			monacoApi = null;
 		};
 	});
 
-	// Sync external value changes into Monaco (e.g. tab switch)
+	/** Pushes external value changes (tab switch, uniform toggles, Shadertoy conversion) into the active model. */
 	$effect(() => {
 		const incoming = value;
-		if (!editor) return;
-		const m = monacoRef;
-		const model = editor.getModel();
-		if (!m || !model) return;
-		const activeModel = getWorkspaceModel(m, activeBufferId);
+		const monaco = monacoApi;
+		if (!monaco || !editor) return;
+		const activeModel = getWorkspaceModel(monaco, activeBufferId);
 		if (!activeModel) return;
-		if (editor.getModel() !== activeModel) {
-			editor.setModel(activeModel);
-		}
+		if (editor.getModel() !== activeModel) editor.setModel(activeModel);
 		if (activeModel.getValue() === incoming) return;
-		_settingExternal = true;
+		settingExternalValue = true;
 		activeModel.setValue(incoming);
-		_settingExternal = false;
-		// Re-apply hints for the new content (marker owners survive setValue)
-		refreshDynamicTokens(m);
-		refreshWorkspaceHints(m);
+		settingExternalValue = false;
+		scheduleAnalysis(monaco);
+	});
+
+	/** Mirrors the buffer list into Monaco models, the active buffer's content is owned by the value effect above. */
+	$effect(() => {
+		const monaco = monacoApi;
+		if (!monaco || !editor) return;
+		const ids = new Set(buffers.map((buffer) => buffer.id));
+		for (const model of getWorkspaceModels(monaco)) {
+			if (!ids.has(bufferIdFromPath(model.uri.path))) model.dispose();
+		}
+		for (const buffer of buffers) {
+			const model = ensureWorkspaceModel(monaco, buffer);
+			if (buffer.id !== activeBufferId && model.getValue() !== buffer.code) model.setValue(buffer.code);
+		}
+		const activeModel = getWorkspaceModel(monaco, activeBufferId);
+		if (activeModel && editor.getModel() !== activeModel) editor.setModel(activeModel);
+		scheduleAnalysis(monaco);
 	});
 
 	$effect(() => {
-		const m = monacoRef;
-		if (!m || !editor) return;
-		syncWorkspaceModels(m);
+		const monaco = monacoApi;
+		const model = editor?.getModel();
+		if (monaco && model) applyErrors(monaco, model, errors);
 	});
 
-	// Reactively update error markers
-
 	$effect(() => {
-		const m = monacoRef;
-		const ed = editor;
-		if (!m || !ed) return;
-		const model = ed.getModel();
-		if (!model) return;
-		applyErrors(m, model, errors);
-	});
-
-	// Apply settings changes to editor + persist
-
-	$effect(() => {
-		const s = { ...settings };
-		saveSettings(s);
-		editor?.updateOptions(settingsToMonaco(s));
+		const options = settingsToMonaco(editorSettings);
+		editor?.updateOptions(options);
 	});
 </script>
 
-<div class="editor-root">
-	<div bind:this={editorContainer} class="flex-1 w-full min-h-0"></div>
+<div class="relative flex min-h-0 w-full flex-1">
+	<div bind:this={editorContainer} class="min-h-0 w-full flex-1"></div>
 </div>
-
-<style>
-	.editor-root {
-		position: relative;
-		display: flex;
-		flex: 1;
-		width: 100%;
-		min-height: 0;
-	}
-</style>

@@ -1,19 +1,19 @@
-import { CHANNEL_UNIFORM_NAMES, THUMB_SIZE } from '$features/shaders/model/shader-domain';
-import type { ChannelEntry, ShaderBuffer } from '$features/shaders/model/shader-content';
-import { ChannelTextureManager } from './channel-textures';
+import { THUMB_SIZE } from '#features/shaders/model/shader-domain.js';
+import type { ChannelEntry, ShaderBuffer } from '#features/shaders/model/shader-content.js';
+import { ChannelTextureManager } from './channel-textures.js';
 import {
-	applyStandardUniforms,
-	bindBufferTextures,
 	buildBufferStates,
 	buildProgram,
 	createFbo,
 	createQuadBuffer,
 	destroyBufferStates,
-	drawQuad,
+	FLOAT_TEXTURE_TYPE,
 	type InternalBufState,
-	type ProgramLocs,
+	listUserBufferIds,
+	renderPasses,
 	resizeBufferTextures,
-} from './gl-utils';
+	UNSIGNED_BYTE_TEXTURE_TYPE,
+} from './gl-utils.js';
 
 interface RuntimeOptions {
 	getBuffers: () => ShaderBuffer[];
@@ -26,9 +26,9 @@ interface RuntimeOptions {
 	updateUniformValues: (value: Record<string, string>) => void;
 }
 
-const FLOAT_TEXTURE_TYPE = 0x1406;
-const UNSIGNED_BYTE_TEXTURE_TYPE = 0x1401;
 const THUMBNAIL_CAPTURE_INTERVAL_MS = 400;
+/** The uniform readout is for humans, refreshing it every frame only re-renders the panel 60 times a second. */
+const UNIFORM_READOUT_INTERVAL_MS = 100;
 
 export class ShaderCanvasRuntime {
 	private animationId = 0;
@@ -45,6 +45,7 @@ export class ShaderCanvasRuntime {
 	private gl: WebGLRenderingContext | null = null;
 	private lastFrameTime = 0;
 	private lastThumbTime = 0;
+	private lastUniformReadoutTime = 0;
 	private frameCount = 0;
 	private fps = 0;
 	private readonly thumbnailCache: Record<string, string> = {};
@@ -119,6 +120,7 @@ export class ShaderCanvasRuntime {
 		this.frameCount = 0;
 		this.fps = 0;
 		this.lastFrameTime = 0;
+		this.lastUniformReadoutTime = 0;
 		this.fboHeight = 0;
 		this.fboWidth = 0;
 		this.thumbnailGenerationPending = false;
@@ -130,7 +132,7 @@ export class ShaderCanvasRuntime {
 		const buffers = this.options.getBuffers();
 		const buildStart = performance.now();
 		const commonCode = buffers.find((buffer) => buffer.id === 'common')?.code ?? '';
-		const renderOrder = [...this.userBufferOrder(buffers), 'image'];
+		const renderOrder = [...listUserBufferIds(buffers), 'image'];
 		const errors: string[] = [];
 
 		this.destroyBuffers();
@@ -296,11 +298,6 @@ void main() {
 		destroyBufferStates(this.gl, this.bufferStates);
 	}
 
-	private drawQuad(locs: ProgramLocs): void {
-		if (!this.gl) return;
-		drawQuad(this.gl, this.quadBuffer, locs.aPosition);
-	}
-
 	private ensureFboSize(width: number, height: number): void {
 		if (!this.gl || (this.fboWidth === width && this.fboHeight === height)) return;
 		this.fboHeight = height;
@@ -324,58 +321,34 @@ void main() {
 		if (deltaTime > 0) this.fps = this.fps * 0.9 + (1 / deltaTime) * 0.1;
 
 		const now = new Date();
-		const userOrder = this.userBufferOrder(this.options.getBuffers());
-		this.options.updateUniformValues({
-			uAspect: (width / height).toFixed(2),
-			uDate: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
-			uDeltaTime: `${(deltaTime * 1000).toFixed(2)}ms`,
-			uFrameCount: this.frameCount.toString(),
-			uFrameRate: `${this.fps.toFixed(1)} fps`,
-			uMouse: `${this.mouseX.toFixed(0)}, ${this.mouseY.toFixed(0)}, ${this.isMouseDown ? 1 : 0}`,
-			uResolution: `${width} × ${height}`,
-			uTime: `${elapsed.toFixed(2)}s`,
-		});
+		const userOrder = listUserBufferIds(this.options.getBuffers());
+		if (currentTime - this.lastUniformReadoutTime >= UNIFORM_READOUT_INTERVAL_MS) {
+			this.lastUniformReadoutTime = currentTime;
+			this.options.updateUniformValues({
+				uAspect: (width / height).toFixed(2),
+				uDate: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
+				uDeltaTime: `${(deltaTime * 1000).toFixed(2)}ms`,
+				uFrameCount: this.frameCount.toString(),
+				uFrameRate: `${this.fps.toFixed(1)} fps`,
+				uMouse: `${this.mouseX.toFixed(0)}, ${this.mouseY.toFixed(0)}, ${this.isMouseDown ? 1 : 0}`,
+				uResolution: `${width} × ${height}`,
+				uTime: `${elapsed.toFixed(2)}s`,
+			});
+		}
 
 		this.channelTextures.uploadVideoFrames();
-		for (const id of [...userOrder, 'image']) {
-			const state = this.bufferStates.get(id);
-			if (!state?.locs || !state.program) continue;
-
-			this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, id === 'image' ? null : (state.fbo[1 - state.prevIdx] ?? null));
-			this.gl.useProgram(state.program);
-			this.gl.viewport(0, 0, width, height);
-			bindBufferTextures(this.gl, state.locs, id, userOrder, (bufferId) => {
-				const bufferState = this.bufferStates.get(bufferId);
-				return bufferState?.texture[bufferState.prevIdx] ?? null;
-			});
-			this.channelTextures.bind(
-				state.locs,
-				(channel) => {
-					if (!channel.bufferId) return null;
-					const bufferState = this.bufferStates.get(channel.bufferId);
-					return bufferState?.texture[bufferState.prevIdx] ?? null;
-				},
-				CHANNEL_UNIFORM_NAMES.length,
-			);
-			applyStandardUniforms(this.gl, state.locs, {
-				deltaTime,
-				elapsed,
-				fps: this.fps,
-				frameCount: this.frameCount,
-				height,
-				isMouseDown: this.isMouseDown,
-				mouseX: this.mouseX,
-				mouseY: this.mouseY,
-				now,
-				width,
-			});
-			this.drawQuad(state.locs);
-		}
-
-		for (const id of userOrder) {
-			const state = this.bufferStates.get(id);
-			if (state) state.prevIdx = 1 - state.prevIdx;
-		}
+		renderPasses(this.gl, this.bufferStates, userOrder, this.channelTextures, this.quadBuffer, {
+			deltaTime,
+			elapsed,
+			fps: this.fps,
+			frameCount: this.frameCount,
+			height,
+			isMouseDown: this.isMouseDown,
+			mouseX: this.mouseX,
+			mouseY: this.mouseY,
+			now,
+			width,
+		});
 
 		if (currentTime - this.lastThumbTime > THUMBNAIL_CAPTURE_INTERVAL_MS) {
 			this.lastThumbTime = currentTime;
@@ -394,9 +367,5 @@ void main() {
 			canvas.height = height;
 			canvas.width = width;
 		}
-	}
-
-	private userBufferOrder(buffers: ShaderBuffer[]): string[] {
-		return buffers.filter((buffer) => buffer.id !== 'common' && buffer.id !== 'image').map((buffer) => buffer.id);
 	}
 }

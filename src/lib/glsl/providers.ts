@@ -1,8 +1,8 @@
-import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
-import { BUILTIN_DOCS, UNIFORM_DOCS } from '$lib/glsl/builtins';
-import { TYPE_DOCS, GLSL_TYPES, getSwizzles } from '$lib/glsl/types';
-import { GLSL_KEYWORDS, GLSL_PREPROCESSOR } from '$lib/glsl/keywords';
-import { analyzeDocument, resolveType, resolveScopedType } from '$lib/glsl/analyze';
+import type * as Monaco from 'monaco-editor/editor';
+import { BUILTIN_DOCS, UNIFORM_DOCS } from '#lib/glsl/builtins.js';
+import { TYPE_DOCS, GLSL_TYPES, getSwizzles } from '#lib/glsl/types.js';
+import { GLSL_KEYWORDS, GLSL_PREPROCESSOR } from '#lib/glsl/keywords.js';
+import { analyzeModel, resolveType, resolveScopedType, type GlslDocument } from '#lib/glsl/analyze.js';
 
 const DISPOSABLES_KEY = '__glslProviderDisposables';
 const ACTIVE_EDITOR_KEY = '__glslActiveEditor';
@@ -99,7 +99,7 @@ function inferCallContext(
 function getCallArgTypes(
 	fnName: string,
 	argIndex: number,
-	docInfo: ReturnType<typeof analyzeDocument>,
+	docInfo: GlslDocument,
 ): Set<string> | null {
 	// Vector constructors: accept the scalar component type and shorter same-family vectors
 	const vecMatch = fnName.match(/^([biu]?vec)(\d)$/);
@@ -190,7 +190,7 @@ interface BuiltinOverload {
 
 interface WorkspaceDoc {
 	model: Monaco.editor.ITextModel;
-	doc: ReturnType<typeof analyzeDocument>;
+	doc: GlslDocument;
 }
 
 interface WorkspaceSymbolMatch {
@@ -208,11 +208,11 @@ function isWorkspaceModel(model: Monaco.editor.ITextModel): boolean {
 function getWorkspaceDocs(monaco: typeof Monaco): WorkspaceDoc[] {
 	return monaco.editor.getModels().filter(isWorkspaceModel).map((model) => ({
 		model,
-		doc: analyzeDocument(model.getValue()),
+		doc: analyzeModel(model),
 	}));
 }
 
-function findLocalSymbol(doc: ReturnType<typeof analyzeDocument>, name: string, cursorLine: number): WorkspaceSymbolMatch | null {
+function findLocalSymbol(doc: GlslDocument, name: string, cursorLine: number): WorkspaceSymbolMatch | null {
 	const enclosingFn = doc.functions.find((fn) => cursorLine >= fn.line && cursorLine <= fn.bodyEndLine);
 	if (enclosingFn) {
 		const local = enclosingFn.localVariables.find((variable) => variable.name === name);
@@ -370,7 +370,7 @@ function formatTypeConstructorOverloadList(typeName: string, activeIndex: number
 function resolveTypeConstructorOverloadIndex(
 	typeName: string,
 	args: string[],
-	doc: ReturnType<typeof analyzeDocument>,
+	doc: GlslDocument,
 	lineNumber: number,
 ): number | null {
 	const overloads = buildTypeConstructorOverloads(typeName);
@@ -440,7 +440,7 @@ function splitTopLevelArgs(args: string): string[] {
 
 function inferExpressionType(
 	expression: string,
-	doc: ReturnType<typeof analyzeDocument>,
+	doc: GlslDocument,
 	lineNumber: number,
 ): string | null {
 	const trimmed = expression.trim();
@@ -476,7 +476,7 @@ function inferExpressionType(
 function resolveBuiltinOverload(
 	name: string,
 	args: string[],
-	doc: ReturnType<typeof analyzeDocument>,
+	doc: GlslDocument,
 	lineNumber: number,
 ): { overload: BuiltinOverload; inferredTypes: (string | null)[] } | null {
 	const builtin = BUILTIN_DOCS[name];
@@ -766,7 +766,7 @@ function registerCompletion(monaco: typeof Monaco): Monaco.IDisposable {
 				const wordBefore = before.match(/(\w+)\s*$/)?.[1];
 				if (!wordBefore) return { suggestions: [] };
 
-				const doc  = analyzeDocument(model.getValue());
+				const doc  = analyzeModel(model);
 				const type = resolveScopedType(doc, wordBefore, position.lineNumber)
 					?? (BUILTIN_DOCS[wordBefore]?.signature.match(/^(\w+)/)?.[1]);
 				if (!type) return { suggestions: [] };
@@ -834,7 +834,7 @@ function registerCompletion(monaco: typeof Monaco): Monaco.IDisposable {
 			const memberMatch = textBefore.match(/(\w+)\s*\.\s*(\w*)$/);
 			if (memberMatch && context.triggerCharacter !== '.') {
 				const wordBefore = memberMatch[1];
-				const doc = analyzeDocument(model.getValue());
+				const doc = analyzeModel(model);
 				const type = resolveScopedType(doc, wordBefore, position.lineNumber)
 					?? (BUILTIN_DOCS[wordBefore]?.signature.match(/^(\w+)/)?.[1]);
 				if (type) {
@@ -878,7 +878,7 @@ function registerCompletion(monaco: typeof Monaco): Monaco.IDisposable {
 
 			// Detect if cursor is inside a function/constructor call argument
 			const callCtx     = inferCallContext(lineText, position.column - 1);
-			const docInfo     = analyzeDocument(model.getValue());
+			const docInfo     = analyzeModel(model);
 			const expectedTypes = callCtx
 				? getCallArgTypes(callCtx.fnName, callCtx.argIndex, docInfo)
 				: null;
@@ -1005,7 +1005,7 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 				const ownerMatch    = textBeforeDot.match(/(\w+)\s*$/);
 				if (ownerMatch) {
 					const ownerName = ownerMatch[1];
-					const docM = analyzeDocument(model.getValue());
+					const docM = analyzeModel(model);
 					const ownerSymbol = findWorkspaceSymbol(monaco, ownerName, model, position.lineNumber);
 					const ownerType = resolveScopedType(docM, ownerName, position.lineNumber)
 						?? ownerSymbol?.type
@@ -1048,7 +1048,7 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 			// Built-in function or variable
 			const builtin = BUILTIN_DOCS[name];
 			if (builtin) {
-				const doc = analyzeDocument(model.getValue());
+				const doc = analyzeModel(model);
 				const builtinLine = builtin.signature.split('\n')[0] ?? '';
 				const activeCursor = getActiveCursorPositionForModel(model, position);
 				const activeCursorColumn = activeCursor.lineNumber === position.lineNumber
@@ -1123,7 +1123,7 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 			// GLSL type
 			const typeDoc = TYPE_DOCS[name];
 			if (typeDoc) {
-				const doc = analyzeDocument(model.getValue());
+				const doc = analyzeModel(model);
 				const activeCursor = getActiveCursorPositionForModel(model, position);
 				const activeCursorColumn = activeCursor.lineNumber === position.lineNumber
 					? activeCursor.column
@@ -1145,7 +1145,7 @@ function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 			}
 
 			// User-defined symbols
-			const doc = analyzeDocument(model.getValue());
+			const doc = analyzeModel(model);
 
 			// Local variable inside a function
 			const enclosingFn = doc.functions.find(
@@ -1375,7 +1375,7 @@ function registerSignatureHelp(monaco: typeof Monaco): Monaco.IDisposable {
 				BUILTIN_DOCS[wordBefore.word] ?? null;
 
 			if (!sigSource) {
-				const doc = analyzeDocument(model.getValue());
+				const doc = analyzeModel(model);
 				const fn = doc.functions.find((f) => f.name === wordBefore.word)
 					?? getWorkspaceDocs(monaco)
 						.map((entry) => entry.doc.functions.find((functionDoc) => functionDoc.name === wordBefore.word))
@@ -1442,7 +1442,7 @@ function constructorComponents(typeName: string): string[] {
  */
 function argComponentCount(
 	arg: string,
-	docInfo: ReturnType<typeof analyzeDocument>,
+	docInfo: GlslDocument,
 ): number {
 	const trimmed = arg.trim();
 	// Trailing swizzle: word.xyzw / word.rgba / word.stpq
@@ -1466,7 +1466,7 @@ function registerInlayHints(monaco: typeof Monaco): Monaco.IDisposable {
 	return monaco.languages.registerInlayHintsProvider('glsl', {
 		provideInlayHints(model): Monaco.languages.InlayHintList {
 			const hints   = [] as Monaco.languages.InlayHint[];
-			const docInfo = analyzeDocument(model.getValue());
+			const docInfo = analyzeModel(model);
 
 			// Build function → param names map (non-constructor builtins + user functions)
 			const fnParams = new Map<string, string[]>();

@@ -1,7 +1,6 @@
-import type { UniformEntry } from '$features/shaders/editor/BuiltinsPanel.svelte';
-import { UNIFORM_DOCS } from '$lib/glsl/builtins';
-import { BUFFER_UNIFORM_NAMES } from '$features/shaders/model/shader-domain';
-import type { ShaderBuffer } from '$features/shaders/model/shader-content';
+import { UNIFORM_DOCS } from '#lib/glsl/builtins.js';
+import { BUFFER_UNIFORM_NAMES } from '#features/shaders/model/shader-domain.js';
+import type { ShaderBuffer } from '#features/shaders/model/shader-content.js';
 
 export interface UniformDescriptor {
 	description?: string;
@@ -45,11 +44,8 @@ export function addUniformLine(code: string, name: string, type: string): string
 	return lines.join('\n');
 }
 
-export function buildUniformEntries(
-	buffers: ShaderBuffer[],
-	code: string,
-	uniformValues: Record<string, string>,
-): UniformEntry[] {
+/** Lists every known uniform sorted by name, live values are looked up separately so this only reruns on code edits. */
+export function buildUniformCatalog(buffers: ShaderBuffer[], code: string): UniformDescriptor[] {
 	const catalog: UniformDescriptor[] = [...UNIFORM_CATALOG_BASE];
 	const userBuffers = buffers.filter((buffer) => buffer.id !== 'common' && buffer.id !== 'image');
 	const knownNames = new Set<string>(catalog.map(({ name }) => name));
@@ -72,12 +68,9 @@ export function buildUniformEntries(
 		knownNames.add(uniform.name);
 	}
 
-	return catalog.map(({ description, name, type }) => ({
-		description: description ?? UNIFORM_DOCS[name]?.description,
-		name,
-		type,
-		value: uniformValues[name],
-	}));
+	return catalog
+		.map(({ description, name, type }) => ({ description: description ?? UNIFORM_DOCS[name]?.description, name, type }))
+		.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function parseUniforms(code: string): UniformDescriptor[] {

@@ -1,3 +1,5 @@
+import type { editor } from 'monaco-editor/editor';
+
 export interface EditorSettingsData {
 	// Appearance
 	fontFamily: string;
@@ -66,29 +68,36 @@ export const EDITOR_DEFAULTS = {
 
 const STORAGE_KEY = 'shayders:editorSettings';
 
-export function loadSettings(): EditorSettingsData {
+function loadSettings(): EditorSettingsData {
 	try {
 		const raw = localStorage.getItem(STORAGE_KEY);
-		if (!raw) return { ...EDITOR_DEFAULTS };
-		return { ...EDITOR_DEFAULTS, ...JSON.parse(raw) };
+		return raw ? { ...EDITOR_DEFAULTS, ...JSON.parse(raw) } : { ...EDITOR_DEFAULTS };
 	} catch {
 		return { ...EDITOR_DEFAULTS };
 	}
 }
 
-export function saveSettings(s: EditorSettingsData): void {
-	try {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-	} catch {}
+/** Browser-local editor preferences shared by the editor, the settings modal and the canvas runtime. */
+export const editorSettings = $state<EditorSettingsData>(loadSettings());
+
+export function resetEditorSettings(): void {
+	Object.assign(editorSettings, EDITOR_DEFAULTS);
 }
 
-export function settingsToMonaco(s: EditorSettingsData) {
+export function saveEditorSettings(): void {
+	try {
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(editorSettings));
+	} catch {
+		/** Storage can be full or disabled (private mode), settings then only live for the session. */
+	}
+}
+
+export function settingsToMonaco(s: EditorSettingsData): editor.IEditorOptions {
 	return {
 		// Appearance
 		fontFamily: s.fontFamily,
 		fontSize: s.fontSize,
 		lineHeight: s.lineHeight,
-		bufferPreviews: s.bufferPreviews,
 		// Display
 		bracketPairColorization: { enabled: s.bracketPairColorization },
 		folding: s.folding,
@@ -96,7 +105,7 @@ export function settingsToMonaco(s: EditorSettingsData) {
 		matchBrackets: s.matchBrackets,
 		minimap: { enabled: s.minimapEnabled, maxColumn: 80, scale: 2, size: s.minimapSize },
 		renderLineHighlight: s.renderLineHighlight,
-		rulers: [] as number[],
+		rulers: [],
 		wordWrap: s.wordWrap,
 		// Behavior (links and columnSelection are forced)
 		columnSelection: false,
@@ -109,7 +118,7 @@ export function settingsToMonaco(s: EditorSettingsData) {
 		scrollBeyondLastLine: s.scrollBeyondLastLine,
 		smoothScrolling: s.smoothScrolling,
 		// IntelliSense
-		hover: { enabled: s.hoverEnabled },
+		hover: { enabled: s.hoverEnabled ? 'on' : 'off' },
 		inlayHints: { enabled: s.inlayHints },
 		parameterHints: { enabled: s.parameterHints },
 		quickSuggestions: s.quickSuggestions ? { comments: false, other: true, strings: false } : false,

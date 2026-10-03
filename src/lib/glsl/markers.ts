@@ -1,93 +1,53 @@
-import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
-import { analyzeDocument, findUnused } from '$lib/glsl/analyze';
+import type * as Monaco from 'monaco-editor/editor';
+import { analyzeModel, findUnused } from '#lib/glsl/analyze.js';
+
+const COMPILER_MESSAGE_RE = /(ERROR|WARNING):\s*\d+:(\d+):\s*(.*)/i;
 
 /**
  * Parses WebGL shader compilation errors and applies them as Monaco markers.
- * Supported format: `ERROR: 0:<line>: <message>`
+ * @example applyErrors(monaco, model, "ERROR: 0:10: 'x' : undeclared identifier");
  */
 export function applyErrors(
 	monaco: typeof Monaco,
 	model: Monaco.editor.ITextModel,
 	errorStr: string,
 ): void {
-	if (!errorStr.trim()) {
-		monaco.editor.setModelMarkers(model, 'glsl', []);
-		return;
-	}
-
-	const markers: Monaco.editor.IMarkerData[] = [];
-
-	for (const rawLine of errorStr.split('\n')) {
-		const line = rawLine.trim();
-		if (!line) continue;
-
-		// Standard WebGL: "ERROR: 0:10: 'x' : undeclared identifier"
-		const m = line.match(/ERROR:\s*\d+:(\d+):\s*(.*)/i);
-		if (m) {
-			const lineNum = Math.max(1, parseInt(m[1]));
-			const msg = m[2].trim();
-			const totalLines = model.getLineCount();
-			markers.push({
-				severity: monaco.MarkerSeverity.Error,
-				message: msg,
-				startLineNumber: Math.min(lineNum, totalLines),
-				endLineNumber:   Math.min(lineNum, totalLines),
-				startColumn: 1,
-				endColumn: Number.MAX_SAFE_INTEGER,
-				source: 'WebGL',
-			});
-			continue;
-		}
-
-		// WARNING: 0:5: ...
-		const w = line.match(/WARNING:\s*\d+:(\d+):\s*(.*)/i);
-		if (w) {
-			const lineNum = Math.max(1, parseInt(w[1]));
-			const msg = w[2].trim();
-			const totalLines = model.getLineCount();
-			markers.push({
-				severity: monaco.MarkerSeverity.Warning,
-				message: msg,
-				startLineNumber: Math.min(lineNum, totalLines),
-				endLineNumber:   Math.min(lineNum, totalLines),
-				startColumn: 1,
-				endColumn: Number.MAX_SAFE_INTEGER,
-				source: 'WebGL',
-			});
-		}
-	}
+	const lastLine = model.getLineCount();
+	const markers = errorStr.split('\n').flatMap<Monaco.editor.IMarkerData>((rawLine) => {
+		const match = COMPILER_MESSAGE_RE.exec(rawLine.trim());
+		if (!match) return [];
+		const line = Math.min(Math.max(1, Number.parseInt(match[2], 10)), lastLine);
+		return [{
+			severity: match[1].toUpperCase() === 'ERROR' ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+			message: match[3].trim(),
+			startLineNumber: line,
+			endLineNumber: line,
+			startColumn: 1,
+			endColumn: Number.MAX_SAFE_INTEGER,
+			source: 'WebGL',
+		}];
+	});
 
 	monaco.editor.setModelMarkers(model, 'glsl', markers);
 }
 
 /**
- * Analyses the current model for unused symbols and no-effect statements,
- * then applies Hint-severity markers with the `Unnecessary` tag so Monaco
- * dims them exactly like unused imports in TypeScript.
+ * Analyses the model for unused symbols and no-effect statements, then applies markers tagged `Unnecessary`
+ * so Monaco dims them like unused imports in TypeScript.
  */
 export function applyHints(
 	monaco: typeof Monaco,
 	model: Monaco.editor.ITextModel,
+	workspaceSrcs: string[],
 ): void {
-	const src    = model.getValue();
-	const doc    = analyzeDocument(src);
-	const workspaceSrcs = monaco.editor
-		.getModels()
-		.filter((workspaceModel) => workspaceModel.getLanguageId() === 'glsl')
-		.map((workspaceModel) => workspaceModel.getValue());
-	const unused = findUnused(src, doc, workspaceSrcs);
-
-	const markers: Monaco.editor.IMarkerData[] = unused.map((item) => ({
-		severity: item.kind === 'uniform'
-			? monaco.MarkerSeverity.Hint
-			: monaco.MarkerSeverity.Warning,
-		// MarkerTag.Unnecessary = 1 → dims / grays out the token
-		tags: [1 as Monaco.MarkerTag],
+	const markers = findUnused(model.getValue(), analyzeModel(model), workspaceSrcs).map<Monaco.editor.IMarkerData>((item) => ({
+		severity: item.kind === 'uniform' ? monaco.MarkerSeverity.Hint : monaco.MarkerSeverity.Warning,
+		tags: [monaco.MarkerTag.Unnecessary],
 		message: item.message,
 		startLineNumber: item.line,
-		endLineNumber:   item.line,
-		startColumn:     item.startColumn,
-		endColumn:       item.endColumn,
+		endLineNumber: item.line,
+		startColumn: item.startColumn,
+		endColumn: item.endColumn,
 		source: 'GLSL',
 	}));
 

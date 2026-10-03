@@ -1,169 +1,129 @@
-<script lang="ts">
-	import { BUILTIN_DOCS, BUILTIN_FUNCTION_DOC_ENTRIES, BUILTIN_VARIABLE_DOC_ENTRIES } from '$lib/glsl/builtins';
-	import { ChevronDown, ChevronRight, Variable } from '@lucide/svelte';
+<script lang="ts" module>
+	import { BUILTIN_FUNCTION_DOC_ENTRIES, BUILTIN_VARIABLE_DOC_ENTRIES } from '#lib/glsl/builtins.js';
 
 	type MarkdownPart = string | { type: 'italic' | 'bold' | 'code'; content: string };
 
-	export interface UniformEntry {
-		name: string;
-		type: string;
-		description?: string;
-		value?: string;
+	interface ParsedSignature {
+		functionName: string;
+		params: { name: string; type: string }[];
+		returnType: string;
 	}
-
-	interface Props {
-		uniforms?: UniformEntry[];
-		presentNames?: Set<string>;
-		onToggle?: (name: string, type: string) => void;
-		open?: boolean;
-	}
-
-	let { uniforms = [], presentNames = new Set(), onToggle, open = $bindable(false) }: Props = $props();
-
-	const sortedUniforms = $derived(
-		[...uniforms].sort((a, b) => a.name.localeCompare(b.name))
-	);
 
 	function parseMarkdown(text: string): MarkdownPart[] {
 		const parts: MarkdownPart[] = [];
-		let remainder = text;
 		let i = 0;
 
-		while (i < remainder.length) {
-			if (remainder[i] === '*' && remainder[i + 1] === '*') {
-				const endIdx = remainder.indexOf('**', i + 2);
-				if (endIdx !== -1) {
-					const content = remainder.slice(i + 2, endIdx);
-					parts.push({ type: 'bold', content });
-					i = endIdx + 2;
+		while (i < text.length) {
+			if (text[i] === '*' && text[i + 1] === '*') {
+				const end = text.indexOf('**', i + 2);
+				if (end !== -1) {
+					parts.push({ type: 'bold', content: text.slice(i + 2, end) });
+					i = end + 2;
 					continue;
 				}
 			}
-			if (remainder[i] === '*') {
-				const endIdx = remainder.indexOf('*', i + 1);
-				if (endIdx !== -1 && endIdx > i + 1) {
-					const content = remainder.slice(i + 1, endIdx);
-					parts.push({ type: 'italic', content });
-					i = endIdx + 1;
+			if (text[i] === '*') {
+				const end = text.indexOf('*', i + 1);
+				if (end > i + 1) {
+					parts.push({ type: 'italic', content: text.slice(i + 1, end) });
+					i = end + 1;
 					continue;
 				}
 			}
-			if (remainder[i] === '`') {
-				const endIdx = remainder.indexOf('`', i + 1);
-				if (endIdx !== -1) {
-					const content = remainder.slice(i + 1, endIdx);
-					parts.push({ type: 'code', content });
-					i = endIdx + 1;
+			if (text[i] === '`') {
+				const end = text.indexOf('`', i + 1);
+				if (end !== -1) {
+					parts.push({ type: 'code', content: text.slice(i + 1, end) });
+					i = end + 1;
 					continue;
 				}
 			}
-			const nextSpecial = Math.min(...[
-				remainder.indexOf('*', i),
-				remainder.indexOf('`', i),
-			].filter((idx) => idx !== -1));
 
-			if (nextSpecial === -1) {
-				parts.push(remainder.slice(i));
-				break;
-			} else {
-				parts.push(remainder.slice(i, nextSpecial));
-				i = nextSpecial;
-			}
+			const specials = [text.indexOf('*', i + 1), text.indexOf('`', i + 1)].filter((index) => index !== -1);
+			const next = specials.length > 0 ? Math.min(...specials) : text.length;
+			parts.push(text.slice(i, next));
+			i = next;
 		}
 
 		return parts;
-	}
-
-	interface ParsedParam {
-		type: string;
-		name: string;
-	}
-
-	interface ParsedSignature {
-		returnType: string;
-		functionName: string;
-		params: ParsedParam[];
 	}
 
 	function parseSignature(signature: string): ParsedSignature | null {
 		const match = signature.match(/^(\S+)\s+(\w+)\s*\((.*)\)$/);
 		if (!match) return null;
 
-		const returnType = match[1];
-		const functionName = match[2];
-		const paramsString = match[3];
+		const params = match[3].split(',').flatMap((part) => {
+			const tokens = part.trim().split(/\s+/);
+			return tokens.length >= 2 ? [{ name: tokens.at(-1)!, type: tokens.slice(0, -1).join(' ') }] : [];
+		});
 
-		const params: ParsedParam[] = [];
-		if (paramsString.trim()) {
-			const paramParts = paramsString.split(',');
-			for (const part of paramParts) {
-				const trimmed = part.trim();
-				if (!trimmed) continue;
-				const tokens = trimmed.split(/\s+/);
-				if (tokens.length >= 2) {
-					const name = tokens[tokens.length - 1];
-					const type = tokens.slice(0, -1).join(' ');
-					params.push({ type, name });
-				}
-			}
-		}
-
-		return { returnType, functionName, params };
+		return { functionName: match[2], params, returnType: match[1] };
 	}
 
 	function getTypeColor(type: string): string {
-		if (type.match(/^[ud]?vec[234]$/) || type.match(/^[iu]?vec$/)) return 'text-cyan-400';
-		if (type.match(/^[d]?mat[234](x[234])?$/)) return 'text-amber-400';
-		if (type.match(/^(float|int|bool|uint|double)$/)) return 'text-emerald-400';
-		if (type.match(/^image/) || type.match(/^sampler/)) return 'text-rose-400';
+		if (/^[d]?mat[234](x[234])?$/.test(type)) return 'text-amber-400';
+		if (/^(float|int|bool|uint|double)$/.test(type)) return 'text-emerald-400';
+		if (/^(image|sampler)/.test(type)) return 'text-rose-400';
 		return 'text-cyan-400';
 	}
 
-	// Fragment-only built-in variables are shown in the panel for now.
-	const glBuiltins = BUILTIN_VARIABLE_DOC_ENTRIES
-		.map(([name, doc]) => {
-			const match = doc.signature.match(/^(\S+)/);
-			const type = match ? match[1] : 'unknown';
-			return { markdownParts: parseMarkdown(doc.description), name, type };
-		})
-		.sort((a, b) => a.name.localeCompare(b.name));
+	const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
 
-	// Extract all non-gl_* functions from builtins doc
+	/** Fragment-only built-in variables are shown in the panel. */
+	const glBuiltins = BUILTIN_VARIABLE_DOC_ENTRIES
+		.map(([name, doc]) => ({ markdownParts: parseMarkdown(doc.description), name, type: doc.signature.match(/^(\S+)/)?.[1] ?? 'unknown' }))
+		.sort(byName);
+
 	const glslFunctions = BUILTIN_FUNCTION_DOC_ENTRIES
 		.map(([name, doc]) => {
-			const firstLine = doc.signature.split('\n')[0];
-			const match = firstLine.match(/^(\S+)\s+(\w+)/);
-			const returnType = match ? match[1] : '';
+			const signature = doc.signature.split('\n')[0];
 			return {
 				markdownParts: parseMarkdown(doc.description),
 				name,
-				parsedSignature: parseSignature(firstLine),
-				returnType,
-				signature: firstLine,
+				parsedSignature: parseSignature(signature),
+				returnType: signature.match(/^(\S+)\s+(\w+)/)?.[1] ?? '',
+				signature,
 			};
 		})
-		.sort((a, b) => a.name.localeCompare(b.name));
+		.sort(byName);
 
-	const groupedFunctions = (() => {
-		const groups: Record<string, typeof glslFunctions> = {};
-		for (const fn of glslFunctions) {
-			if (!groups[fn.returnType]) groups[fn.returnType] = [];
-			groups[fn.returnType].push(fn);
-		}
-		return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
-	})();
-
-	const total = $derived(uniforms.length + glBuiltins.length + glslFunctions.length);
-
-	function toggle() {
-		open = !open;
-	}
+	const groupedFunctions = [...Map.groupBy(glslFunctions, (fn) => fn.returnType)].sort(([a], [b]) => a.localeCompare(b));
 </script>
 
+<script lang="ts">
+	import { ChevronDown, ChevronRight, Variable } from '@lucide/svelte';
+	import type { UniformDescriptor } from '#features/shaders/editor/uniforms.js';
+
+	interface Props {
+		onToggle?: (name: string, type: string) => void;
+		open?: boolean;
+		presentNames?: Set<string>;
+		uniforms?: UniformDescriptor[];
+		values?: Record<string, string>;
+	}
+
+	let { onToggle, open = $bindable(false), presentNames = new Set(), uniforms = [], values = {} }: Props = $props();
+
+	const total = $derived(uniforms.length + glBuiltins.length + glslFunctions.length);
+</script>
+
+{#snippet markdown(parts: MarkdownPart[])}
+	{#each parts as part}
+		{#if typeof part === 'string'}
+			{part}
+		{:else if part.type === 'italic'}
+			<em class="not-italic text-cyan-300">{part.content}</em>
+		{:else if part.type === 'bold'}
+			<strong class="font-semibold text-cyan-200">{part.content}</strong>
+		{:else}
+			<code class="bg-background px-0.5 rounded text-amber-300">{part.content}</code>
+		{/if}
+	{/each}
+{/snippet}
+
 <div class="border-t border-border flex flex-col min-h-0 shrink-0">
-	<!-- Header / toggle -->
 	<button
-		onclick={toggle}
+		onclick={() => (open = !open)}
 		class="flex w-full items-center gap-2 px-4 py-2 text-xs text-muted hover:text-foreground transition-colors cursor-pointer shrink-0"
 	>
 		{#if open}
@@ -178,12 +138,11 @@
 
 	{#if open}
 		<div class="overflow-y-auto max-h-100 mb-2 text-xs">
-			<!-- Uniforms -->
-			{#if sortedUniforms.length > 0}
+			{#if uniforms.length > 0}
 				<div class="px-4 pt-1 pb-0.5 text-10 uppercase tracking-widest text-subtle font-semibold">
 					Uniforms
 				</div>
-				{#each sortedUniforms as u (u.name)}
+				{#each uniforms as u (u.name)}
 					{@const present = presentNames.has(u.name)}
 					<div class="flex items-baseline gap-1 px-4 py-1 hover:bg-panel group">
 						<button
@@ -201,14 +160,13 @@
 								{u.description}
 							</span>
 						{/if}
-						{#if u.value !== undefined}
-							<span class="ml-auto font-mono text-green-400 shrink-0 tabular-nums text-11">{u.value}</span>
+						{#if values[u.name] !== undefined}
+							<span class="ml-auto font-mono text-green-400 shrink-0 tabular-nums text-11">{values[u.name]}</span>
 						{/if}
 					</div>
 				{/each}
 			{/if}
 
-			<!-- GLSL built-in variables -->
 			<div class="px-4 pt-2 pb-0.5 text-10 uppercase tracking-widest text-subtle font-semibold">
 				Built-in Variables
 			</div>
@@ -217,22 +175,11 @@
 					<span class="{getTypeColor(v.type)} font-mono shrink-0 text-11 whitespace-nowrap">{v.type}</span>
 					<span class="text-foreground font-mono shrink-0 font-semibold text-11 whitespace-nowrap">{v.name}</span>
 					<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-11">
-						{#each v.markdownParts as part, i (`${typeof part === 'string' ? part : `${part.type}:${part.content}`}:${i}`)}
-							{#if typeof part === 'string'}
-								{part}
-							{:else if part.type === 'italic'}
-								<em class="not-italic text-cyan-300">{part.content}</em>
-							{:else if part.type === 'bold'}
-								<strong class="font-semibold text-cyan-200">{part.content}</strong>
-							{:else if part.type === 'code'}
-								<code class="bg-background px-0.5 rounded text-amber-300">{part.content}</code>
-							{/if}
-						{/each}
+						{@render markdown(v.markdownParts)}
 					</span>
 				</div>
 			{/each}
 
-			<!-- GLSL built-in functions -->
 			<div class="px-4 pt-2 pb-0.5 text-10 uppercase tracking-widest text-subtle font-semibold">
 				Functions
 			</div>
@@ -244,23 +191,13 @@
 					<div class="flex items-baseline gap-1 px-4 py-1 hover:bg-panel group">
 						<span class="font-mono shrink-0 text-11 whitespace-nowrap">
 							{#if fn.parsedSignature}
-								<span class={getTypeColor(fn.parsedSignature.returnType)}>{fn.parsedSignature.returnType}</span><span class="text-foreground">{' '}{fn.parsedSignature.functionName}(</span>{#each fn.parsedSignature.params as param, i (`${param.type}:${param.name}:${i}`)}{#if i > 0}<span class="text-foreground">,</span>{ ' '}{/if}<span class={getTypeColor(param.type)}>{param.type}</span><span class="text-white">{' '}{param.name}</span>{/each}<span class="text-foreground">)</span>
+								<span class={getTypeColor(fn.parsedSignature.returnType)}>{fn.parsedSignature.returnType}</span><span class="text-foreground">{' '}{fn.parsedSignature.functionName}(</span>{#each fn.parsedSignature.params as param, i}{#if i > 0}<span class="text-foreground">,</span>{' '}{/if}<span class={getTypeColor(param.type)}>{param.type}</span><span class="text-white">{' '}{param.name}</span>{/each}<span class="text-foreground">)</span>
 							{:else}
 								<span class="text-blue-300">{fn.signature}</span>
 							{/if}
 						</span>
 						<span class="text-subtle flex-1 truncate group-hover:whitespace-normal group-hover:overflow-visible leading-snug text-11">
-							{#each fn.markdownParts as part, i (`${typeof part === 'string' ? part : `${part.type}:${part.content}`}:${i}`)}
-								{#if typeof part === 'string'}
-									{part}
-								{:else if part.type === 'italic'}
-									<em class="not-italic text-cyan-300">{part.content}</em>
-								{:else if part.type === 'bold'}
-									<strong class="font-semibold text-cyan-200">{part.content}</strong>
-								{:else if part.type === 'code'}
-									<code class="bg-background px-0.5 rounded text-amber-300">{part.content}</code>
-								{/if}
-							{/each}
+							{@render markdown(fn.markdownParts)}
 						</span>
 					</div>
 				{/each}

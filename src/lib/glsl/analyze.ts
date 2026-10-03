@@ -1,3 +1,5 @@
+import type { editor } from 'monaco-editor/editor';
+
 /** Storage / parameter qualifier on a variable declaration */
 export type GlslQualifier = 'uniform' | 'attribute' | 'varying' | 'const' | 'in' | 'out' | 'inout';
 
@@ -77,6 +79,18 @@ function lineOf(src: string, index: number): number {
 		if (src[i] === '\n') line++;
 	}
 	return line;
+}
+
+const modelAnalysis = new WeakMap<editor.ITextModel, { doc: GlslDocument; version: number }>();
+
+/** Memoized {@link analyzeDocument} per model version, so every provider, marker and tokenizer pass shares one parse per edit. */
+export function analyzeModel(model: editor.ITextModel): GlslDocument {
+	const version = model.getVersionId();
+	const cached = modelAnalysis.get(model);
+	if (cached?.version === version) return cached.doc;
+	const doc = analyzeDocument(model.getValue());
+	modelAnalysis.set(model, { doc, version });
+	return doc;
 }
 
 // Main parser

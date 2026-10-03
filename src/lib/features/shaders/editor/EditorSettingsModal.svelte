@@ -1,20 +1,27 @@
 <script lang="ts">
-	import type { EditorSettingsData } from '$features/shaders/editor/editor-settings';
-	import { EDITOR_DEFAULTS } from '$features/shaders/editor/editor-settings';
-	import Modal from '$ui/Modal.svelte';
-	import SettingRow from '$ui/SettingRow.svelte';
+	import {
+		EDITOR_DEFAULTS,
+		editorSettings as settings,
+		resetEditorSettings,
+		type EditorSettingsData,
+	} from '#features/shaders/editor/editor-settings.svelte.js';
+	import Modal from '#components/ui/Modal.svelte';
+	import SettingRow from '#components/ui/SettingRow.svelte';
 
 	interface Props {
 		open: boolean;
-		settings: EditorSettingsData;
 		onClose: () => void;
-		onReset: () => void;
 	}
 
-	let { open = false, settings = $bindable(), onClose, onReset }: Props = $props();
+	let { open = false, onClose }: Props = $props();
 
 	function rb<K extends keyof EditorSettingsData>(key: K) {
-		return () => ((settings[key] as EditorSettingsData[K]) = EDITOR_DEFAULTS[key]);
+		return () => (settings[key] = EDITOR_DEFAULTS[key]);
+	}
+
+	function resetAll() {
+		resetEditorSettings();
+		onClose();
 	}
 
 	function changed<K extends keyof EditorSettingsData>(key: K): boolean {
@@ -196,7 +203,7 @@
 
 	<div class="px-5 py-3 border-t border-border bg-background flex items-center justify-between">
 		<button
-			onclick={onReset}
+			onclick={resetAll}
 			class="cursor-pointer text-xs px-3 py-1.5 border border-border text-subtle hover:text-foreground hover:border-muted rounded transition-colors"
 		>
 			Reset all to defaults

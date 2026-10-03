@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { CircleAlert, Maximize2, Minimize2 } from '@lucide/svelte';
-	import ShaderCanvasToolbar from '$features/shaders/canvas/ShaderCanvasToolbar.svelte';
-	import { loadSettings } from '$features/shaders/editor/editor-settings';
-	import ShaderInfoModal from '$features/shaders/editor/ShaderInfoModal.svelte';
-	import { FULLSCREEN_TOGGLE_KEY } from '$features/shaders/model/shader-domain';
-	import { ShaderCanvasRuntime } from '$features/shaders/canvas/runtime';
-	import { shaderState } from '$features/shaders/model/shader-state.svelte';
-	import type { ChannelEntry, ShaderBuffer } from '$features/shaders/model/shader-content';
+	import ShaderCanvasToolbar from '#features/shaders/canvas/ShaderCanvasToolbar.svelte';
+	import { editorSettings } from '#features/shaders/editor/editor-settings.svelte.js';
+	import ShaderInfoModal from '#features/shaders/editor/ShaderInfoModal.svelte';
+	import { FULLSCREEN_TOGGLE_KEY } from '#features/shaders/model/shader-domain.js';
+	import { ShaderCanvasRuntime } from '#features/shaders/canvas/runtime.js';
+	import { shaderState } from '#features/shaders/model/shader-state.svelte.js';
+	import type { ChannelEntry, ShaderBuffer } from '#features/shaders/model/shader-content.js';
 
 	const MAX_BITRATE = 48_000_000;
 	const MAX_RECORDING_DURATION_MS = 5 * 60 * 1000;
@@ -64,7 +64,6 @@
 	let recordingStartedAt = 0;
 	let recordingShouldDownload = false;
 	let recordingMimeType = '';
-	let editorSettings = $state(loadSettings());
 
 	const runtime = new ShaderCanvasRuntime({
 		getBuffers: () => buffers,
@@ -75,10 +74,6 @@
 		updateError: (value) => (error = value),
 		updateThumbnails: (value) => (thumbnails = value),
 		updateUniformValues: (value) => (uniformValues = value),
-	});
-
-	$effect(() => {
-		editorSettings = loadSettings();
 	});
 
 	function isEditingField(element: Element | null): boolean {

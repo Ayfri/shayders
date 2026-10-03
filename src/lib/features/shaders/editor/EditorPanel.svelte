@@ -1,21 +1,23 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { Code, Play, Save, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
-	import { isShadertoyShader, convertFromShadertoy } from '$features/shaders/model/shadertoy-converter';
-	import GlslEditor from '$features/shaders/editor/GlslEditor.svelte';
-	import BuiltinsPanel, { type UniformEntry } from '$features/shaders/editor/BuiltinsPanel.svelte';
-	import ChannelsPanel from '$features/shaders/editor/ChannelsPanel.svelte';
-	import EditorSettingsModal from '$features/shaders/editor/EditorSettingsModal.svelte';
-	import Modal from '$ui/Modal.svelte';
-	import type { ChannelEntry, ShaderBuffer } from '$features/shaders/model/shader-content';
-	import { loadSettings, saveSettings, type EditorSettingsData, EDITOR_DEFAULTS } from '$features/shaders/editor/editor-settings';
-	import { auth } from '$features/auth/auth-client.svelte';
+	import { isShadertoyShader, convertFromShadertoy } from '#features/shaders/model/shadertoy-converter.js';
+	import GlslEditor from '#features/shaders/editor/GlslEditor.svelte';
+	import BuiltinsPanel from '#features/shaders/editor/BuiltinsPanel.svelte';
+	import ChannelsPanel from '#features/shaders/editor/ChannelsPanel.svelte';
+	import EditorSettingsModal from '#features/shaders/editor/EditorSettingsModal.svelte';
+	import Modal from '#components/ui/Modal.svelte';
+	import type { ChannelEntry, ShaderBuffer } from '#features/shaders/model/shader-content.js';
+	import { editorSettings, saveEditorSettings } from '#features/shaders/editor/editor-settings.svelte.js';
+	import type { UniformDescriptor } from '#features/shaders/editor/uniforms.js';
+	import { auth } from '#features/auth/auth-client.svelte.js';
 
 	interface Props {
 		value: string;
 		errors?: string;
 		onRun?: () => void;
-		uniforms: UniformEntry[];
+		uniforms: UniformDescriptor[];
+		uniformValues?: Record<string, string>;
 		presentNames?: Set<string>;
 		onToggleUniform?: (name: string, type: string) => void;
 		panelOpen?: boolean;
@@ -40,6 +42,7 @@
 		errors = '',
 		onRun,
 		uniforms,
+		uniformValues = {},
 		presentNames = new Set(),
 		onToggleUniform,
 		panelOpen = $bindable(false),
@@ -63,7 +66,6 @@
 	let width = $state(0);
 	let isDragging = $state(false);
 	let channelsOpen = $state(false);
-	let settings = $state<EditorSettingsData>(loadSettings());
 	let showSettings = $state(false);
 	let showConvertModal = $state(false);
 	let promptedShadertoyByBuffer = $state<Record<string, true>>({});
@@ -78,9 +80,7 @@
 	const vertical = $derived(viewportWidth < 640);
 	const panelStyle = $derived(vertical ? `height: ${width}px` : `width: ${width}px`);
 
-	$effect(() => {
-		saveSettings(settings);
-	});
+	$effect(saveEditorSettings);
 
 	$effect(() => {
 		if (!viewportWidth || !viewportHeight) {
@@ -156,7 +156,7 @@
 			...promptedShadertoyByBuffer,
 			[activeBufferId]: true,
 		};
-			showConvertModal = true;
+		showConvertModal = true;
 	});
 
 	function handleConvert() {
@@ -235,7 +235,7 @@
 		<div class="flex items-stretch shrink-0 bg-panel border-b border-border overflow-x-auto overflow-y-hidden">
 			{#each buffers as buf (buf.id)}
 				{@const isActive = activeBufferId === buf.id}
-				{@const thumb = settings.bufferPreviews ? thumbnails[buf.id] : null}
+				{@const thumb = editorSettings.bufferPreviews ? thumbnails[buf.id] : null}
 				<!-- svelte-ignore a11y_interactive_supports_focus -->
 				<div
 					role="tab"
@@ -357,8 +357,8 @@
 		{#if channelsOpen}
 			<ChannelsPanel {channels} {onChannelChange} {buffers} {thumbnails} />
 		{/if}
-		<GlslEditor bind:value {buffers} {activeBufferId} {errors} {onRun} {settings} onBufferFocus={onTabChange} />
-		<BuiltinsPanel {uniforms} {presentNames} onToggle={onToggleUniform} bind:open={panelOpen} />
+		<GlslEditor bind:value {buffers} {activeBufferId} {errors} {onRun} onBufferFocus={onTabChange} />
+		<BuiltinsPanel {uniforms} values={uniformValues} {presentNames} onToggle={onToggleUniform} bind:open={panelOpen} />
 	</div>
 {/if}
 
@@ -402,15 +402,7 @@
 	</div>
 {/if}
 
-<EditorSettingsModal
-	bind:settings
-	open={showSettings}
-	onClose={() => (showSettings = false)}
-	onReset={() => {
-		settings = { ...EDITOR_DEFAULTS };
-		showSettings = false;
-	}}
-/>
+<EditorSettingsModal open={showSettings} onClose={() => (showSettings = false)} />
 <Modal open={showConvertModal} onClose={handleCancelConvert} title="Convert from Shadertoy?">
 	<div class="px-5 py-4">
 		<p class="text-sm text-foreground mb-6">We detected that this shader is in Shadertoy format. Would you like to convert it to WebGL shader format?</p>

@@ -1,5 +1,6 @@
-import { BUFFER_UNIFORM_NAMES, CHANNEL_UNIFORM_NAMES } from '$features/shaders/model/shader-domain';
-import type { ShaderBuffer } from '$features/shaders/model/shader-content';
+import { BUFFER_UNIFORM_NAMES, CHANNEL_UNIFORM_NAMES } from '#features/shaders/model/shader-domain.js';
+import type { ShaderBuffer } from '#features/shaders/model/shader-content.js';
+import type { ChannelTextureManager } from './channel-textures.js';
 
 export interface ProgramLocs {
 	aPosition: number;
@@ -51,7 +52,10 @@ interface BuildBufferStatesOutput {
 	states: Map<string, InternalBufState>;
 }
 
-const VERTEX_CODE = `attribute vec4 aPosition;
+export const FLOAT_TEXTURE_TYPE = 0x1406;
+export const UNSIGNED_BYTE_TEXTURE_TYPE = 0x1401;
+
+const VERTEX_CODE =`attribute vec4 aPosition;
 void main() {
 	gl_Position = aPosition;
 }`;
@@ -206,6 +210,43 @@ export function drawQuad(gl: WebGLRenderingContext, quadBuffer: WebGLBuffer | nu
 	gl.enableVertexAttribArray(positionLocation);
 	gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
 	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+/** Draws every user buffer into its back FBO then the image pass to the screen, and swaps the ping-pong targets. */
+export function renderPasses(
+	gl: WebGLRenderingContext,
+	bufferStates: ReadonlyMap<string, InternalBufState>,
+	userOrder: string[],
+	channelTextures: ChannelTextureManager,
+	quadBuffer: WebGLBuffer | null,
+	values: StandardUniformValues,
+): void {
+	const frontTexture = (bufferId: string) => {
+		const state = bufferStates.get(bufferId);
+		return state?.texture[state.prevIdx] ?? null;
+	};
+
+	for (const id of [...userOrder, 'image']) {
+		const state = bufferStates.get(id);
+		if (!state?.locs || !state.program) continue;
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, id === 'image' ? null : state.fbo[1 - state.prevIdx]);
+		gl.useProgram(state.program);
+		gl.viewport(0, 0, values.width, values.height);
+		bindBufferTextures(gl, state.locs, id, userOrder, frontTexture);
+		channelTextures.bind(state.locs, (channel) => (channel.bufferId ? frontTexture(channel.bufferId) : null), CHANNEL_UNIFORM_NAMES.length);
+		applyStandardUniforms(gl, state.locs, values);
+		drawQuad(gl, quadBuffer, state.locs.aPosition);
+	}
+
+	for (const id of userOrder) {
+		const state = bufferStates.get(id);
+		if (state) state.prevIdx = 1 - state.prevIdx;
+	}
+}
+
+export function listUserBufferIds(buffers: ShaderBuffer[]): string[] {
+	return buffers.filter((buffer) => buffer.id !== 'common' && buffer.id !== 'image').map((buffer) => buffer.id);
 }
 
 export function destroyBufferStates(gl: WebGLRenderingContext, bufferStates: Map<string, InternalBufState>): void {
