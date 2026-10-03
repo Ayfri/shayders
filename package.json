@@ -7,6 +7,7 @@
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
+		"og-image": "bun scripts/og-image.ts",
 		"prepare": "svelte-kit sync || echo ''",
 		"typegen-db": "bunx pocketbase-typegen -j ./pb_schema.json --out ./src/lib/pocketbase-types.ts",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
