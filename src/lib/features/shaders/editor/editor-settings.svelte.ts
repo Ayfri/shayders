@@ -15,6 +15,8 @@ export interface EditorSettingsData {
 	minimapEnabled: boolean;
 	minimapSize: 'proportional' | 'fill' | 'fit';
 	renderLineHighlight: 'none' | 'gutter' | 'line' | 'all';
+	renderWhitespace: 'none' | 'boundary' | 'selection' | 'trailing' | 'all';
+	stickyScroll: boolean;
 	wordWrap: 'on' | 'off';
 	// Behavior
 	contextmenu: boolean;
@@ -25,6 +27,7 @@ export interface EditorSettingsData {
 	scrollBeyondLastLine: boolean;
 	smoothScrolling: boolean;
 	// IntelliSense
+	colorDecorators: boolean;
 	hoverEnabled: boolean;
 	inlayHints: 'on' | 'off' | 'offUnlessPressed';
 	parameterHints: boolean;
@@ -48,6 +51,8 @@ export const EDITOR_DEFAULTS = {
 	minimapEnabled: true,
 	minimapSize: 'proportional',
 	renderLineHighlight: 'gutter',
+	renderWhitespace: 'selection',
+	stickyScroll: true,
 	wordWrap: 'off',
 	// Behavior
 	contextmenu: true,
@@ -58,6 +63,7 @@ export const EDITOR_DEFAULTS = {
 	scrollBeyondLastLine: false,
 	smoothScrolling: true,
 	// IntelliSense
+	colorDecorators: true,
 	hoverEnabled: true,
 	inlayHints: 'on',
 	parameterHints: true,
@@ -104,9 +110,14 @@ export function settingsToMonaco(s: EditorSettingsData): editor.IEditorOptions {
 		foldingStrategy: s.foldingStrategy,
 		matchBrackets: s.matchBrackets,
 		minimap: { enabled: s.minimapEnabled, maxColumn: 80, scale: 2, size: s.minimapSize },
+		guides: { bracketPairs: 'active', highlightActiveIndentation: true, indentation: true },
 		renderLineHighlight: s.renderLineHighlight,
+		renderWhitespace: s.renderWhitespace,
 		rulers: [],
+		stickyScroll: { enabled: s.stickyScroll },
 		wordWrap: s.wordWrap,
+		wrappingIndent: 'indent',
+		wrappingStrategy: 'advanced',
 		// Behavior (links and columnSelection are forced)
 		columnSelection: false,
 		contextmenu: s.contextmenu,
@@ -118,6 +129,7 @@ export function settingsToMonaco(s: EditorSettingsData): editor.IEditorOptions {
 		scrollBeyondLastLine: s.scrollBeyondLastLine,
 		smoothScrolling: s.smoothScrolling,
 		// IntelliSense
+		colorDecorators: s.colorDecorators,
 		hover: { enabled: s.hoverEnabled ? 'on' : 'off' },
 		inlayHints: { enabled: s.inlayHints },
 		parameterHints: { enabled: s.parameterHints },

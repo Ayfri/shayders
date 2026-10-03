@@ -103,8 +103,29 @@
 			});
 			globals[ACTIVE_EDITOR_KEY] = instance;
 
+			const wrapGutter = instance.createDecorationsCollection();
+			/** One whole-document decoration tags every gutter row, only continuation rows of wrapped lines are empty and get the CSS arrow. */
+			const updateWrapGutter = () => {
+				const lineCount = instance.getModel()?.getLineCount() ?? 0;
+				if (wrapGutter.length > 0 && wrapGutter.getRange(0)?.endLineNumber === lineCount) return;
+				wrapGutter.set(lineCount > 0 ? [{ options: { isWholeLine: true, lineNumberClassName: 'glsl-wrap-gutter' }, range: new monaco.Range(1, 1, lineCount, 1) }] : []);
+			};
+			updateWrapGutter();
+
 			disposables.push(
 				instance,
+				instance.addAction({
+					id: 'glsl.toggleWordWrap',
+					keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyZ],
+					label: 'Toggle Word Wrap',
+					run: () => {
+						editorSettings.wordWrap = editorSettings.wordWrap === 'on' ? 'off' : 'on';
+					},
+				}),
+				instance.onDidChangeModel(() => {
+					wrapGutter.clear();
+					updateWrapGutter();
+				}),
 				monaco.editor.registerEditorOpener({
 					openCodeEditor(source, resource, selectionOrPosition) {
 						if (source !== instance || resource.scheme !== WORKSPACE_SCHEME || resource.authority !== workspaceId) return false;
@@ -144,6 +165,7 @@
 				instance.onDidFocusEditorWidget(() => (globals[ACTIVE_EDITOR_KEY] = instance)),
 				instance.onDidChangeCursorPosition(() => (globals[ACTIVE_EDITOR_KEY] = instance)),
 				instance.onDidChangeModelContent(() => {
+					updateWrapGutter();
 					if (settingExternalValue) return;
 					const model = instance.getModel();
 					if (!model) return;
@@ -220,3 +242,10 @@
 <div class="relative flex min-h-0 w-full flex-1">
 	<div bind:this={editorContainer} class="min-h-0 w-full flex-1"></div>
 </div>
+
+<style>
+	:global(.monaco-editor .line-numbers.glsl-wrap-gutter:empty::before) {
+		content: '↪';
+		opacity: 0.4;
+	}
+</style>

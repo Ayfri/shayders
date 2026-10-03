@@ -120,7 +120,21 @@
 					</select>
 				</SettingRow>
 
-				<SettingRow label="Word wrap" changed={changed('wordWrap')} onReset={rb('wordWrap')}>
+				<SettingRow label="Render whitespace" changed={changed('renderWhitespace')} onReset={rb('renderWhitespace')}>
+					<select bind:value={settings.renderWhitespace} class={sel}>
+						<option value="selection">Selection</option>
+						<option value="boundary">Boundary</option>
+						<option value="trailing">Trailing</option>
+						<option value="all">All</option>
+						<option value="none">None</option>
+					</select>
+				</SettingRow>
+
+				<SettingRow label="Sticky scroll" changed={changed('stickyScroll')} onReset={rb('stickyScroll')}>
+					<input type="checkbox" bind:checked={settings.stickyScroll} class={chk} />
+				</SettingRow>
+
+				<SettingRow label="Word wrap (Alt+Z)" changed={changed('wordWrap')} onReset={rb('wordWrap')}>
 					<select bind:value={settings.wordWrap} class={sel}>
 						<option value="off">Off</option>
 						<option value="on">On</option>
@@ -169,6 +183,10 @@
 		<section>
 			<h3 class="text-sm font-bold text-foreground uppercase tracking-wide mb-3">IntelliSense</h3>
 			<div class="space-y-4">
+				<SettingRow label="Color pickers" changed={changed('colorDecorators')} onReset={rb('colorDecorators')}>
+					<input type="checkbox" bind:checked={settings.colorDecorators} class={chk} />
+				</SettingRow>
+
 				<SettingRow label="Hover tooltips" changed={changed('hoverEnabled')} onReset={rb('hoverEnabled')}>
 					<input type="checkbox" bind:checked={settings.hoverEnabled} class={chk} />
 				</SettingRow>
