@@ -3,14 +3,14 @@ import { BUILTIN_DOCS, UNIFORM_DOCS } from '#lib/glsl/builtins.js';
 import { TYPE_DOCS, GLSL_TYPES, getSwizzles } from '#lib/glsl/types.js';
 import { GLSL_KEYWORDS, GLSL_PREPROCESSOR } from '#lib/glsl/keywords.js';
 import { analyzeModel, resolveType, resolveScopedType, type GlslDocument } from '#lib/glsl/analyze.js';
-import { registerColorProvider } from '#lib/glsl/color-provider.js';
+import { type ColorPreviewListener, registerColorProvider } from '#lib/glsl/color-provider.js';
 import { registerSemanticTokens } from '#lib/glsl/semantic-tokens.js';
 
 const DISPOSABLES_KEY = '__glslProviderDisposables';
 const ACTIVE_EDITOR_KEY = '__glslActiveEditor';
 const GOTO_POSITION_COMMAND_ID = '__glslGotoPosition';
 
-export function registerGlslProviders(monaco: typeof Monaco): void {
+export function registerGlslProviders(monaco: typeof Monaco, onColorPreview?: ColorPreviewListener): void {
 	const g = globalThis as Record<string, unknown>;
 	const prev = g[DISPOSABLES_KEY] as Monaco.IDisposable[] | undefined;
 	if (prev) for (const d of prev) d.dispose();
@@ -22,7 +22,7 @@ export function registerGlslProviders(monaco: typeof Monaco): void {
 		registerSignatureHelp(monaco),
 		registerInlayHints(monaco),
 		registerSemanticTokens(monaco),
-		registerColorProvider(monaco),
+		registerColorProvider(monaco, onColorPreview),
 	];
 }
 

@@ -13,10 +13,11 @@
 		value: string;
 		errors?: string;
 		onBufferFocus?: (id: string) => void;
+		onPreview?: (bufferId: string, code: string) => void;
 		onRun?: () => void;
 	}
 
-	let { activeBufferId, buffers, value = $bindable(), errors = '', onBufferFocus, onRun }: Props = $props();
+	let { activeBufferId, buffers, value = $bindable(), errors = '', onBufferFocus, onPreview, onRun }: Props = $props();
 
 	const ACTIVE_EDITOR_KEY = '__glslActiveEditor';
 	const ANALYSIS_DEBOUNCE_MS = 120;
@@ -82,7 +83,9 @@
 			monaco.languages.setLanguageConfiguration('glsl', conf);
 			monaco.languages.setMonarchTokensProvider('glsl', language);
 			registerMaterialDarkerTheme(monaco);
-			registerGlslProviders(monaco);
+			registerGlslProviders(monaco, (model, code) => {
+				if (model.uri.scheme === WORKSPACE_SCHEME && model.uri.authority === workspaceId) onPreview?.(bufferIdFromPath(model.uri.path), code);
+			});
 
 			for (const buffer of buffers) ensureWorkspaceModel(monaco, buffer);
 			const initialModel = getWorkspaceModel(monaco, activeBufferId) ?? getWorkspaceModels(monaco)[0] ?? null;

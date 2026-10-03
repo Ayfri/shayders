@@ -15,6 +15,7 @@
 	interface Props {
 		value: string;
 		errors?: string;
+		onPreview?: (bufferId: string, code: string) => void;
 		onRun?: () => void;
 		uniforms: UniformDescriptor[];
 		uniformValues?: Record<string, string>;
@@ -40,6 +41,7 @@
 	let {
 		value = $bindable(),
 		errors = '',
+		onPreview,
 		onRun,
 		uniforms,
 		uniformValues = {},
@@ -357,7 +359,7 @@
 		{#if channelsOpen}
 			<ChannelsPanel {channels} {onChannelChange} {buffers} {thumbnails} />
 		{/if}
-		<GlslEditor bind:value {buffers} {activeBufferId} {errors} {onRun} onBufferFocus={onTabChange} />
+		<GlslEditor bind:value {buffers} {activeBufferId} {errors} {onPreview} {onRun} onBufferFocus={onTabChange} />
 		<BuiltinsPanel {uniforms} values={uniformValues} {presentNames} onToggle={onToggleUniform} bind:open={panelOpen} />
 	</div>
 {/if}

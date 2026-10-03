@@ -10,11 +10,15 @@ function formatFloat(value: number): string {
 	return text.includes('.') ? text : `${text}.0`;
 }
 
+export type ColorPreviewListener = (model: Monaco.editor.ITextModel, code: string) => void;
+
 /**
  * Shows a swatch and a color picker next to `vec3(r, g, b)` and `vec4(r, g, b, a)` literals whose components are all in [0, 1].
+ * Monaco only writes the picked color on mouse up but asks for presentations on every drag move, `onPreview` gets the source
+ * with the dragged color so far, editing the model mid-drag would close the picker.
  * @example vec3(1.0, 0.5, 0.2) gets an orange swatch, picking a color rewrites the literal in place.
  */
-export function registerColorProvider(monaco: typeof Monaco): Monaco.IDisposable {
+export function registerColorProvider(monaco: typeof Monaco, onPreview?: ColorPreviewListener): Monaco.IDisposable {
 	return monaco.languages.registerColorProvider('glsl', {
 		provideDocumentColors(model) {
 			const colors: Monaco.languages.IColorInformation[] = [];
@@ -35,7 +39,14 @@ export function registerColorProvider(monaco: typeof Monaco): Monaco.IDisposable
 		provideColorPresentations(model, { color, range }) {
 			const isVec4 = /^vec4/.test(model.getValueInRange(range));
 			const parts = [color.red, color.green, color.blue, ...(isVec4 ? [color.alpha] : [])].map(formatFloat);
-			return [{ label: `vec${parts.length}(${parts.join(', ')})` }];
+			const label = `vec${parts.length}(${parts.join(', ')})`;
+			if (onPreview) {
+				const code = model.getValue();
+				const start = model.getOffsetAt({ column: range.startColumn, lineNumber: range.startLineNumber });
+				const end = model.getOffsetAt({ column: range.endColumn, lineNumber: range.endLineNumber });
+				onPreview(model, code.slice(0, start) + label + code.slice(end));
+			}
+			return [{ label }];
 		},
 	});
 }

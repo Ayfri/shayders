@@ -178,6 +178,12 @@
 		run();
 	}
 
+	/** Colors in globals or `const` need a compile, the runtime keeps one in flight per buffer so a drag stays responsive. */
+	function previewCode(bufferId: string, code: string) {
+		const preview = withLatestBufferCode(buffersWithLatestCode(), bufferId, code);
+		if (!shaderCanvas?.hotUpdate(preview)) shaderCanvas?.run(false, preview);
+	}
+
 	function rebuild() {
 		buffers = buffersWithLatestCode();
 		shaderCanvas?.run(false);
@@ -338,6 +344,7 @@
 	<EditorPanel
 		bind:value={editorValue}
 		errors={error}
+		onPreview={previewCode}
 		onRun={run}
 		uniforms={uniformCatalog}
 		{uniformValues}
