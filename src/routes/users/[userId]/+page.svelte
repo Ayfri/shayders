@@ -35,7 +35,7 @@
 	const isOwner = $derived(data.isOwner);
 	const displayName = $derived(isOwner ? (auth.user?.name ?? data.profileUser.name) : data.profileUser.name);
 	const isVerified = $derived(auth.user?.verified ?? data.profileUser.verified);
-	const ownerAvatarUrl = $derived(isOwner ? (auth.user && getAvatarUrl(auth.user)) || data.profileUser.avatarUrl : null);
+	const avatarUrl = $derived((isOwner && auth.user && getAvatarUrl(auth.user)) || data.profileUser.avatarUrl);
 
 	const title = $derived(`${displayName}'s Shaders - Shayders`);
 	const description = $derived(`Explore GLSL shader creations by ${displayName}. ${data.shaders.length} public shader${data.shaders.length !== 1 ? 's' : ''} available.`);
@@ -152,8 +152,8 @@
 		<div class="mb-8 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
 			<div class="flex items-start gap-4">
 				<div class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-panel">
-					{#if ownerAvatarUrl}
-						<img src={ownerAvatarUrl} alt="Avatar" class="h-full w-full object-cover" />
+					{#if avatarUrl}
+						<img src={avatarUrl} alt="{displayName}'s avatar" class="h-full w-full object-cover" />
 					{:else}
 						<User size={26} class="text-muted" />
 					{/if}
