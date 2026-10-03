@@ -277,8 +277,12 @@
 		else await document.exitFullscreen();
 	}
 
-	export function run(resetTime = true): void {
-		runtime.run(resetTime);
+	export function run(resetTime = true, sourceBuffers = buffers): void {
+		runtime.run(resetTime, sourceBuffers);
+	}
+
+	export function hotUpdate(nextBuffers: ShaderBuffer[]): boolean {
+		return runtime.hotUpdate(nextBuffers);
 	}
 
 	$effect(() => {

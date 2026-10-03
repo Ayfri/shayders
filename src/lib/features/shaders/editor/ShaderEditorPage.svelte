@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { auth, SessionExpiredError, throwIfAuthenticatedApiError } from '#features/auth/auth-client.svelte.js';
 	import EditorPanel from '#features/shaders/editor/EditorPanel.svelte';
@@ -177,10 +178,19 @@
 		run();
 	}
 
-	/** Debounced recompile on every edit, the effect cleanup cancels the pending run. */
+	function rebuild() {
+		buffers = buffersWithLatestCode();
+		shaderCanvas?.run(false);
+	}
+
+	/**
+	 * Literal-only edits (colors, numbers) hot-swap on the keystroke, structural ones compile after a short typing pause.
+	 * Hot swaps still get a constant-folded rebuild once the edits settle.
+	 */
 	$effect(() => {
 		void editorValue;
-		const timer = window.setTimeout(run, 800);
+		const hot = untrack(() => shaderCanvas?.hotUpdate(buffersWithLatestCode())) ?? false;
+		const timer = window.setTimeout(rebuild, hot ? 1000 : 250);
 		if (_firstCompile) _firstCompile = false;
 		else isDirty = true;
 		return () => window.clearTimeout(timer);

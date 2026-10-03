@@ -2,18 +2,21 @@ import { THUMB_SIZE } from '#features/shaders/model/shader-domain.js';
 import type { ChannelEntry, ShaderBuffer } from '#features/shaders/model/shader-content.js';
 import { ChannelTextureManager } from './channel-textures.js';
 import {
-	buildBufferStates,
+	attachPingPong,
+	buildLocs,
 	buildProgram,
 	createFbo,
 	createQuadBuffer,
-	destroyBufferStates,
 	FLOAT_TEXTURE_TYPE,
 	type InternalBufState,
 	listUserBufferIds,
+	type ProgramLocs,
 	renderPasses,
 	resizeBufferTextures,
 	UNSIGNED_BYTE_TEXTURE_TYPE,
 } from './gl-utils.js';
+import { analyzeLiterals, LITERAL_UNIFORM, type LiteralLayout } from './literal-layout.js';
+import { ProgramCompiler } from './program-compiler.js';
 
 interface RuntimeOptions {
 	getBuffers: () => ShaderBuffer[];
@@ -29,11 +32,47 @@ interface RuntimeOptions {
 const THUMBNAIL_CAPTURE_INTERVAL_MS = 400;
 /** The uniform readout is for humans, refreshing it every frame only re-renders the panel 60 times a second. */
 const UNIFORM_READOUT_INTERVAL_MS = 100;
+/** Fragment uniform vectors kept free for user uniforms, channels and buffers when sizing the literal array. */
+const RESERVED_UNIFORM_VECTORS = 64;
+
+interface RealProgram {
+	layout: LiteralLayout;
+	locs: ProgramLocs;
+	program: WebGLProgram;
+}
+
+interface LiteralProgram {
+	key: string;
+	locs: ProgramLocs;
+	program: WebGLProgram;
+	values: WebGLUniformLocation | null;
+}
+
+/**
+ * A buffer pass drawing either its constant-folded `real` program or the `literal` variant fed new values through uniforms.
+ * Every shown or failed compile takes a sequence number so a slow compile never replaces a newer result.
+ */
+interface Pass extends InternalBufState {
+	/** Only one real compile runs per pass, newer sources wait in `queuedSource` so drags and typing never pile up compiles. */
+	compiling: boolean;
+	error: { message: string; seq: number; source: string } | null;
+	latestSource: string;
+	literal: LiteralProgram | null;
+	literalPendingKey: string;
+	queuedSource: string;
+	real: RealProgram | null;
+	requestedSource: string;
+	shownSeq: number;
+	shownSource: string;
+}
 
 export class ShaderCanvasRuntime {
 	private animationId = 0;
-	private readonly bufferStates = new Map<string, InternalBufState>();
+	private readonly passes = new Map<string, Pass>();
 	private readonly channelTextures: ChannelTextureManager;
+	private compiler: ProgramCompiler | null = null;
+	private compileSeq = 0;
+	private literalBudget = 0;
 	private thumbFbo: WebGLFramebuffer | null = null;
 	private thumbLocPosition = -1;
 	private thumbLocTex: WebGLUniformLocation | null = null;
@@ -83,7 +122,9 @@ export class ShaderCanvasRuntime {
 		this.resizeObserver?.disconnect();
 		this.resizeObserver = null;
 		this.channelTextures.destroy();
-		this.destroyBuffers();
+		for (const [id, pass] of this.passes) this.destroyPass(id, pass);
+		this.compiler?.destroy();
+		this.compiler = null;
 		if (!this.gl) return;
 		if (this.quadBuffer) this.gl.deleteBuffer(this.quadBuffer);
 		this.quadBuffer = null;
@@ -104,6 +145,8 @@ export class ShaderCanvasRuntime {
 			this.gl.getExtension('OES_texture_float_linear');
 			this.fboTexType = FLOAT_TEXTURE_TYPE;
 		}
+		this.compiler = new ProgramCompiler(this.gl);
+		this.literalBudget = this.gl.getParameter(this.gl.MAX_FRAGMENT_UNIFORM_VECTORS) - RESERVED_UNIFORM_VECTORS;
 
 		this.resizeObserver = new ResizeObserver(() => this.syncCanvasSize());
 		this.resizeObserver.observe(canvas);
@@ -112,51 +155,71 @@ export class ShaderCanvasRuntime {
 		this.run();
 	}
 
-	public run(resetTime = true): void {
-		if (!this.gl) return;
+	/**
+	 * Compiles every buffer whose source changed, the last working program stays on screen until its replacement links.
+	 * `resetTime` also restarts the clock and clears the feedback buffers.
+	 */
+	public run(resetTime = true, buffers = this.options.getBuffers()): void {
+		if (!this.gl || !this.compiler) return;
 
 		cancelAnimationFrame(this.animationId);
-		if (resetTime) this.startTime = Date.now();
-		this.frameCount = 0;
-		this.fps = 0;
-		this.lastFrameTime = 0;
-		this.lastUniformReadoutTime = 0;
-		this.fboHeight = 0;
-		this.fboWidth = 0;
-		this.thumbnailGenerationPending = false;
-		this.revokeThumbnailUrls();
-		for (const key of Object.keys(this.thumbnailCache)) delete this.thumbnailCache[key];
-		this.thumbnailCursor = 0;
-		this.options.updateError('');
-
-		const buffers = this.options.getBuffers();
-		const buildStart = performance.now();
-		const commonCode = buffers.find((buffer) => buffer.id === 'common')?.code ?? '';
-		const renderOrder = [...listUserBufferIds(buffers), 'image'];
-		const errors: string[] = [];
-
-		this.destroyBuffers();
-		const canvas = this.options.getCanvas();
-		const width = canvas?.width ?? 800;
-		const height = canvas?.height ?? 600;
-		const buildResult = buildBufferStates({
-			buffers,
-			commonCode,
-			fboTextureType: this.fboTexType,
-			gl: this.gl,
-			height,
-			renderOrder,
-			width,
-		});
-		errors.push(...buildResult.errors);
-		for (const [id, state] of buildResult.states.entries()) {
-			this.bufferStates.set(id, state);
+		if (resetTime) {
+			this.startTime = Date.now();
+			this.frameCount = 0;
+			this.fps = 0;
+			this.lastFrameTime = 0;
+			this.fboHeight = 0;
+			this.fboWidth = 0;
 		}
 
-		this.options.updateBuildTime(performance.now() - buildStart);
-		this.options.updateError(errors.join('\n'));
+		const renderOrder = [...listUserBufferIds(buffers), 'image'];
+		for (const [id, pass] of this.passes) {
+			if (!renderOrder.includes(id)) this.destroyPass(id, pass);
+		}
+		for (const id of renderOrder) {
+			const buffer = buffers.find((candidate) => candidate.id === id);
+			if (!buffer) continue;
+			const source = sourceOf(buffers, buffer);
+			const pass = this.passes.get(id) ?? this.createPass(id);
+			pass.latestSource = source;
+			if (pass.compiling) pass.queuedSource = source;
+			else if (pass.requestedSource !== source) void this.compileReal(id, pass, source, buffer.label);
+		}
+
+		this.publishErrors();
 		if (!this.quadBuffer) this.quadBuffer = createQuadBuffer(this.gl);
 		this.animationId = requestAnimationFrame(() => this.renderFrame());
+	}
+
+	/**
+	 * Applies edits touching only function-body float literals, comments or whitespace without compiling anything.
+	 * @returns false when some buffer needs a real compile.
+	 */
+	public hotUpdate(buffers: ShaderBuffer[]): boolean {
+		const start = performance.now();
+		let hot = true;
+		let swapped = false;
+		for (const [id, pass] of this.passes) {
+			const buffer = buffers.find((candidate) => candidate.id === id);
+			if (!buffer) {
+				hot = false;
+				continue;
+			}
+			const source = sourceOf(buffers, buffer);
+			const previous = pass.latestSource;
+			pass.latestSource = source;
+			if (source === pass.shownSource) {
+				if (previous !== source) pass.shownSeq = ++this.compileSeq;
+			} else if (source !== previous && this.applyHot(pass, source)) {
+				swapped = true;
+			} else {
+				hot = false;
+			}
+		}
+
+		if (swapped) this.options.updateBuildTime(performance.now() - start);
+		this.publishErrors();
+		return hot;
 	}
 
 	public setMouse(position: { x: number; y: number }): void {
@@ -172,6 +235,132 @@ export class ShaderCanvasRuntime {
 		if (this.gl) this.channelTextures.sync();
 	}
 
+	private applyHot(pass: Pass, source: string): boolean {
+		if (!this.gl) return false;
+		const layout = analyzeLiterals(source);
+		const { literal, real } = pass;
+		if (real && layout.key === real.layout.key && layout.values.every((value, index) => value === real.layout.values[index])) {
+			this.show(pass, real, source, ++this.compileSeq);
+			return true;
+		}
+		if (!literal || layout.key !== literal.key) return false;
+
+		this.gl.useProgram(literal.program);
+		if (literal.values) this.gl.uniform4fv(literal.values, layout.values);
+		this.show(pass, literal, source, ++this.compileSeq);
+		return true;
+	}
+
+	private async compileReal(id: string, pass: Pass, source: string, label: string): Promise<void> {
+		if (!this.gl || !this.compiler) return;
+		const { gl } = this;
+		pass.compiling = true;
+		pass.queuedSource = '';
+		pass.requestedSource = source;
+		const seq = ++this.compileSeq;
+		const start = performance.now();
+		const { error, program } = await this.compiler.compile(source);
+		pass.compiling = false;
+		const queued = pass.queuedSource;
+		if (queued && queued !== source && this.passes.get(id) === pass) void this.compileReal(id, pass, queued, label);
+		if (this.passes.get(id) !== pass || (source !== pass.latestSource && seq < pass.shownSeq)) {
+			if (program) gl.deleteProgram(program);
+			return;
+		}
+		if (!program) {
+			pass.error = { message: `[${label}] ${error}`, seq, source };
+			this.publishErrors();
+			return;
+		}
+
+		this.options.updateBuildTime(performance.now() - start);
+		if (pass.real) gl.deleteProgram(pass.real.program);
+		pass.real = { layout: analyzeLiterals(source), locs: buildLocs(gl, program), program };
+		this.show(pass, pass.real, source, seq);
+		this.publishErrors();
+
+		const { layout } = pass.real;
+		if (layout.vectorCount === 0 || layout.vectorCount > this.literalBudget) return;
+		if (layout.key !== pass.literal?.key && layout.key !== pass.literalPendingKey) void this.compileLiteral(id, pass, layout);
+	}
+
+	/** A failed literal variant only disables hot swaps for that structure, the real program already compiled fine. */
+	private async compileLiteral(id: string, pass: Pass, layout: LiteralLayout): Promise<void> {
+		if (!this.gl || !this.compiler) return;
+		const { gl } = this;
+		pass.literalPendingKey = layout.key;
+		const { program } = await this.compiler.compile(layout.patched);
+		if (pass.literalPendingKey === layout.key) pass.literalPendingKey = '';
+		if (!program) return;
+		/** The drawn literal program still matches the structure being edited. */
+		if (this.passes.get(id) !== pass || (pass.literal && pass.program === pass.literal.program)) {
+			gl.deleteProgram(program);
+			return;
+		}
+
+		const values = gl.getUniformLocation(program, LITERAL_UNIFORM);
+		gl.useProgram(program);
+		if (values) gl.uniform4fv(values, layout.values);
+		if (pass.literal) gl.deleteProgram(pass.literal.program);
+		pass.literal = { key: layout.key, locs: buildLocs(gl, program), program, values };
+		if (pass.latestSource !== pass.shownSource && this.applyHot(pass, pass.latestSource)) this.publishErrors();
+	}
+
+	private createPass(id: string): Pass {
+		const pass: Pass = {
+			compiling: false,
+			error: null,
+			fbo: [null, null],
+			latestSource: '',
+			literal: null,
+			literalPendingKey: '',
+			locs: null,
+			prevIdx: 0,
+			program: null,
+			queuedSource: '',
+			real: null,
+			requestedSource: '',
+			shownSeq: 0,
+			shownSource: '',
+			texture: [null, null],
+		};
+		const canvas = this.options.getCanvas();
+		if (this.gl && id !== 'image') {
+			attachPingPong(this.gl, pass, this.fboWidth || (canvas?.width ?? 800), this.fboHeight || (canvas?.height ?? 600), this.fboTexType);
+		}
+		this.passes.set(id, pass);
+		return pass;
+	}
+
+	private destroyPass(id: string, pass: Pass): void {
+		this.passes.delete(id);
+		const thumbnail = this.thumbnailCache[id];
+		if (thumbnail) URL.revokeObjectURL(thumbnail);
+		delete this.thumbnailCache[id];
+		if (!this.gl) return;
+		if (pass.real) this.gl.deleteProgram(pass.real.program);
+		if (pass.literal) this.gl.deleteProgram(pass.literal.program);
+		for (const index of [0, 1] as const) {
+			if (pass.fbo[index]) this.gl.deleteFramebuffer(pass.fbo[index]);
+			if (pass.texture[index]) this.gl.deleteTexture(pass.texture[index]);
+		}
+	}
+
+	private publishErrors(): void {
+		const messages: string[] = [];
+		for (const { error, latestSource, shownSeq } of this.passes.values()) {
+			if (error && (error.source === latestSource || error.seq > shownSeq)) messages.push(error.message);
+		}
+		this.options.updateError(messages.join('\n'));
+	}
+
+	private show(pass: Pass, compiled: { locs: ProgramLocs; program: WebGLProgram }, source: string, seq: number): void {
+		pass.program = compiled.program;
+		pass.locs = compiled.locs;
+		pass.shownSource = source;
+		pass.shownSeq = Math.max(pass.shownSeq, seq);
+	}
+
 	private captureThumbnails(userOrder: string[]): void {
 		const canvas = this.options.getCanvas();
 		if (!this.gl || !canvas || userOrder.length === 0 || this.thumbnailGenerationPending || !this.options.getBufferPreviewsEnabled()) return;
@@ -179,7 +368,7 @@ export class ShaderCanvasRuntime {
 
 		const id = userOrder[this.thumbnailCursor % userOrder.length];
 		this.thumbnailCursor = (this.thumbnailCursor + 1) % userOrder.length;
-		const state = this.bufferStates.get(id);
+		const state = this.passes.get(id);
 		const sourceTexture = state?.texture[state?.prevIdx ?? 0] ?? null;
 		if (!sourceTexture) {
 			this.thumbnailGenerationPending = false;
@@ -293,21 +482,17 @@ void main() {
 		}
 	}
 
-	private destroyBuffers(): void {
-		if (!this.gl) return;
-		destroyBufferStates(this.gl, this.bufferStates);
-	}
-
 	private ensureFboSize(width: number, height: number): void {
 		if (!this.gl || (this.fboWidth === width && this.fboHeight === height)) return;
 		this.fboHeight = height;
 		this.fboWidth = width;
-		resizeBufferTextures(this.gl, this.bufferStates, width, height, this.fboTexType);
+		resizeBufferTextures(this.gl, this.passes, width, height, this.fboTexType);
 	}
 
 	private renderFrame(): void {
 		const canvas = this.options.getCanvas();
 		if (!this.gl || !canvas) return;
+		this.compiler?.poll();
 
 		const width = canvas.width;
 		const height = canvas.height;
@@ -337,7 +522,7 @@ void main() {
 		}
 
 		this.channelTextures.uploadVideoFrames();
-		renderPasses(this.gl, this.bufferStates, userOrder, this.channelTextures, this.quadBuffer, {
+		renderPasses(this.gl, this.passes, userOrder, this.channelTextures, this.quadBuffer, {
 			deltaTime,
 			elapsed,
 			fps: this.fps,
@@ -368,4 +553,9 @@ void main() {
 			canvas.width = width;
 		}
 	}
+}
+
+function sourceOf(buffers: ShaderBuffer[], buffer: ShaderBuffer): string {
+	const commonCode = buffers.find((candidate) => candidate.id === 'common')?.code ?? '';
+	return commonCode ? `${commonCode}\n${buffer.code}` : buffer.code;
 }

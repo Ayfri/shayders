@@ -55,7 +55,7 @@ interface BuildBufferStatesOutput {
 export const FLOAT_TEXTURE_TYPE = 0x1406;
 export const UNSIGNED_BYTE_TEXTURE_TYPE = 0x1401;
 
-const VERTEX_CODE =`attribute vec4 aPosition;
+export const VERTEX_CODE = `attribute vec4 aPosition;
 void main() {
 	gl_Position = aPosition;
 }`;
@@ -134,6 +134,15 @@ export function createFbo(
 	gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
 	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 	return { fbo, texture };
+}
+
+export function attachPingPong(gl: WebGLRenderingContext, state: InternalBufState, width: number, height: number, textureType: number): void {
+	for (const index of [0, 1] as const) {
+		const target = createFbo(gl, width, height, textureType);
+		if (!target) continue;
+		state.fbo[index] = target.fbo;
+		state.texture[index] = target.texture;
+	}
 }
 
 export function createQuadBuffer(gl: WebGLRenderingContext): WebGLBuffer | null {
@@ -280,19 +289,7 @@ export function buildBufferStates(input: BuildBufferStatesInput): BuildBufferSta
 			texture: [null, null],
 		};
 
-		if (id !== 'image') {
-			const first = createFbo(input.gl, input.width, input.height, input.fboTextureType);
-			const second = createFbo(input.gl, input.width, input.height, input.fboTextureType);
-			if (first) {
-				state.fbo[0] = first.fbo;
-				state.texture[0] = first.texture;
-			}
-			if (second) {
-				state.fbo[1] = second.fbo;
-				state.texture[1] = second.texture;
-			}
-		}
-
+		if (id !== 'image') attachPingPong(input.gl, state, input.width, input.height, input.fboTextureType);
 		states.set(id, state);
 	}
 
