@@ -20,12 +20,18 @@ interface ChannelTextureManagerOptions {
 
 export class ChannelTextureManager {
 	private readonly channelsById = new Map<number, ChannelTexState>();
+	private pendingLoads = 0;
 
 	public constructor(
 		private readonly getChannels: () => ChannelEntry[],
 		private readonly getGl: () => WebGLRenderingContext | null,
 		private readonly options: ChannelTextureManagerOptions = {},
 	) {}
+
+	/** True while an image or video channel still waits for its first decodable frame. */
+	public get loading(): boolean {
+		return this.pendingLoads > 0;
+	}
 
 	public bind(
 		locs: ChannelUniformLocs,
@@ -185,6 +191,7 @@ export class ChannelTextureManager {
 			this.options.onTextureLoad?.();
 		};
 		image.onerror = () => console.error('Failed to load image:', channel.url);
+		this.trackLoad(image, 'load');
 		image.src = channel.url;
 		this.initTexture(texture, minFilter, magFilter, wrapMode);
 		this.channelsById.set(channel.id, {
@@ -212,6 +219,7 @@ export class ChannelTextureManager {
 		videoEl.muted = true;
 		videoEl.playsInline = true;
 		videoEl.preload = 'auto';
+		this.trackLoad(videoEl, 'loadeddata');
 		videoEl.src = channel.url;
 		if (this.options.autoplayVideos !== false) {
 			videoEl.play().catch(() => {});
@@ -263,6 +271,17 @@ export class ChannelTextureManager {
 		const base = channel.type === 'webcam' ? 'webcam' : (channel.url ?? '');
 		if (!base) return '';
 		return `${base}|${channel.filter ?? 'linear'}|${channel.wrap ?? 'clamp'}|${channel.vflip ? '1' : '0'}`;
+	}
+
+	private trackLoad(element: HTMLImageElement | HTMLVideoElement, loadEvent: 'load' | 'loadeddata'): void {
+		this.pendingLoads += 1;
+		const controller = new AbortController();
+		const settle = () => {
+			this.pendingLoads -= 1;
+			controller.abort();
+		};
+		element.addEventListener(loadEvent, settle, { signal: controller.signal });
+		element.addEventListener('error', settle, { signal: controller.signal });
 	}
 
 	private initTexture(texture: WebGLTexture, minFilter: number, magFilter: number, wrapMode: number): void {
