@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { auth, SessionExpiredError } from '$features/auth/auth-client.svelte';
+	import { auth, SessionExpiredError } from '#features/auth/auth-client.svelte.js';
 	import {
 		createLocalChannelEntry,
 		createUploadedChannelEntry,
@@ -8,14 +8,14 @@
 		prepareChannelUpload,
 		type PreparedChannelUpload,
 		uploadPreparedChannelAsset,
-	} from '$features/shaders/assets/channel-upload';
-	import ChannelSlot from '$features/shaders/editor/ChannelSlot.svelte';
-	import { pb } from '$lib/pocketbase';
-	import { CHANNEL_SLOT_IDS, type ChannelEntry, type ShaderBuffer } from '$features/shaders/model/shader-content';
+	} from '#features/shaders/assets/channel-upload.js';
+	import ChannelSlot from '#features/shaders/editor/ChannelSlot.svelte';
+	import { pb } from '#lib/pocketbase.js';
+	import { CHANNEL_SLOT_IDS, type ChannelEntry, type ShaderBuffer } from '#features/shaders/model/shader-content.js';
 	import {
 		formatBytes,
 		SHADER_FILE_ACCEPT,
-	} from '$features/shaders/assets/shader-asset-policy';
+	} from '#features/shaders/assets/shader-asset-policy.js';
 
 	interface Props {
 		buffers?: ShaderBuffer[];

@@ -1,16 +1,16 @@
 <script lang="ts">
-	import '$lib/layout.css';
+	import '#lib/layout.css';
 	import { VERSION } from '@sveltejs/kit';
-	import favicon from '$lib/assets/logo.png';
-	import { hydrateAuth } from '$features/auth/auth-client.svelte';
-	import Footer from '$layout/Footer.svelte';
-	import Header from '$layout/Header.svelte';
+	import favicon from '#lib/assets/logo.png';
+	import { hydrateAuth } from '#features/auth/auth-client.svelte.js';
+	import Footer from '#components/layout/Footer.svelte';
+	import Header from '#components/layout/Header.svelte';
 	import {
 		buildSiteUrl,
 		SITE_NAME,
 		SITE_SEARCH_URL_TEMPLATE,
 		SITE_URL,
-	} from '$lib/site';
+	} from '#lib/site.js';
 	import type { Snippet } from 'svelte';
 	import type { LayoutServerData } from './$types.js';
 

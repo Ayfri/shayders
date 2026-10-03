@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { CodeXml, Search, User } from '@lucide/svelte';
-	import SeoHead from '$lib/components/SeoHead.svelte';
-	import ShaderPreview from '$features/shaders/preview/ShaderPreview.svelte';
-	import { buildSearchHref } from '$features/search/search';
+	import SeoHead from '#components/SeoHead.svelte';
+	import ShaderPreview from '#features/shaders/preview/ShaderPreview.svelte';
+	import { buildSearchHref } from '#features/search/search.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();

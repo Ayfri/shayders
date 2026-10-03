@@ -1,4 +1,4 @@
-import { throwIfAuthenticatedApiError } from '$features/auth/auth-client.svelte';
+import { throwIfAuthenticatedApiError } from '#features/auth/auth-client.svelte.js';
 import type { BinaryChannelType, ChannelEntry } from '../model/shader-content';
 import { optimizeImageFileInWorker } from './image-optimizer';
 import {

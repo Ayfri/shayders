@@ -1,4 +1,4 @@
-import type { ShadersVisiblityOptions } from '$lib/pocketbase-types';
+import type { ShadersVisiblityOptions } from '#lib/pocketbase-types.js';
 
 interface ShaderState {
 	currentShaderId: string | null;

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { UserPlus } from '@lucide/svelte';
-	import SeoHead from '$lib/components/SeoHead.svelte';
+	import SeoHead from '#components/SeoHead.svelte';
 	import type { PageProps } from './$types';
 
 	let { form }: PageProps = $props();

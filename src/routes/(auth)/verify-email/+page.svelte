@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { MailCheck, RefreshCw } from '@lucide/svelte';
-	import SeoHead from '$lib/components/SeoHead.svelte';
+	import SeoHead from '#components/SeoHead.svelte';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();

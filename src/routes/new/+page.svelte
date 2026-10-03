@@ -1,6 +1,6 @@
 <script lang="ts">
-	import ShaderEditorPage from '$features/shaders/editor/ShaderEditorPage.svelte';
-	import SeoHead from '$lib/components/SeoHead.svelte';
+	import ShaderEditorPage from '#features/shaders/editor/ShaderEditorPage.svelte';
+	import SeoHead from '#components/SeoHead.svelte';
 </script>
 
 <SeoHead

@@ -1,5 +1,5 @@
-import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
-import { BUILTIN_FUNCTION_NAMES, BUILTIN_VARIABLE_NAMES } from '$lib/glsl/builtins';
+import type * as Monaco from 'monaco-editor/editor';
+import { BUILTIN_FUNCTION_NAMES, BUILTIN_VARIABLE_NAMES } from '#lib/glsl/builtins.js';
 
 // Shared type pattern reused across tokenizer rules (built-in types only)
 const T_BUILTIN = 'float|int|uint|bool|void|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234](?:x[234])?|sampler\\w*';
@@ -176,5 +176,3 @@ export function buildLanguage(extraTypes: string[] = [], uniforms: string[] = []
 		},
 	} satisfies Monaco.languages.IMonarchLanguage;
 }
-
-export const language = buildLanguage();

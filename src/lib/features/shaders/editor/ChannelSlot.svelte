@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Image, Layers, Upload, Video, Webcam, X } from '@lucide/svelte';
 	import { untrack } from 'svelte';
-	import type { ChannelEntry, ChannelFilter, ChannelWrap, ShaderBuffer } from '$features/shaders/model/shader-content';
+	import type { ChannelEntry, ChannelFilter, ChannelWrap, ShaderBuffer } from '#features/shaders/model/shader-content.js';
 
 	const CHANNEL_FILTER_OPTIONS = [
 		{ label: 'Linear', value: 'linear' },

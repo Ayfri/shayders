@@ -1,4 +1,4 @@
-import type { ChannelEntry, ShaderBuffer } from '$features/shaders/model/shader-content';
+import type { ChannelEntry, ShaderBuffer } from '#features/shaders/model/shader-content.js';
 
 interface ShaderMutationPayload {
 	buffers: ShaderBuffer[];

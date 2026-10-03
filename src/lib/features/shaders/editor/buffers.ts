@@ -1,6 +1,6 @@
-import { defaultBufferShader, defaultCommonCode, defaultImageShader } from '$features/shaders/model/default-shaders';
-import { BUFFER_UNIFORM_NAMES } from '$features/shaders/model/shader-domain';
-import { createEmptyChannels, type ChannelEntry, type ShaderBuffer } from '$features/shaders/model/shader-content';
+import { defaultBufferShader, defaultCommonCode, defaultImageShader } from '#features/shaders/model/default-shaders.js';
+import { BUFFER_UNIFORM_NAMES } from '#features/shaders/model/shader-domain.js';
+import { createEmptyChannels, type ChannelEntry, type ShaderBuffer } from '#features/shaders/model/shader-content.js';
 import { addUniformLine, removeUniformLine } from './uniforms';
 
 export const DEFAULT_IMAGE_BUFFER = {

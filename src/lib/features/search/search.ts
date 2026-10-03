@@ -1,5 +1,5 @@
-import type { ChannelEntry, ShaderBuffer } from '$features/shaders/model/shader-content';
-import { SITE_SEARCH_PATH } from '$lib/site';
+import type { ChannelEntry, ShaderBuffer } from '#features/shaders/model/shader-content.js';
+import { SITE_SEARCH_PATH } from '#lib/site.js';
 
 export const SEARCH_PAGE_SHADER_LIMIT = 24;
 export const SEARCH_PAGE_USER_LIMIT = 12;

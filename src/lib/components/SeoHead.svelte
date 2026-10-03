@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import logo from '$lib/assets/logo.png';
-	import { buildSiteUrl, SITE_NAME } from '$lib/site';
+	import logo from '#lib/assets/logo.png';
+	import { buildSiteUrl, SITE_NAME } from '#lib/site.js';
 
 	interface Props {
 		title: string;

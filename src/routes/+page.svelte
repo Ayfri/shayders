@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { ArrowRight, CodeXml } from '@lucide/svelte';
-	import ShaderPreview from '$features/shaders/preview/ShaderPreview.svelte';
-	import SeoHead from '$lib/components/SeoHead.svelte';
+	import ShaderPreview from '#features/shaders/preview/ShaderPreview.svelte';
+	import SeoHead from '#components/SeoHead.svelte';
 	import {
 		getShaderSortLabel,
 		SHADER_SORT_OPTIONS,
 		sortShaders,
 		type ShaderSort,
-	} from '$features/shaders/model/shader-list';
+	} from '#features/shaders/model/shader-list.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();

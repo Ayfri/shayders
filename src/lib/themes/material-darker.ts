@@ -1,4 +1,4 @@
-import type * as Monaco from 'monaco-editor/esm/vs/editor/editor.api.d.ts';
+import type * as Monaco from 'monaco-editor/editor';
 
 export function registerMaterialDarkerTheme(monaco: typeof Monaco) {
 	monaco.editor.defineTheme('material-darker', {

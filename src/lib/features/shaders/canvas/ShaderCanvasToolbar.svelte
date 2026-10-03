@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Camera, Circle, GitFork, Info, Square } from '@lucide/svelte';
-	import { auth } from '$features/auth/auth-client.svelte';
-	import { shaderState } from '$features/shaders/model/shader-state.svelte';
+	import { auth } from '#features/auth/auth-client.svelte.js';
+	import { shaderState } from '#features/shaders/model/shader-state.svelte.js';
 
 	interface Props {
 		authorId?: string;

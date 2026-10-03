@@ -1,5 +1,5 @@
 import type { RequestHandler } from '@sveltejs/kit';
-import { SITE_NAME, SITE_URL } from '$lib/site';
+import { SITE_NAME, SITE_URL } from '#lib/site.js';
 
 export const GET: RequestHandler = async () => {
 	const xml = `<?xml version="1.0" encoding="UTF-8"?>

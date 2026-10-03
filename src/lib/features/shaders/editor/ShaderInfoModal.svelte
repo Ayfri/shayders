@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Modal from '$ui/Modal.svelte';
-	import { shaderState } from '$features/shaders/model/shader-state.svelte';
+	import Modal from '#components/ui/Modal.svelte';
+	import { shaderState } from '#features/shaders/model/shader-state.svelte.js';
 	import { Globe, Link, Lock } from '@lucide/svelte';
-	import { ShadersVisiblityOptions } from '$lib/pocketbase-types';
+	import { ShadersVisiblityOptions } from '#lib/pocketbase-types.js';
 
 	interface Props {
 		open?: boolean;
