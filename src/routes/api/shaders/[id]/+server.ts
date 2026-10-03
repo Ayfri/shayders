@@ -1,32 +1,27 @@
-import { json } from '@sveltejs/kit';
+import { env, waitUntil } from 'cloudflare:workers';
 import type { RequestHandler } from './$types';
-import { extractStoredAssetKeys } from '$features/shaders/model/shader-content';
-import { authenticatePocketBaseRequest } from '$lib/server/pocketbase-auth';
-import { deleteR2Objects } from '$lib/server/r2';
+import { extractStoredAssetKeys } from '#features/shaders/model/shader-content.js';
+import type { ShadersResponse } from '#lib/pocketbase-types.js';
+import { authenticatePocketBaseRequest } from '#lib/server/pocketbase-auth.js';
+import { deleteR2Objects } from '#lib/server/r2.js';
 
-export const DELETE: RequestHandler = async ({ request, params, platform }) => {
-	const bucket = platform?.env.ASSETS_STORAGE;
-	if (!bucket) return json({ error: 'Storage unavailable.' }, { status: 503 });
-
+export const DELETE: RequestHandler = async ({ request, params }) => {
 	const { pb, user } = await authenticatePocketBaseRequest(request);
 
-	let shader;
+	let shader: ShadersResponse;
 	try {
 		shader = await pb.collection('shaders').getOne(params.id);
 	} catch {
-		return json({ error: 'Shader not found.' }, { status: 404 });
+		return Response.json({ error: 'Shader not found.' }, { status: 404 });
 	}
 
 	if (shader.user_id !== user.id) {
-		return json({ error: 'Unauthorized.' }, { status: 403 });
+		return Response.json({ error: 'Unauthorized.' }, { status: 403 });
 	}
 
 	const assetKeys = extractStoredAssetKeys(shader.content);
 	await pb.collection('shaders').delete(params.id);
+	waitUntil(deleteR2Objects(env.ASSETS_STORAGE, assetKeys).catch((err) => console.error('Failed to delete shader assets from R2:', err)));
 
-	deleteR2Objects(bucket, assetKeys).catch((err) => {
-		console.error('Failed to delete shader assets from R2:', err);
-	});
-
-	return json({ success: true });
-	};
+	return Response.json({ success: true });
+};

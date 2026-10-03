@@ -1,6 +1,6 @@
-import { error, json } from '@sveltejs/kit';
+import { env } from 'cloudflare:workers';
 import type { RequestHandler } from './$types';
-import { sumStoredAssetBytes } from '$features/shaders/model/shader-content';
+import { sumStoredAssetBytes } from '#features/shaders/model/shader-content.js';
 import {
 	SHADER_USER_QUOTA_BYTES,
 	createQuotaSummary,
@@ -9,68 +9,54 @@ import {
 	formatBytes,
 	getBinaryChannelTypeFromMime,
 	validateBinaryAssetMetadata,
-} from '$features/shaders/assets/shader-asset-policy';
-import { authenticatePocketBaseRequest } from '$lib/server/pocketbase-auth';
-import { putR2Asset } from '$lib/server/r2';
+} from '#features/shaders/assets/shader-asset-policy.js';
+import { authenticatePocketBaseRequest } from '#lib/server/pocketbase-auth.js';
+import { putR2Asset } from '#lib/server/r2.js';
 
-export const POST: RequestHandler = async ({ request, platform }) => {
-	const bucket = platform?.env.ASSETS_STORAGE;
-	if (!bucket) error(503, 'Storage unavailable.');
+function errorResponse(message: string): Response {
+	return Response.json({ error: message }, { status: 400 });
+}
 
+export const POST: RequestHandler = async ({ request }) => {
 	const { pb, user } = await authenticatePocketBaseRequest(request);
 
 	let formData: FormData;
 	try {
 		formData = await request.formData();
 	} catch {
-		return json({ error: 'Invalid upload payload.' }, { status: 400 });
-	}
-
-	let body: UploadUrlRequest;
-	try {
-		body = JSON.parse(formData.get('metadata') as string) as UploadUrlRequest;
-	} catch {
-		return json({ error: 'Invalid upload metadata.' }, { status: 400 });
+		return errorResponse('Invalid upload payload.');
 	}
 
 	const file = formData.get('file');
-	if (!(file instanceof File)) {
-		return json({ error: 'Missing file in upload payload.' }, { status: 400 });
+	if (!(file instanceof File)) return errorResponse('Missing file in upload payload.');
+
+	let body: UploadUrlRequest;
+	try {
+		/** The declared size is replaced by the real one, quota checks must never trust client metadata. */
+		body = { ...(JSON.parse(String(formData.get('metadata'))) as UploadUrlRequest), size: file.size };
+	} catch {
+		return errorResponse('Invalid upload metadata.');
 	}
 
 	const validationError = validateBinaryAssetMetadata(body);
-	if (validationError) {
-		return json({ error: validationError }, { status: 400 });
-	}
+	if (validationError) return errorResponse(validationError);
 
 	const kind = getBinaryChannelTypeFromMime(body.mime);
-	if (!kind) {
-		return json({ error: 'Unsupported asset type.' }, { status: 400 });
-	}
+	if (!kind) return errorResponse('Unsupported asset type.');
 
 	const ignoredKeys = new Set(body.replacingKey ? [body.replacingKey] : []);
 	const userShaders = await pb.collection('shaders').getFullList({
+		fields: 'content',
 		filter: pb.filter('user_id = {:userId}', { userId: user.id }),
 	});
-	const usedBytes = userShaders.reduce(
-		(total, shader) => total + sumStoredAssetBytes(shader.content, ignoredKeys),
-		0,
-	);
-
-	const nextUsedBytes = usedBytes + body.size;
+	const nextUsedBytes = userShaders.reduce((total, shader) => total + sumStoredAssetBytes(shader.content, ignoredKeys), body.size);
 	if (nextUsedBytes > SHADER_USER_QUOTA_BYTES) {
-		return json({
-			error: `Storage quota exceeded. Free accounts are limited to ${formatBytes(SHADER_USER_QUOTA_BYTES)}.`,
-		}, { status: 400 });
+		return errorResponse(`Storage quota exceeded. Free accounts are limited to ${formatBytes(SHADER_USER_QUOTA_BYTES)}.`);
 	}
 
-	const { key, publicUrl } = await putR2Asset(bucket, {
-		userId: user.id,
-		filename: body.filename,
-		mime: body.mime,
-	}, await file.arrayBuffer());
+	const { key, publicUrl } = await putR2Asset(env.ASSETS_STORAGE, { userId: user.id, filename: body.filename, mime: body.mime }, file);
 
-	const response: UploadUrlResponse = {
+	return Response.json({
 		asset: {
 			type: kind,
 			url: publicUrl,
@@ -83,8 +69,5 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			durationSeconds: body.durationSeconds ?? null,
 		},
 		quota: createQuotaSummary(nextUsedBytes),
-	};
-
-	return json(response);
+	} satisfies UploadUrlResponse);
 };
-
