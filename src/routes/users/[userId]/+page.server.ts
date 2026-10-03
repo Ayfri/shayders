@@ -1,11 +1,11 @@
 import { error } from '@sveltejs/kit';
-import { createPocketBase, getAvatarUrl } from '#lib/pocketbase.js';
+import { getAvatarUrl } from '#lib/pocketbase.js';
 import { countStoredAssets, deserializeShaderContent, hydrateChannels, sumStoredAssetBytes } from '#features/shaders/model/shader-content.js';
 import { getShaderListSort, normalizeShaderSort } from '#features/shaders/model/shader-list.js';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, params, url }) => {
-	const pb = createPocketBase();
+	const { pb } = locals;
 	const selectedSort = normalizeShaderSort(url.searchParams.get('sort'));
 	const profileUser = await pb.collection('users').getOne(params.userId).catch(() => error(404, 'User not found'));
 	const isOwner = locals.user?.id === profileUser.id;

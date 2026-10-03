@@ -5,11 +5,12 @@ import { createPocketBase } from '#lib/pocketbase.js';
 import type { UsersResponse } from '#lib/pocketbase-types.js';
 
 export const handle: Handle = async ({ event, resolve }) => {
+	const pb = createPocketBase();
+	event.locals.pb = pb;
 	event.locals.user = null;
 
 	const token = event.cookies.get(AUTH_COOKIE_NAME);
 	if (token) {
-		const pb = createPocketBase();
 		pb.authStore.save(token);
 
 		try {
@@ -17,6 +18,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 			setAuthCookie(event.cookies, authData.token);
 			event.locals.user = authData.record;
 		} catch {
+			pb.authStore.clear();
 			clearAuthCookie(event.cookies);
 		}
 	}

@@ -1,11 +1,10 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { createPocketBase } from '#lib/pocketbase.js';
 import type { ShadersResponse, UsersResponse } from '#lib/pocketbase-types.js';
 import { deserializeShaderContent, hydrateChannels } from '#features/shaders/model/shader-content.js';
 
 export const load: PageServerLoad = async ({ locals, params }) => {
-	const shader = await createPocketBase()
+	const shader = await locals.pb
 		.collection('shaders')
 		.getOne<ShadersResponse<unknown, { user_id?: UsersResponse }>>(params.id, { expand: 'user_id' })
 		.catch(() => error(404, 'Shader not found'));
