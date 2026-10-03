@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { LoaderCircle, Search, User } from '@lucide/svelte';
-	import ShaderPreview from '$features/shaders/preview/ShaderPreview.svelte';
+	import ShaderPreview from '#features/shaders/preview/ShaderPreview.svelte';
 	import {
 		buildSearchHref,
 		SEARCH_PREVIEW_MIN_QUERY_LENGTH,
@@ -168,7 +168,7 @@
 						{#each results.shaders as shader (shader.id)}
 							<a
 								href="/shader/{shader.id}"
-								class="grid grid-cols-[60px,1fr] gap-2.5 px-3 py-2.5 transition-colors hover:bg-panel"
+								class="grid grid-cols-[60px_1fr] gap-2.5 px-3 py-2.5 transition-colors hover:bg-panel"
 							>
 								<div class="h-12 overflow-hidden rounded-md border border-border bg-black">
 									{#if shader.buffers.length > 0}

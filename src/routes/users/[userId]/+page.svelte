@@ -11,22 +11,22 @@
 		Trash2,
 		User,
 	} from '@lucide/svelte';
-	import { auth, logout, requestVerification, throwIfAuthenticatedApiError } from '$features/auth/auth-client.svelte';
-	import EditProfileSection from '$features/profile/EditProfileSection.svelte';
-	import SeoHead from '$lib/components/SeoHead.svelte';
-	import ShaderPreview from '$features/shaders/preview/ShaderPreview.svelte';
-	import { pb } from '$lib/pocketbase';
+	import { auth, logout, requestVerification, throwIfAuthenticatedApiError } from '#features/auth/auth-client.svelte.js';
+	import EditProfileSection from '#features/profile/EditProfileSection.svelte';
+	import SeoHead from '#components/SeoHead.svelte';
+	import ShaderPreview from '#features/shaders/preview/ShaderPreview.svelte';
+	import { getAvatarUrl, pb } from '#lib/pocketbase.js';
 	import {
 		SHADER_IMAGE_MAX_BYTES,
 		SHADER_VIDEO_MAX_BYTES,
 		createQuotaSummary,
 		formatBytes,
-	} from '$features/shaders/assets/shader-asset-policy';
+	} from '#features/shaders/assets/shader-asset-policy.js';
 	import {
 		getShaderSortLabel,
 		SHADER_SORT_OPTIONS,
 		type ShaderSort,
-	} from '$features/shaders/model/shader-list';
+	} from '#features/shaders/model/shader-list.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -35,15 +35,7 @@
 	const isOwner = $derived(data.isOwner);
 	const displayName = $derived(isOwner ? (auth.user?.name ?? data.profileUser.name) : data.profileUser.name);
 	const isVerified = $derived(auth.user?.verified ?? data.profileUser.verified);
-	const ownerAvatarUrl = $derived(
-		isOwner
-			? (
-				auth.user?.avatar && auth.user?.id
-					? `${pb.baseURL}/api/files/users/${auth.user.id}/${auth.user.avatar}`
-					: data.profileUser.avatarUrl
-			)
-			: null
-	);
+	const ownerAvatarUrl = $derived(isOwner ? (auth.user && getAvatarUrl(auth.user)) || data.profileUser.avatarUrl : null);
 
 	const title = $derived(`${displayName}'s Shaders - Shayders`);
 	const description = $derived(`Explore GLSL shader creations by ${displayName}. ${data.shaders.length} public shader${data.shaders.length !== 1 ? 's' : ''} available.`);

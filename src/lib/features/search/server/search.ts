@@ -1,5 +1,5 @@
-import { PUBLIC_POCKETBASE_URL } from '$env/static/public';
-import type { ShadersResponse, TypedPocketBase, UsersResponse } from '$lib/pocketbase-types';
+import { createPocketBase, getAvatarUrl } from '#lib/pocketbase.js';
+import type { ShadersResponse, TypedPocketBase, UsersResponse } from '#lib/pocketbase-types.js';
 import {
 	SEARCH_PAGE_SHADER_LIMIT,
 	SEARCH_PAGE_USER_LIMIT,
@@ -7,10 +7,9 @@ import {
 	type SearchShaderMatch,
 	type SearchUserMatch,
 	type SiteSearchResults,
-} from '../search';
-import { deserializeShaderContent, hydrateChannels } from '$features/shaders/model/shader-content';
-import { getUserProfilePath } from '$lib/site';
-import PocketBase from 'pocketbase';
+} from '../search.js';
+import { deserializeShaderContent, hydrateChannels } from '#features/shaders/model/shader-content.js';
+import { getUserProfilePath } from '#lib/site.js';
 
 interface SearchSiteOptions {
 	shaderLimit?: number;
@@ -19,14 +18,7 @@ interface SearchSiteOptions {
 
 type ExpandedShader = ShadersResponse<unknown, { user_id?: UsersResponse }>;
 
-const searchCollator = new Intl.Collator('en-US', {
-	numeric: true,
-	sensitivity: 'base',
-});
-
-function createPocketBaseClient(): TypedPocketBase {
-	return new PocketBase(PUBLIC_POCKETBASE_URL) as TypedPocketBase;
-}
+const searchCollator = new Intl.Collator('en-US', { numeric: true, sensitivity: 'base' });
 
 function createEmptySearchResults(query: string | null | undefined): SiteSearchResults {
 	const normalized = normalizeSearchQuery(query);
@@ -53,10 +45,6 @@ function getUserDisplayName(user: Pick<UsersResponse, 'name' | 'username'> | nul
 	}
 
 	return 'Unknown';
-}
-
-function getUserAvatarUrl(pb: TypedPocketBase, user: Pick<UsersResponse, 'avatar' | 'id'>): string | null {
-	return user.avatar ? `${pb.baseURL}/api/files/users/${user.id}/${user.avatar}` : null;
 }
 
 function normalizeForRanking(value: string): string {
@@ -136,9 +124,9 @@ function compareShaders(left: SearchShaderMatch, right: SearchShaderMatch, norma
 	return searchCollator.compare(left.name, right.name);
 }
 
-function mapUser(pb: TypedPocketBase, user: UsersResponse): SearchUserMatch {
+function mapUser(user: UsersResponse): SearchUserMatch {
 	return {
-		avatarUrl: getUserAvatarUrl(pb, user),
+		avatarUrl: getAvatarUrl(user),
 		displayName: getUserDisplayName(user),
 		id: user.id,
 		profilePath: getUserProfilePath(user.id),
@@ -146,7 +134,7 @@ function mapUser(pb: TypedPocketBase, user: UsersResponse): SearchUserMatch {
 	};
 }
 
-function mapShader(pb: TypedPocketBase, shader: ExpandedShader): SearchShaderMatch {
+function mapShader(shader: ExpandedShader): SearchShaderMatch {
 	const author = shader.expand?.user_id;
 	const content = deserializeShaderContent(shader.content);
 
@@ -176,7 +164,7 @@ async function fetchUserMatches(pb: TypedPocketBase, query: string, limit: numbe
 async function fetchShaderMatches(pb: TypedPocketBase, query: string, limit: number) {
 	const fetchLimit = Math.max(limit * 3, 24);
 
-	return pb.collection('shaders').getList(1, fetchLimit, {
+	return pb.collection('shaders').getList<ExpandedShader>(1, fetchLimit, {
 		expand: 'user_id',
 		filter: pb.filter(
 			'visiblity = "public" && (name ~ {:query} || user_id.name ~ {:query})',
@@ -195,7 +183,7 @@ export async function searchSite(
 		return createEmptySearchResults(query);
 	}
 
-	const pb = createPocketBaseClient();
+	const pb = createPocketBase();
 	const shaderLimit = options.shaderLimit ?? SEARCH_PAGE_SHADER_LIMIT;
 	const userLimit = options.userLimit ?? SEARCH_PAGE_USER_LIMIT;
 	const rankingQuery = normalizeForRanking(normalizedQuery);
@@ -206,12 +194,11 @@ export async function searchSite(
 	]);
 
 	const shaders = shaderResponse.items
-		.map((shader) => mapShader(pb, shader as ExpandedShader))
+		.map(mapShader)
 		.sort((left, right) => compareShaders(left, right, rankingQuery))
 		.slice(0, shaderLimit);
-
 	const users = userResponse.items
-		.map((user) => mapUser(pb, user))
+		.map(mapUser)
 		.sort((left, right) => compareUsers(left, right, rankingQuery))
 		.slice(0, userLimit);
 

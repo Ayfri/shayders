@@ -45,7 +45,6 @@ export const SHADER_ASSET_LIMITS = {
 	videoMaxHeight: 1080,
 	videoMaxDurationSeconds: 30,
 	userQuotaBytes: 50 * 1024 * 1024,
-	uploadUrlTtlSeconds: 60 * 15,
 	imageCompressionOutputMime: 'image/webp',
 	imageCompressionScaleFactor: 0.85,
 	imageCompressionMinDimension: 256,
@@ -59,7 +58,6 @@ export const SHADER_VIDEO_MAX_WIDTH = SHADER_ASSET_LIMITS.videoMaxWidth;
 export const SHADER_VIDEO_MAX_HEIGHT = SHADER_ASSET_LIMITS.videoMaxHeight;
 export const SHADER_VIDEO_MAX_DURATION_SECONDS = SHADER_ASSET_LIMITS.videoMaxDurationSeconds;
 export const SHADER_USER_QUOTA_BYTES = SHADER_ASSET_LIMITS.userQuotaBytes;
-export const SHADER_UPLOAD_URL_TTL_SECONDS = SHADER_ASSET_LIMITS.uploadUrlTtlSeconds;
 export const SHADER_FILE_ACCEPT = 'image/*,video/*';
 
 export const ALLOWED_IMAGE_MIME_TYPES = new Set([
@@ -93,7 +91,7 @@ export function formatBytes(bytes: number): string {
 	}
 
 	return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
-	}
+}
 
 export function getBinaryChannelTypeFromMime(mime: string): BinaryChannelType | null {
 	if (ALLOWED_IMAGE_MIME_TYPES.has(mime)) {
@@ -105,7 +103,7 @@ export function getBinaryChannelTypeFromMime(mime: string): BinaryChannelType | 
 	}
 
 	return null;
-	}
+}
 
 export function createQuotaSummary(
 	usedBytes: number,
@@ -120,7 +118,7 @@ export function createQuotaSummary(
 			? Math.min(100, (normalizedUsedBytes / totalBytes) * 100)
 			: 0,
 	};
-	}
+}
 
 export function validateBinaryAssetMetadata(metadata: BinaryAssetMetadata): string | null {
 	const kind = getBinaryChannelTypeFromMime(metadata.mime);
@@ -165,4 +163,4 @@ export function validateBinaryAssetMetadata(metadata: BinaryAssetMetadata): stri
 	}
 
 	return null;
-	}
+}

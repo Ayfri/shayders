@@ -1,28 +1,6 @@
-import ImageUploadWorker from '$lib/workers/image-upload.worker?worker';
-import {
-	SHADER_IMAGE_MAX_BYTES,
-	SHADER_IMAGE_MAX_DIMENSION,
-} from './shader-asset-policy';
-
-interface OptimizeImageRequest {
-	file: File;
-	maxBytes: number;
-	maxDimension: number;
-}
-
-interface OptimizeImageSuccess {
-	ok: true;
-	file: File;
-	width: number;
-	height: number;
-}
-
-interface OptimizeImageFailure {
-	ok: false;
-	error: string;
-}
-
-type OptimizeImageResponse = OptimizeImageSuccess | OptimizeImageFailure;
+import ImageUploadWorker from '#lib/workers/image-upload.worker?worker';
+import type { OptimizeImageRequest, OptimizeImageResponse } from '#lib/workers/image-upload.worker.js';
+import { SHADER_IMAGE_MAX_BYTES, SHADER_IMAGE_MAX_DIMENSION } from './shader-asset-policy.js';
 
 export interface OptimizedImageFile {
 	file: File;
@@ -30,35 +8,22 @@ export interface OptimizedImageFile {
 	height: number;
 }
 
+/** Compresses an image off the main thread with a throwaway worker. */
 export function optimizeImageFileInWorker(file: File): Promise<OptimizedImageFile> {
 	return new Promise((resolve, reject) => {
 		const worker = new ImageUploadWorker();
-		const cleanup = () => worker.terminate();
 
-		worker.onmessage = (event: MessageEvent<OptimizeImageResponse>) => {
-			cleanup();
-			if (!event.data.ok) {
-				reject(new Error(event.data.error));
-				return;
-			}
-
-			resolve({
-				file: event.data.file,
-				width: event.data.width,
-				height: event.data.height,
-			});
+		worker.onmessage = ({ data }: MessageEvent<OptimizeImageResponse>) => {
+			worker.terminate();
+			if (data.ok) resolve({ file: data.file, width: data.width, height: data.height });
+			else reject(new Error(data.error));
 		};
 
 		worker.onerror = () => {
-			cleanup();
+			worker.terminate();
 			reject(new Error('Image optimization failed.'));
 		};
 
-		const request: OptimizeImageRequest = {
-			file,
-			maxBytes: SHADER_IMAGE_MAX_BYTES,
-			maxDimension: SHADER_IMAGE_MAX_DIMENSION,
-		};
-		worker.postMessage(request);
+		worker.postMessage({ file, maxBytes: SHADER_IMAGE_MAX_BYTES, maxDimension: SHADER_IMAGE_MAX_DIMENSION } satisfies OptimizeImageRequest);
 	});
 }

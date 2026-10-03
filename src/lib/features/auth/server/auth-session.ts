@@ -1,9 +1,6 @@
-import { dev } from '$app/environment';
+import { dev } from '$app/env';
 import type { Cookies } from '@sveltejs/kit';
-import { AUTH_COOKIE_NAME, type AuthUser } from '../auth-shared';
-import type { UsersResponse } from '$lib/pocketbase-types';
-
-const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+import { AUTH_COOKIE_MAX_AGE_SECONDS, AUTH_COOKIE_NAME } from '../auth-shared.js';
 
 export function clearAuthCookie(cookies: Cookies): void {
 	cookies.delete(AUTH_COOKIE_NAME, { path: '/' });
@@ -19,17 +16,7 @@ export function setAuthCookie(cookies: Cookies, token: string): void {
 	});
 }
 
-export function toAuthUser(user: UsersResponse | null): AuthUser | null {
-	if (!user) {
-		return null;
-	}
-
-	return {
-		avatar: user.avatar || null,
-		email: user.email,
-		id: user.id,
-		name: user.name ?? '',
-		username: user.username,
-		verified: user.verified ?? false,
-	};
+export function readFormField(formData: FormData, key: string): string {
+	const value = formData.get(key);
+	return typeof value === 'string' ? value.trim() : '';
 }

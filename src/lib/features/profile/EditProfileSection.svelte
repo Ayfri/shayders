@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { pb } from '$lib/pocketbase';
-	import { auth } from '$features/auth/auth-client.svelte';
+	import { getAvatarUrl, pb } from '#lib/pocketbase.js';
+	import { auth } from '#features/auth/auth-client.svelte.js';
 	import { Camera, Check, Eye, EyeOff, KeyRound, RefreshCw, User } from '@lucide/svelte';
 
 	interface Props {
@@ -29,11 +29,7 @@
 	let showOld = $state(false);
 	let showNew = $state(false);
 
-	const avatarUrl = $derived(
-		auth.user?.avatar
-			? `${pb.baseURL}/api/files/users/${auth.user.id}/${auth.user.avatar}`
-			: null
-	);
+	const avatarUrl = $derived(auth.user && getAvatarUrl(auth.user));
 
 	const inputCls = 'w-full bg-panel border border-border rounded px-3 py-1.5 text-sm text-foreground placeholder:text-subtle focus:outline-none focus:border-subtle';
 

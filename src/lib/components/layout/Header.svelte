@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { LogIn, LogOut, User, UserPlus } from '@lucide/svelte';
-	import type { AuthUser } from '$features/auth/auth-shared';
-	import { auth, logout } from '$features/auth/auth-client.svelte';
-	import logo from '$lib/assets/logo.png';
-	import SiteSearch from '$features/search/SiteSearch.svelte';
-	import { pb } from '$lib/pocketbase';
-	import { getUserProfilePath } from '$lib/site';
+	import type { AuthUser } from '#features/auth/auth-shared.js';
+	import { auth, logout } from '#features/auth/auth-client.svelte.js';
+	import logo from '#lib/assets/logo.png';
+	import SiteSearch from '#features/search/SiteSearch.svelte';
+	import { getAvatarUrl } from '#lib/pocketbase.js';
+	import { getUserProfilePath } from '#lib/site.js';
 
 	interface Props {
 		sessionUser?: AuthUser | null;
@@ -52,12 +52,8 @@
 							href={currentUser ? getUserProfilePath(currentUser.id) : '/'}
 							class="flex min-w-0 items-center gap-1.5 text-muted transition-colors hover:text-foreground"
 						>
-							{#if currentUser?.avatar}
-								<img
-									src={`${pb.baseURL}/api/files/users/${currentUser.id}/${currentUser.avatar}`}
-									alt=""
-									class="size-6 rounded-full object-cover"
-								/>
+							{#if currentUser && currentUser.avatar}
+								<img src={getAvatarUrl(currentUser)} alt="" class="size-6 rounded-full object-cover" />
 							{:else}
 								<User size={15} />
 							{/if}

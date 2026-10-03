@@ -1,29 +1,19 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import PocketBase from 'pocketbase';
-import { PUBLIC_POCKETBASE_URL } from '$env/static/public';
-import type { TypedPocketBase, ShadersResponse } from '$lib/pocketbase-types';
-import { deserializeShaderContent, hydrateChannels } from '$features/shaders/model/shader-content';
+import { createPocketBase } from '#lib/pocketbase.js';
+import type { ShadersResponse, UsersResponse } from '#lib/pocketbase-types.js';
+import { deserializeShaderContent, hydrateChannels } from '#features/shaders/model/shader-content.js';
 
 export const load: PageServerLoad = async ({ locals, params }) => {
-	const pb = new PocketBase(PUBLIC_POCKETBASE_URL) as TypedPocketBase;
+	const shader = await createPocketBase()
+		.collection('shaders')
+		.getOne<ShadersResponse<unknown, { user_id?: UsersResponse }>>(params.id, { expand: 'user_id' })
+		.catch(() => error(404, 'Shader not found'));
 
-	let shader: ShadersResponse;
-	try {
-		shader = await pb.collection('shaders').getOne(params.id, { expand: 'user_id' });
-	} catch {
-		error(404, 'Shader not found');
-	}
-
-	const content = deserializeShaderContent(shader.content);
 	const isOwner = locals.user?.id === shader.user_id;
-	const isPrivate = (shader.visiblity ?? 'public') === 'private';
-
-	if (isPrivate && !isOwner) {
-		return {
-			isOwner: false,
-			private: true as const,
-		};
+	const visiblity = shader.visiblity ?? 'public';
+	if (visiblity === 'private' && !isOwner) {
+		return { isOwner: false, private: true as const };
 	}
 
 	return {
@@ -33,12 +23,11 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 			id: shader.id,
 			name: shader.name,
 			description: shader.description ?? '',
-			buffers: content.buffers,
+			buffers: deserializeShaderContent(shader.content).buffers,
 			channels: hydrateChannels(shader.content),
-			user_id: shader.user_id,
-			visiblity: shader.visiblity ?? 'public',
+			visiblity,
 			authorId: shader.user_id,
-			authorName: ((shader.expand as any)?.user_id as any)?.name ?? 'Unknown',
+			authorName: shader.expand?.user_id?.name || 'Unknown',
 		},
 	};
 };

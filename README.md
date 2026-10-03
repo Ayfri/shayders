@@ -25,7 +25,7 @@ Access these uniforms in your shaders:
 
 ### 🖼️ Texture Channels
 - **4 texture channels** (uChannel0-uChannel3) for images and videos
-- Direct-to-R2 uploads for authenticated users with worker-based image optimization and client-side validation
+- Uploads to Cloudflare R2 for authenticated users, with worker-based image optimization and client-side validation
 - Support for PNG, JPG, GIF, WebP, AVIF, MP4, and WebM files
 - Automatic texture binding and sampling
 
@@ -61,19 +61,9 @@ Access these uniforms in your shaders:
 
 ### Environment Setup
 
-Make sure to configure these environment variables in your Cloudflare Workers environment:
+- `PUBLIC_POCKETBASE_URL` - Your PocketBase instance URL, declared in `src/env.ts`
 
-- `PUBLIC_POCKETBASE_URL` - Your PocketBase instance URL
-- Database connection settings for PocketBase
-
-For direct shader asset uploads through Cloudflare R2, add these variables as well:
-
-- `R2_ACCOUNT_ID` - Your Cloudflare account ID
-- `R2_ACCESS_KEY_ID` - R2 access key ID with write access to the bucket
-- `R2_SECRET_ACCESS_KEY` - Matching R2 secret access key
-- `R2_BUCKET_NAME` - Bucket that stores image and video shader assets
-- `R2_PUBLIC_BASE_URL` - Public asset domain or bucket domain served with CORS enabled
-- `R2_S3_ENDPOINT` - Optional override for the S3-compatible endpoint
+Shader assets live in the R2 bucket bound as `ASSETS_STORAGE` in `wrangler.toml`. Uploads go through `/api/upload-url` and files are served from the same origin by `/api/assets/*`, so the bucket needs neither public access nor CORS rules.
 
 ### R2 Asset Limits
 
@@ -82,27 +72,6 @@ The editor enforces these defaults for authenticated uploads:
 - Images: `2 MB` max, `2048x2048` max, optimized/compressed in a worker before upload
 - Videos: `10 MB` max, `1920x1080` max, `30 seconds` max
 - Per-user storage quota: `50 MB`
-
-### R2 Bucket CORS
-
-WebGL texture uploads require permissive cross-origin reads on the public asset domain. A working baseline for the R2 bucket is:
-
-```json
-[
-	{
-		"AllowedOrigins": [
-			"http://localhost:5173",
-			"https://shayders.example.com"
-		],
-		"AllowedMethods": ["GET", "HEAD", "PUT"],
-		"AllowedHeaders": ["*"],
-		"ExposeHeaders": ["ETag"],
-		"MaxAgeSeconds": 3600
-	}
-]
-```
-
-Use a dedicated public domain such as `assets.your-domain.com` for `R2_PUBLIC_BASE_URL`, and keep the bucket private except for that public asset route.
 
 ## License
 

@@ -202,7 +202,7 @@ function insertHeader(code: string, header: string): string {
 	return [prefix, header, suffix].filter(Boolean).join('\n\n');
 }
 
-function rewriteRepeatedPattern(code: string, pattern: RegExp, replacement: (...args: any[]) => string): string {
+function rewriteRepeatedPattern(code: string, pattern: RegExp, replacement: (match: string, ...groups: string[]) => string): string {
 	return transformCodeSegments(code, (segment) => {
 		let result = segment;
 		let previous = '';

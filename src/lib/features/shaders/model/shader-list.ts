@@ -3,10 +3,7 @@ interface ShaderSortable {
 	created: string;
 }
 
-const shaderNameCollator = new Intl.Collator('en-US', {
-	numeric: true,
-	sensitivity: 'base',
-});
+const shaderNameCollator = new Intl.Collator('en-US', { numeric: true, sensitivity: 'base' });
 
 export const SHADER_SORT_OPTIONS = [
 	{ value: 'newest', label: 'Newest', pocketBase: '-created,name' },
@@ -17,51 +14,37 @@ export const SHADER_SORT_OPTIONS = [
 
 export type ShaderSort = (typeof SHADER_SORT_OPTIONS)[number]['value'];
 
-export const DEFAULT_SHADER_SORT: ShaderSort = 'newest';
-export const SHADER_LIST_SORT = getShaderListSort(DEFAULT_SHADER_SORT);
-
-function compareByName(left: ShaderSortable, right: ShaderSortable) {
-	return shaderNameCollator.compare(left.name, right.name);
+function getSortOption(sort: ShaderSort) {
+	return SHADER_SORT_OPTIONS.find((option) => option.value === sort) ?? SHADER_SORT_OPTIONS[0];
 }
 
 export function normalizeShaderSort(value: string | null | undefined): ShaderSort {
-	return SHADER_SORT_OPTIONS.some((option) => option.value === value)
-		? (value as ShaderSort)
-		: DEFAULT_SHADER_SORT;
+	return SHADER_SORT_OPTIONS.find((option) => option.value === value)?.value ?? SHADER_SORT_OPTIONS[0].value;
 }
 
 export function getShaderListSort(sort: ShaderSort): string {
-	return SHADER_SORT_OPTIONS.find((option) => option.value === sort)?.pocketBase ?? SHADER_LIST_SORT;
+	return getSortOption(sort).pocketBase;
 }
 
 export function getShaderSortLabel(sort: ShaderSort): string {
-	return SHADER_SORT_OPTIONS.find((option) => option.value === sort)?.label ?? 'Newest';
+	return getSortOption(sort).label;
 }
 
+/** Re-sorts a server page with a numeric, case-insensitive collation that PocketBase's SQL ordering lacks. */
 export function sortShaders<T extends ShaderSortable>(shaders: readonly T[], sort: ShaderSort): T[] {
-	return [...shaders].sort((left, right) => {
+	const byName = (left: T, right: T) => shaderNameCollator.compare(left.name, right.name);
+	const byCreated = (left: T, right: T) => left.created.localeCompare(right.created);
+
+	return shaders.toSorted((left, right) => {
 		switch (sort) {
-			case 'oldest': {
-				const byCreated = left.created.localeCompare(right.created);
-				return byCreated !== 0 ? byCreated : compareByName(left, right);
-			}
-			case 'name-asc': {
-				const byName = compareByName(left, right);
-				return byName !== 0 ? byName : right.created.localeCompare(left.created);
-			}
-			case 'name-desc': {
-				const byName = compareByName(right, left);
-				return byName !== 0 ? byName : right.created.localeCompare(left.created);
-			}
+			case 'oldest':
+				return byCreated(left, right) || byName(left, right);
+			case 'name-asc':
+				return byName(left, right) || byCreated(right, left);
+			case 'name-desc':
+				return byName(right, left) || byCreated(right, left);
 			case 'newest':
-			default: {
-				const byCreated = right.created.localeCompare(left.created);
-				return byCreated !== 0 ? byCreated : compareByName(left, right);
-			}
+				return byCreated(right, left) || byName(left, right);
 		}
 	});
-}
-
-export function sortShadersByName<T extends ShaderSortable>(shaders: readonly T[]): T[] {
-	return sortShaders(shaders, 'name-asc');
 }
