@@ -1,16 +1,20 @@
 # Shayders
 
-A modern, web-based GLSL shader editor for creating and experimenting with fragment shaders in real-time. Built with SvelteKit, featuring multi-buffer rendering, texture channels, and community shader sharing.
+A modern, web-based GLSL shader editor for creating and experimenting with fragment shaders in real-time. Built with SvelteKit, featuring multipass rendering, texture channels, and community shader sharing.
 
 Check out the live demo: [shayders.ayfri.com](https://shayders.ayfri.com)
+
+![Shayders editor with a live sunset shader next to its GLSL code](static/screenshots/editor.webp)
+
+![Shayders home page with a live shader background](static/screenshots/home.webp)
 
 ## Features
 
 ### 🎨 Shader Editing
 - **Real-time GLSL editing** with Monaco Editor (same as VS Code)
-- **Syntax highlighting** and error detection for GLSL
-- **Multi-buffer rendering** - create complex effects with up to 4 render passes
-- **Live preview** with WebGL canvas
+- **GLSL tooling** - syntax highlighting, autocompletion, hover docs, inline errors and color pickers
+- **Multipass rendering** - up to 8 offscreen buffers (`uBufferA` to `uBufferH`) plus a shared `Common` tab
+- **Live preview** with WebGL canvas, screenshots and video recording
 
 ### 🎯 Built-in Uniforms
 Access these uniforms in your shaders:
@@ -22,25 +26,30 @@ Access these uniforms in your shaders:
 - `uMouse` (vec3) - Mouse position (x, y) and button state
 - `uResolution` (vec2) - Canvas resolution
 - `uTime` (float) - Current time in seconds
+- `uBufferA` to `uBufferH` (sampler2D) - Output of each offscreen buffer
 
 ### 🖼️ Texture Channels
-- **4 texture channels** (uChannel0-uChannel3) for images and videos
+- **4 texture channels** (`uChannel0` to `uChannel3`) for images, videos, webcam or another buffer
 - Uploads to Cloudflare R2 for authenticated users, with worker-based image optimization and client-side validation
 - Support for PNG, JPG, GIF, WebP, AVIF, MP4, and WebM files
 - Automatic texture binding and sampling
 
 ### 🌐 Community Features
-- **Shader sharing** - Publish and discover community shaders
+- **Shader sharing** - Publish, fork and discover community shaders
+- **Search** - Find shaders and creators
 - **User profiles** - View shaders by author
 - **Live previews** on shader cards
 - **Authentication** with email verification
+
+### 📱 Installable App
+- **PWA** - Install Shayders from the browser, with shortcuts to a new shader and to search
+- **Offline editor** - The home page and `/new` open offline once visited, app files are cached by a service worker
 
 ### 🚀 Performance
 - **WebGL optimized** rendering
 - **Thumbnail generation** for quick previews
 - **Efficient multi-pass** rendering pipeline
-- **Cloudflare Workers** deployment for global CDN
-
+- **Cloudflare Workers** deployment with edge-cached assets
 
 ## Technologies Used
 
@@ -54,10 +63,21 @@ Access these uniforms in your shaders:
 ### Key Components
 
 - **ShaderCanvas**: Handles WebGL rendering, uniform binding, and multi-buffer pipeline
-- **GlslEditor**: Monaco-based editor with GLSL syntax highlighting
+- **GlslEditor**: Monaco-based editor with GLSL language support
 - **ChannelsPanel**: Texture channel management
 - **BuiltinsPanel**: Uniform documentation and controls
 - **ShaderPreview**: Live thumbnail generation for shader cards
+
+## Development
+
+```sh
+bun install
+bun run dev
+```
+
+- `bun run check` type-checks the app, the service worker in `src/service-worker` has its own `tsconfig.json`
+- `bun run og-image` regenerates `static/og-image.png`
+- The service worker only runs on production builds (`bun run build` then `bun run preview`)
 
 ### Environment Setup
 
