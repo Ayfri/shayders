@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { LogIn, LogOut, User, UserPlus } from '@lucide/svelte';
+	import { afterNavigate, goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { LogOut, Plus, Search, User, X } from '@lucide/svelte';
 	import type { AuthUser } from '#features/auth/auth-shared.js';
 	import { auth, logout } from '#features/auth/auth-client.svelte.js';
 	import logo from '#lib/assets/logo.png';
@@ -14,77 +15,87 @@
 
 	let { sessionUser = null }: Props = $props();
 
+	let searchOpen = $state(false);
+
 	const currentUser = $derived(auth.user ?? sessionUser);
 	const isLoggedIn = $derived(currentUser !== null);
+	const isEditor = $derived(page.url.pathname === '/new');
+
+	afterNavigate(() => (searchOpen = false));
 
 	function handleLogout() {
 		logout();
 		goto('/login');
 	}
+
+	function focusInput(element: HTMLElement) {
+		element.querySelector('input')?.focus();
+	}
 </script>
 
 <header class="shrink-0 border-b border-border bg-surface">
-	<div class="px-4 py-1.5 sm:px-6">
-		<div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-			<div class="flex items-center gap-4 sm:gap-10">
-				<a href="/" class="flex items-center gap-2 font-semibold tracking-wide text-foreground transition-colors hover:text-white">
-					<img src={logo} alt="Shayders Logo" class="size-6" />
-					<span>Shayders</span>
-				</a>
-				<nav class="flex items-center gap-2 sm:gap-4">
-					<a
-						href="/new"
-						class="flex items-center gap-1.5 rounded px-5 py-1 text-foreground transition-colors hover:bg-panel"
-					>
-						New
-					</a>
-				</nav>
-			</div>
+	<div class="flex h-12 items-center gap-2 px-3 sm:gap-4 sm:px-6">
+		<a href="/" class="flex shrink-0 items-center gap-2 font-semibold tracking-wide text-foreground transition-colors hover:text-white">
+			<img src={logo} alt="Shayders Logo" class="size-6" />
+			<span class="hidden min-[400px]:inline">Shayders</span>
+		</a>
 
-			<div class="flex flex-col gap-12 sm:flex-row sm:items-center xl:flex-1 xl:justify-end">
-				<div class="w-full sm:max-w-xs xl:max-w-sm">
-					<SiteSearch />
-				</div>
+		<nav class="flex items-center gap-1 text-sm sm:ml-4">
+			<a href="/#gallery" class="hidden rounded-md px-3 py-1.5 text-muted transition-colors hover:bg-panel hover:text-foreground sm:block">Gallery</a>
+			<a
+				href="/new"
+				aria-current={isEditor ? 'page' : undefined}
+				class="flex items-center gap-1.5 rounded-md border px-2.5 py-1 transition-colors {isEditor ? 'border-cyan-400/60 bg-cyan-400/15 text-cyan-300' : 'border-cyan-400/30 text-cyan-300 hover:bg-cyan-400/10'}"
+			>
+				<Plus size={14} />
+				New<span class="hidden sm:inline">&nbsp;shader</span>
+			</a>
+		</nav>
 
-				<nav class="flex min-w-0 items-center gap-2 text-sm sm:shrink-0 sm:gap-4">
-					{#if isLoggedIn}
-						<a
-							href={currentUser ? getUserProfilePath(currentUser.id) : '/'}
-							class="flex min-w-0 items-center gap-1.5 text-muted transition-colors hover:text-foreground"
-						>
-							{#if currentUser && currentUser.avatar}
-								<img src={getAvatarUrl(currentUser)} alt="" class="size-6 rounded-full object-cover" />
-							{:else}
-								<User size={15} />
-							{/if}
-							<span class="truncate">{currentUser?.name || currentUser?.username}</span>
-						</a>
-						<button
-							onclick={handleLogout}
-							class="flex items-center gap-1.5 rounded border border-red-current/50 bg-red-950/30 px-2 py-1 text-red-400 transition-colors hover:text-red-300 cursor-pointer sm:px-3"
-						>
-							<LogOut size={14} />
-							Logout
-						</button>
-					{:else}
-						<a
-							href="/login"
-							class="flex items-center gap-1.5 rounded px-2 py-1 text-muted transition-colors hover:bg-panel hover:text-foreground sm:px-3"
-						>
-							<LogIn size={14} />
-							Login
-						</a>
-						<a
-							href="/signup"
-							class="flex items-center gap-1.5 rounded bg-panel px-2 py-1 text-cyan-300 transition-colors hover:bg-cyan-200/10 sm:px-3"
-						>
-							<UserPlus size={14} />
-							Sign up
-						</a>
-					{/if}
-				</nav>
-			</div>
+		<div class="ml-auto hidden w-full max-w-sm md:block">
+			<SiteSearch />
 		</div>
-	</div>
-</header>
 
+		<button
+			onclick={() => (searchOpen = !searchOpen)}
+			aria-label={searchOpen ? 'Close search' : 'Search'}
+			aria-expanded={searchOpen}
+			class="ml-auto flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted transition-colors hover:bg-panel hover:text-foreground md:hidden"
+		>
+			{#if searchOpen}<X size={16} />{:else}<Search size={16} />{/if}
+		</button>
+
+		<nav class="flex min-w-0 shrink-0 items-center gap-1 text-sm">
+			{#if isLoggedIn}
+				<a
+					href={currentUser ? getUserProfilePath(currentUser.id) : '/'}
+					class="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-muted transition-colors hover:bg-panel hover:text-foreground"
+				>
+					{#if currentUser && currentUser.avatar}
+						<img src={getAvatarUrl(currentUser)} alt="" class="size-6 rounded-full object-cover" />
+					{:else}
+						<span class="flex size-6 items-center justify-center rounded-full bg-panel"><User size={14} /></span>
+					{/if}
+					<span class="hidden max-w-32 truncate sm:inline">{currentUser?.name || currentUser?.username}</span>
+				</a>
+				<button
+					onclick={handleLogout}
+					aria-label="Logout"
+					title="Logout"
+					class="flex size-8 cursor-pointer items-center justify-center rounded-md text-muted transition-colors hover:bg-red-950/40 hover:text-red-400"
+				>
+					<LogOut size={15} />
+				</button>
+			{:else}
+				<a href="/login" class="rounded-md px-2.5 py-1 text-muted transition-colors hover:bg-panel hover:text-foreground">Login</a>
+				<a href="/signup" class="rounded-md bg-cyan-400 px-2.5 py-1 font-medium text-background transition-colors hover:bg-cyan-300">Sign up</a>
+			{/if}
+		</nav>
+	</div>
+
+	{#if searchOpen}
+		<div {@attach focusInput} class="border-t border-border px-3 py-2 md:hidden">
+			<SiteSearch />
+		</div>
+	{/if}
+</header>

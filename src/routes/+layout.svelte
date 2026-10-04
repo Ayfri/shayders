@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '#lib/layout.css';
 	import { VERSION } from '@sveltejs/kit';
+	import { page } from '$app/state';
 	import favicon from '#lib/assets/logo.png';
 	import { hydrateAuth } from '#features/auth/auth-client.svelte.js';
 	import Footer from '#components/layout/Footer.svelte';
@@ -54,7 +55,7 @@
 			description: SITE_DESCRIPTION,
 			featureList: [
 				'GLSL fragment shader editor with live WebGL preview',
-				'Multipass rendering with up to 4 offscreen buffers',
+				'Multipass rendering with up to 8 offscreen buffers',
 				'Image, video and webcam texture channels',
 				'Autocompletion, hover docs and inline errors for GLSL',
 				'Public shader gallery and creator profiles',
@@ -67,6 +68,8 @@
 
 	let { children, data }: Props = $props();
 	const sessionUser = $derived(data.sessionUser ?? null);
+	/** Editor pages fill the viewport, the footer scrolls with the content everywhere else. */
+	const showFooter = $derived(!['/new', '/shader/'].some((path) => page.url.pathname.startsWith(path)));
 
 	$effect(() => {
 		hydrateAuth(sessionUser);
@@ -94,11 +97,16 @@
 	</script>
 </svelte:head>
 
-<div class="flex flex-col h-screen">
+<div class="flex flex-col h-dvh">
 	<Header {sessionUser} />
-	<main class="flex-1 min-h-0 overflow-y-auto">
-		{@render children()}
+	<!-- `relative` keeps absolutely positioned descendants from growing the document, which would let anchor jumps scroll the header away. -->
+	<main class="relative flex-1 min-h-0 overflow-y-auto">
+		<div class={showFooter ? 'flex min-h-full flex-col' : 'h-full'}>
+			<div class={showFooter ? 'flex-1' : 'h-full'}>
+				{@render children()}
+			</div>
+			{#if showFooter}<Footer />{/if}
+		</div>
 	</main>
-	<Footer />
 </div>
 
