@@ -1,6 +1,5 @@
-<script lang="ts">
-	import { Image, ImageOff, Layers, Upload, Video, Webcam, X } from '@lucide/svelte';
-	import { untrack } from 'svelte';
+<script lang="ts" module>
+	import { Image, ImageOff, Layers, type LucideIcon, Upload, Video, Webcam, X } from '@lucide/svelte';
 	import type { ChannelEntry, ChannelFilter, ChannelWrap, ShaderBuffer } from '#features/shaders/model/shader-content.js';
 
 	const CHANNEL_FILTER_OPTIONS = [
@@ -14,16 +13,24 @@
 		{ label: 'Repeat', value: 'repeat' },
 	] as const satisfies readonly { label: string; value: ChannelWrap }[];
 
+	/** Live sources get the accent color, static files stay white. */
+	const TYPE_BADGES: Record<NonNullable<ChannelEntry['type']>, { icon: LucideIcon; live: boolean }> = {
+		buffer: { icon: Layers, live: true },
+		image: { icon: Image, live: false },
+		video: { icon: Video, live: false },
+		webcam: { icon: Webcam, live: true },
+	};
+</script>
+
+<script lang="ts">
 	interface Props {
 		accept: string;
 		assignableBuffers?: ShaderBuffer[];
 		channel: ChannelEntry | null;
-		fileInput?: HTMLInputElement | null;
 		id: number;
 		onAssignBuffer: (buffer: ShaderBuffer) => void;
 		onClear: () => void;
 		onFileChange: (event: Event) => void;
-		onOpenFilePicker: () => void;
 		onStartWebcam: () => void;
 		onUpdateChannel: (channel: ChannelEntry) => void;
 		thumbnails?: Record<string, string>;
@@ -36,12 +43,10 @@
 		accept,
 		assignableBuffers = [],
 		channel,
-		fileInput = $bindable(null),
 		id,
 		onAssignBuffer,
 		onClear,
 		onFileChange,
-		onOpenFilePicker,
 		onStartWebcam,
 		onUpdateChannel,
 		thumbnails = {},
@@ -52,59 +57,47 @@
 
 	/** Keyed by URL so picking a new file clears the error without any reset logic. */
 	let failedUrl = $state<string | null>(null);
+	let fileInput = $state<HTMLInputElement | null>(null);
 
-	function updateFilter(event: Event): void {
-		if (!channel) return;
-		untrack(() => {
-			onUpdateChannel({ ...channel, filter: (event.currentTarget as HTMLSelectElement).value as ChannelFilter });
-		});
-	}
+	const badge = $derived(channel?.type ? TYPE_BADGES[channel.type] : null);
 
-	function updateVflip(event: Event): void {
-		if (!channel) return;
-		untrack(() => {
-			onUpdateChannel({ ...channel, vflip: (event.currentTarget as HTMLInputElement).checked });
-		});
-	}
-
-	function updateWrap(event: Event): void {
-		if (!channel) return;
-		untrack(() => {
-			onUpdateChannel({ ...channel, wrap: (event.currentTarget as HTMLSelectElement).value as ChannelWrap });
-		});
+	function update(patch: Partial<ChannelEntry>): void {
+		if (channel) onUpdateChannel({ ...channel, ...patch });
 	}
 </script>
 
-{#snippet overlayIcon()}
-	{#if channel?.type === 'image'}
-		<div class="pointer-events-none absolute left-1 top-1 rounded bg-black/50 p-0.5 text-white">
-			<Image size={10} />
-		</div>
-	{:else if channel?.type === 'video'}
-		<div class="pointer-events-none absolute left-1 top-1 rounded bg-black/50 p-0.5 text-white">
-			<Video size={10} />
-		</div>
-	{:else if channel?.type === 'webcam'}
-		<div class="pointer-events-none absolute left-1 top-1 rounded bg-black/50 p-0.5 text-cyan-400">
-			<Webcam size={10} />
-		</div>
-	{:else if channel?.type === 'buffer'}
-		<div class="pointer-events-none absolute left-1 top-1 rounded bg-black/50 p-0.5 text-cyan-400">
-			<Layers size={10} />
-		</div>
-	{/if}
+{#snippet removeButton()}
+	<button type="button" onclick={onClear} class="shrink-0 p-0.5 text-subtle transition-colors hover:text-red-400" title="Remove channel" aria-label="Remove channel">
+		<X size={10} />
+	</button>
+{/snippet}
+
+{#snippet settingSelect(label: string, value: string, options: readonly { label: string; value: string }[], onchange: (value: string) => void)}
+	<div class="flex items-center gap-1">
+		<label for="{label.toLowerCase()}-{id}" class="w-12 text-xs text-subtle">{label}:</label>
+		<select
+			id="{label.toLowerCase()}-{id}"
+			{value}
+			onchange={(event) => onchange(event.currentTarget.value)}
+			class="flex-1 rounded border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
+		>
+			{#each options as option (option.value)}
+				<option value={option.value}>{option.label}</option>
+			{/each}
+		</select>
+	</div>
 {/snippet}
 
 <div class="flex flex-col gap-1">
 	<div class="flex items-center justify-between px-0.5">
-		<span class="font-mono text-xs font-semibold text-cyan-400/80">CH{id}</span>
+		<span class="font-mono text-xs font-semibold text-accent/80">CH{id}</span>
 		<span class="font-mono text-xs text-subtle">uChannel{id}</span>
 	</div>
 
 	<button
 		type="button"
-		class="group relative h-24 w-full cursor-pointer overflow-hidden rounded border border-border bg-background transition-colors hover:border-cyan-400/40"
-		onclick={onOpenFilePicker}
+		class="group relative h-24 w-full overflow-hidden rounded border border-border bg-background transition-colors hover:border-accent/40"
+		onclick={() => fileInput?.click()}
 	>
 		{#if (channel?.type === 'image' || channel?.type === 'video') && channel.url && failedUrl === channel.url}
 			<div class="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-red-400/80">
@@ -112,30 +105,23 @@
 				<span class="text-xs leading-tight">Couldn't load {channel.type}</span>
 			</div>
 		{:else if channel?.type === 'image' && channel.url}
-			<img src={channel.url} alt={channel.name ?? ''} onerror={() => (failedUrl = channel.url)} class="h-full w-full object-cover" style="transform: {channel.vflip ? 'scaleY(-1)' : ''};" />
+			<img src={channel.url} alt={channel.name ?? ''} onerror={() => (failedUrl = channel.url)} class={['h-full w-full object-cover', channel.vflip && '-scale-y-100']} />
 		{:else if channel?.type === 'video' && channel.url}
 			<video
 				src={channel.url}
 				onerror={() => (failedUrl = channel.url)}
 				autoplay
-				class="h-full w-full object-cover"
+				class={['h-full w-full object-cover', channel.vflip && '-scale-y-100']}
 				loop
 				muted
 				playsinline
-				style="transform: {channel.vflip ? 'scaleY(-1)' : ''};"
 			></video>
 		{:else if channel?.type === 'webcam'}
-			<video
-				bind:this={webcamVideo}
-				autoplay
-				class="h-full w-full object-cover"
-				muted
-				playsinline
-			></video>
+			<video bind:this={webcamVideo} autoplay class="h-full w-full object-cover" muted playsinline></video>
 		{:else if channel?.type === 'buffer' && channel.bufferId && thumbnails[channel.bufferId]}
 			<img src={thumbnails[channel.bufferId]} alt={channel.name ?? ''} class="h-full w-full object-cover" />
 		{:else if channel?.type === 'buffer'}
-			<div class="flex h-full flex-col items-center justify-center gap-1 text-cyan-400/60">
+			<div class="flex h-full flex-col items-center justify-center gap-1 text-accent/60">
 				<Layers size={13} />
 				<span class="text-xs leading-none">{channel.name ?? 'Buffer'}</span>
 			</div>
@@ -146,26 +132,26 @@
 			</div>
 		{/if}
 
-		{@render overlayIcon()}
+		{#if badge}
+			<div class={['pointer-events-none absolute left-1 top-1 rounded bg-black/50 p-0.5', badge.live ? 'text-accent' : 'text-white']}>
+				<badge.icon size={10} />
+			</div>
+		{/if}
 	</button>
 
 	<div class="flex min-h-4 items-center gap-1 px-0.5">
 		{#if channel?.type === 'webcam'}
-			<span class="flex-1 truncate text-xs text-cyan-400/70">Webcam</span>
-			<button type="button" onclick={onClear} class="shrink-0 cursor-pointer p-0.5 text-subtle transition-colors hover:text-red-400" title="Remove channel">
-				<X size={10} />
-			</button>
-			<button type="button" onclick={onStartWebcam} class="shrink-0 cursor-pointer p-1 text-cyan-400 transition-colors" title="Webcam active">
+			<span class="flex-1 truncate text-xs text-accent/70">Webcam</span>
+			{@render removeButton()}
+			<button type="button" onclick={onStartWebcam} class="shrink-0 p-1 text-accent transition-colors" title="Webcam active" aria-label="Restart webcam">
 				<Webcam size={14} />
 			</button>
 		{:else if channel?.name}
 			<span class="flex-1 truncate text-xs text-muted" title={channel.name}>{channel.name}</span>
-			<button type="button" onclick={onClear} class="shrink-0 cursor-pointer p-0.5 text-subtle transition-colors hover:text-red-400" title="Remove channel">
-				<X size={10} />
-			</button>
+			{@render removeButton()}
 		{:else}
 			<span class="text-xs text-subtle">-</span>
-			<button type="button" onclick={onStartWebcam} class="ml-auto shrink-0 cursor-pointer p-1 text-subtle transition-colors hover:text-cyan-400" title="Use webcam">
+			<button type="button" onclick={onStartWebcam} class="ml-auto shrink-0 p-1 text-subtle transition-colors hover:text-accent" title="Use webcam" aria-label="Use webcam">
 				<Webcam size={14} />
 			</button>
 		{/if}
@@ -174,44 +160,20 @@
 	{#if uploadError}
 		<p class="px-0.5 text-10 leading-relaxed text-red-400">{uploadError}</p>
 	{:else if uploadStatus}
-		<p class="px-0.5 text-10 leading-relaxed text-cyan-400">{uploadStatus}</p>
+		<p class="px-0.5 text-10 leading-relaxed text-accent">{uploadStatus}</p>
 	{/if}
 
 	{#if channel?.type && channel.type !== 'buffer'}
 		<div class="space-y-1 px-0.5 py-1">
-			<div class="flex items-center gap-1">
-				<label for="filter-{id}" class="w-12 text-xs text-subtle">Filter:</label>
-				<select
-					id="filter-{id}"
-					value={channel.filter ?? 'linear'}
-					onchange={updateFilter}
-					class="flex-1 cursor-pointer rounded border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
-				>
-					{#each CHANNEL_FILTER_OPTIONS as option (option.value)}
-						<option value={option.value}>{option.label}</option>
-					{/each}
-				</select>
-			</div>
-			<div class="flex items-center gap-1">
-				<label for="wrap-{id}" class="w-12 text-xs text-subtle">Wrap:</label>
-				<select
-					id="wrap-{id}"
-					value={channel.wrap ?? 'clamp'}
-					onchange={updateWrap}
-					class="flex-1 cursor-pointer rounded border border-border bg-background px-1.5 py-0.5 text-xs text-foreground"
-				>
-					{#each CHANNEL_WRAP_OPTIONS as option (option.value)}
-						<option value={option.value}>{option.label}</option>
-					{/each}
-				</select>
-			</div>
-			<label for="vflip-{id}" class="flex cursor-pointer items-center gap-2 text-xs text-subtle">
+			{@render settingSelect('Filter', channel.filter ?? 'linear', CHANNEL_FILTER_OPTIONS, (value) => update({ filter: value as ChannelFilter }))}
+			{@render settingSelect('Wrap', channel.wrap ?? 'clamp', CHANNEL_WRAP_OPTIONS, (value) => update({ wrap: value as ChannelWrap }))}
+			<label for="vflip-{id}" class="flex items-center gap-2 text-xs text-subtle">
 				<input
 					id="vflip-{id}"
 					type="checkbox"
 					checked={channel.vflip ?? false}
-					onchange={updateVflip}
-					class="h-3 w-3 cursor-pointer rounded"
+					onchange={(event) => update({ vflip: event.currentTarget.checked })}
+					class="size-3 rounded"
 				/>
 				<span>Flip V</span>
 			</label>
@@ -225,13 +187,14 @@
 				<button
 					type="button"
 					onclick={() => onAssignBuffer(buffer)}
-					title={`Use ${buffer.label}`}
-					class="flex cursor-pointer items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-xs transition-colors {isSelected
-						? 'border-cyan-400/60 bg-cyan-400/15 text-cyan-400'
-						: 'border-border text-subtle hover:border-muted/40 hover:text-foreground'}"
+					title="Use {buffer.label}"
+					class={[
+						'flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-xs transition-colors',
+						isSelected ? 'border-accent/60 bg-accent/15 text-accent' : 'border-border text-subtle hover:border-muted/40 hover:text-foreground',
+					]}
 				>
 					{#if thumbnails[buffer.id]}
-						<img src={thumbnails[buffer.id]} alt="" class="h-3 rounded-sm object-cover" style="width:6px;" />
+						<img src={thumbnails[buffer.id]} alt="" class="h-3 w-1.5 rounded-sm object-cover" />
 					{:else}
 						<Layers size={9} />
 					{/if}
@@ -243,4 +206,3 @@
 
 	<input bind:this={fileInput} type="file" {accept} class="sr-only" onchange={onFileChange} />
 </div>
-

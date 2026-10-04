@@ -9,31 +9,19 @@
 		type PreparedChannelUpload,
 		uploadPreparedChannelAsset,
 	} from '#features/shaders/assets/channel-upload.js';
+	import { formatBytes, SHADER_FILE_ACCEPT } from '#features/shaders/assets/shader-asset-policy.js';
 	import ChannelSlot from '#features/shaders/editor/ChannelSlot.svelte';
-	import { pb } from '#lib/pocketbase.js';
 	import { CHANNEL_SLOT_IDS, type ChannelEntry, type ShaderBuffer } from '#features/shaders/model/shader-content.js';
-	import {
-		formatBytes,
-		SHADER_FILE_ACCEPT,
-	} from '#features/shaders/assets/shader-asset-policy.js';
+	import { pb } from '#lib/pocketbase.js';
 
 	interface Props {
 		buffers?: ShaderBuffer[];
 		channels: ChannelEntry[];
-		onChannelChange?: (ch: ChannelEntry) => void;
+		onChannelChange?: (channel: ChannelEntry) => void;
 		thumbnails?: Record<string, string>;
 	}
 
-	let { channels, onChannelChange, buffers = [], thumbnails = {} }: Props = $props();
-
-	const assignableBuffers = $derived.by(() => buffers.filter((buffer) => buffer.id !== 'common' && buffer.id !== 'image'));
-	const channelMap = $derived.by(() => new Map(channels.map((channel) => [channel.id, channel] as const)));
-
-	let fileInputs = $state<(HTMLInputElement | null)[]>(CHANNEL_SLOT_IDS.map(() => null));
-	let webcamVideos = $state<(HTMLVideoElement | null)[]>(CHANNEL_SLOT_IDS.map(() => null));
-	let webcamStreams = $state<(MediaStream | null)[]>(CHANNEL_SLOT_IDS.map(() => null));
-	let uploadErrors = $state.raw<Record<number, string>>({});
-	let uploadStatus = $state.raw<Record<number, string>>({});
+	let { buffers = [], channels, onChannelChange, thumbnails = {} }: Props = $props();
 
 	const EMPTY_BINARY_ASSET_FIELDS = {
 		durationSeconds: null,
@@ -44,55 +32,31 @@
 		width: null,
 	} as const satisfies Pick<ChannelEntry, 'durationSeconds' | 'height' | 'mime' | 'size' | 'storageKey' | 'width'>;
 
-	function keepChannelSettings(existing: ChannelEntry | undefined) {
-		return {
-			filter: existing?.filter,
-			wrap: existing?.wrap,
-			vflip: existing?.vflip,
-		};
+	const assignableBuffers = $derived(buffers.filter((buffer) => buffer.id !== 'common' && buffer.id !== 'image'));
+	const channelMap = $derived(new Map(channels.map((channel) => [channel.id, channel] as const)));
+
+	let webcamVideos = $state<(HTMLVideoElement | null)[]>(CHANNEL_SLOT_IDS.map(() => null));
+	let webcamStreams = $state<(MediaStream | null)[]>(CHANNEL_SLOT_IDS.map(() => null));
+	/** One message per slot, an upload status and an error never show together. */
+	let slotMessages = $state.raw<Record<number, { error: boolean; text: string }>>({});
+
+	/** Slots with a `getUserMedia` call in flight, the stream only lands once it resolves and a rerun in between would open a second one. */
+	const pendingWebcams = new Set<number>();
+	let destroyed = false;
+
+	function setMessage(id: number, text: string | null, error = false) {
+		const { [id]: _previous, ...rest } = slotMessages;
+		slotMessages = text ? { ...rest, [id]: { error, text } } : rest;
+	}
+
+	/** Clears a status after a delay, unless another message replaced it meanwhile. */
+	function expireMessage(id: number, delay = 2500) {
+		const message = slotMessages[id];
+		window.setTimeout(() => slotMessages[id] === message && setMessage(id, null), delay);
 	}
 
 	function revokeObjectUrl(url: string | null | undefined) {
-		if (url?.startsWith('blob:')) {
-			URL.revokeObjectURL(url);
-		}
-	}
-
-	function clearUploadError(id: number) {
-		uploadErrors = omitStatusEntry(uploadErrors, id);
-	}
-
-	function clearUploadStatus(id: number) {
-		uploadStatus = omitStatusEntry(uploadStatus, id);
-	}
-
-	function expireUploadStatus(id: number, delay = 2500) {
-		window.setTimeout(() => clearUploadStatus(id), delay);
-	}
-
-	function getChannel(id: number): ChannelEntry | undefined {
-		return channelMap.get(id);
-	}
-
-	function omitStatusEntry(source: Record<number, string>, id: number): Record<number, string> {
-		const next = { ...source };
-		delete next[id];
-		return next;
-	}
-
-	function resetChannelUi(id: number) {
-		clearUploadError(id);
-		clearUploadStatus(id);
-	}
-
-	function setUploadError(id: number, message: string) {
-		clearUploadStatus(id);
-		uploadErrors = { ...uploadErrors, [id]: message };
-	}
-
-	function setUploadStatus(id: number, message: string) {
-		clearUploadError(id);
-		uploadStatus = { ...uploadStatus, [id]: message };
+		if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
 	}
 
 	function stopWebcam(id: number) {
@@ -100,13 +64,34 @@
 		webcamStreams[id] = null;
 	}
 
+	/** Swaps a slot's channel, releasing the previous blob URL and webcam, sampler settings survive unless the slot is cleared. */
+	function replaceChannel(id: number, next: Pick<ChannelEntry, 'bufferId' | 'name' | 'type' | 'url'>) {
+		const existing = channelMap.get(id);
+		revokeObjectUrl(existing?.url);
+		stopWebcam(id);
+		setMessage(id, null);
+		const settings = next.type ? { filter: existing?.filter, vflip: existing?.vflip, wrap: existing?.wrap } : {};
+		onChannelChange?.({ ...EMPTY_BINARY_ASSET_FIELDS, ...settings, ...next, id });
+	}
+
+	function keepLocalPreview(id: number, existing: ChannelEntry | undefined, prepared: PreparedChannelUpload, message: string, delay: number) {
+		revokeObjectUrl(existing?.url);
+		onChannelChange?.(createLocalChannelEntry(id, existing, prepared, URL.createObjectURL(prepared.file)));
+		setMessage(id, message);
+		expireMessage(id, delay);
+	}
+
 	$effect(() => {
 		for (const id of CHANNEL_SLOT_IDS) {
-			if (getChannel(id)?.type === 'webcam' && !webcamStreams[id]) {
-				navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
-					.then((stream) => { webcamStreams[id] = stream; })
-					.catch((error) => console.error('Webcam access denied:', error));
-			}
+			if (channelMap.get(id)?.type !== 'webcam' || webcamStreams[id] || pendingWebcams.has(id)) continue;
+			pendingWebcams.add(id);
+			navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'user' } })
+				.then((stream) => {
+					if (destroyed || channelMap.get(id)?.type !== 'webcam') stream.getTracks().forEach((track) => track.stop());
+					else webcamStreams[id] = stream;
+				})
+				.catch((error) => console.error('Webcam access denied:', error))
+				.finally(() => pendingWebcams.delete(id));
 		}
 	});
 
@@ -121,126 +106,67 @@
 		}
 	});
 
-	function startWebcam(id: number) {
-		const existing = getChannel(id);
-		stopWebcam(id);
-		revokeObjectUrl(existing?.url);
-		resetChannelUi(id);
-		onChannelChange?.({
-			...EMPTY_BINARY_ASSET_FIELDS,
-			...keepChannelSettings(existing),
-			type: 'webcam',
-			bufferId: null,
-			id,
-			name: 'Webcam',
-			url: 'webcam',
-		});
-	}
+	$effect(() => () => {
+		destroyed = true;
+		CHANNEL_SLOT_IDS.forEach(stopWebcam);
+	});
 
-	async function handleFile(id: number, e: Event) {
-		const input = e.target as HTMLInputElement;
+	async function handleFile(id: number, event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
 		if (!file) return;
 
-		const existing = getChannel(id);
-		clearUploadError(id);
+		const existing = channelMap.get(id);
 		let prepared: PreparedChannelUpload | null = null;
 
 		try {
-			setUploadStatus(id, getPreparationStatusLabel(file));
+			setMessage(id, getPreparationStatusLabel(file));
 			prepared = await prepareChannelUpload(file);
-			if (auth.isLoggedIn) {
-				setUploadStatus(id, getUploadStatusLabel(prepared));
-				const upload = await uploadPreparedChannelAsset(
-					pb.authStore.token,
-					prepared,
-					existing?.storageKey,
-				);
-				revokeObjectUrl(existing?.url);
-				onChannelChange?.(createUploadedChannelEntry(id, existing, upload));
-				setUploadStatus(
-					id,
-					`Uploaded ${formatBytes(upload.asset.size)}. ${formatBytes(upload.quota.usedBytes)} / ${formatBytes(upload.quota.totalBytes)} used.`
-				);
-			} else {
-				revokeObjectUrl(existing?.url);
-				const url = URL.createObjectURL(prepared.file);
-				onChannelChange?.(createLocalChannelEntry(id, existing, prepared, url));
-				setUploadStatus(id, 'Local preview only. Log in to persist assets.');
-				expireUploadStatus(id, 4000);
+			if (!auth.isLoggedIn) {
+				keepLocalPreview(id, existing, prepared, 'Local preview only. Log in to persist assets.', 4000);
 				return;
 			}
-			expireUploadStatus(id);
+
+			setMessage(id, getUploadStatusLabel(prepared));
+			const upload = await uploadPreparedChannelAsset(pb.authStore.token, prepared, existing?.storageKey);
+			revokeObjectUrl(existing?.url);
+			onChannelChange?.(createUploadedChannelEntry(id, existing, upload));
+			setMessage(id, `Uploaded ${formatBytes(upload.asset.size)}. ${formatBytes(upload.quota.usedBytes)} / ${formatBytes(upload.quota.totalBytes)} used.`);
+			expireMessage(id);
 		} catch (err) {
 			if (err instanceof SessionExpiredError && prepared) {
-				revokeObjectUrl(existing?.url);
-				const url = URL.createObjectURL(prepared.file);
-				onChannelChange?.(createLocalChannelEntry(id, existing, prepared, url));
-				setUploadStatus(id, 'Session expired. Logged out. Asset kept as local preview only. Log in again to persist it.');
-				expireUploadStatus(id, 5000);
+				keepLocalPreview(id, existing, prepared, 'Session expired. Logged out. Asset kept as local preview only. Log in again to persist it.', 5000);
 			} else {
-				setUploadError(id, err instanceof Error ? err.message : 'Failed to process asset.');
+				setMessage(id, err instanceof Error ? err.message : 'Failed to process asset.', true);
 			}
 		} finally {
 			input.value = '';
 		}
 	}
-
-	function assignBuffer(id: number, buf: ShaderBuffer) {
-		const existing = getChannel(id);
-		revokeObjectUrl(existing?.url);
-		resetChannelUi(id);
-		onChannelChange?.({
-			...EMPTY_BINARY_ASSET_FIELDS,
-			...keepChannelSettings(existing),
-			type: 'buffer',
-			bufferId: buf.id,
-			id,
-			name: buf.label,
-			url: null,
-		});
-	}
-
-	function clearChannel(id: number) {
-		const ch = getChannel(id);
-		revokeObjectUrl(ch?.url);
-		stopWebcam(id);
-		resetChannelUi(id);
-		onChannelChange?.({
-			...EMPTY_BINARY_ASSET_FIELDS,
-			bufferId: null,
-			id,
-			name: null,
-			type: null,
-			url: null,
-		});
-	}
 </script>
 
-<div class="grid grid-cols-2 gap-2 p-3 bg-panel border-b border-border shrink-0 max-h-96 overflow-y-auto">
+<div class="grid max-h-96 shrink-0 grid-cols-2 gap-2 overflow-y-auto border-b border-border bg-panel p-3">
 	{#if !auth.isLoggedIn}
 		<div class="col-span-2 rounded border border-border bg-background/60 px-2 py-1.5 text-10 leading-relaxed text-muted">
 			Images are still optimized in a worker, but uploads stay local until you log in. Buffer and webcam channels still work normally.
 		</div>
 	{/if}
 	{#each CHANNEL_SLOT_IDS as id (id)}
+		{@const message = slotMessages[id]}
 		<ChannelSlot
 			accept={SHADER_FILE_ACCEPT}
-			assignableBuffers={assignableBuffers}
-			channel={getChannel(id) ?? null}
-			bind:fileInput={fileInputs[id]}
+			{assignableBuffers}
+			channel={channelMap.get(id) ?? null}
 			bind:webcamVideo={webcamVideos[id]}
 			{id}
-			onAssignBuffer={(buffer) => assignBuffer(id, buffer)}
-			onClear={() => clearChannel(id)}
+			onAssignBuffer={(buffer) => replaceChannel(id, { bufferId: buffer.id, name: buffer.label, type: 'buffer', url: null })}
+			onClear={() => replaceChannel(id, { bufferId: null, name: null, type: null, url: null })}
 			onFileChange={(event) => handleFile(id, event)}
-			onOpenFilePicker={() => fileInputs[id]?.click()}
-			onStartWebcam={() => startWebcam(id)}
+			onStartWebcam={() => replaceChannel(id, { bufferId: null, name: 'Webcam', type: 'webcam', url: 'webcam' })}
 			onUpdateChannel={(channel) => onChannelChange?.(channel)}
 			{thumbnails}
-			uploadError={uploadErrors[id]}
-			uploadStatus={uploadStatus[id]}
+			uploadError={message?.error ? message.text : ''}
+			uploadStatus={message && !message.error ? message.text : ''}
 		/>
 	{/each}
 </div>
-
