@@ -190,7 +190,6 @@ export class ChannelTextureManager {
 			this.updateTextureParams(texture, minFilter, magFilter, wrapMode);
 			this.options.onTextureLoad?.();
 		};
-		image.onerror = () => console.error('Failed to load image:', channel.url);
 		this.trackLoad(image, 'load');
 		image.src = channel.url;
 		this.initTexture(texture, minFilter, magFilter, wrapMode);

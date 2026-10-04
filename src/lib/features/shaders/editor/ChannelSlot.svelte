@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Image, Layers, Upload, Video, Webcam, X } from '@lucide/svelte';
+	import { Image, ImageOff, Layers, Upload, Video, Webcam, X } from '@lucide/svelte';
 	import { untrack } from 'svelte';
 	import type { ChannelEntry, ChannelFilter, ChannelWrap, ShaderBuffer } from '#features/shaders/model/shader-content.js';
 
@@ -49,6 +49,9 @@
 		uploadStatus = '',
 		webcamVideo = $bindable(null),
 	}: Props = $props();
+
+	/** Keyed by URL so picking a new file clears the error without any reset logic. */
+	let failedUrl = $state<string | null>(null);
 
 	function updateFilter(event: Event): void {
 		if (!channel) return;
@@ -103,11 +106,17 @@
 		class="group relative h-24 w-full cursor-pointer overflow-hidden rounded border border-border bg-background transition-colors hover:border-cyan-400/40"
 		onclick={onOpenFilePicker}
 	>
-		{#if channel?.type === 'image' && channel.url}
-			<img src={channel.url} alt={channel.name ?? ''} class="h-full w-full object-cover" style="transform: {channel.vflip ? 'scaleY(-1)' : ''};" />
+		{#if (channel?.type === 'image' || channel?.type === 'video') && channel.url && failedUrl === channel.url}
+			<div class="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-red-400/80">
+				<ImageOff size={13} />
+				<span class="text-xs leading-tight">Couldn't load {channel.type}</span>
+			</div>
+		{:else if channel?.type === 'image' && channel.url}
+			<img src={channel.url} alt={channel.name ?? ''} onerror={() => (failedUrl = channel.url)} class="h-full w-full object-cover" style="transform: {channel.vflip ? 'scaleY(-1)' : ''};" />
 		{:else if channel?.type === 'video' && channel.url}
 			<video
 				src={channel.url}
+				onerror={() => (failedUrl = channel.url)}
 				autoplay
 				class="h-full w-full object-cover"
 				loop
