@@ -3,7 +3,7 @@
 	import { editorSettings, settingsToMonaco } from '#features/shaders/editor/editor-settings.svelte.js';
 	import type { ShaderBuffer } from '#features/shaders/model/shader-content.js';
 	import { conf, language } from '#lib/glsl/language.js';
-	import { applyErrors, applyHints } from '#lib/glsl/markers.js';
+	import { applyErrors, applyLint } from '#lib/glsl/markers.js';
 	import { registerGlslProviders } from '#lib/glsl/providers.js';
 	import { registerMaterialDarkerTheme } from '#lib/themes/material-darker.js';
 
@@ -21,6 +21,7 @@
 
 	const ACTIVE_EDITOR_KEY = '__glslActiveEditor';
 	const ANALYSIS_DEBOUNCE_MS = 120;
+	const COMMON_BUFFER_ID = 'common';
 	const GOTO_POSITION_COMMAND_ID = '__glslGotoPosition';
 	const WORKSPACE_SCHEME = 'glsl-buffer';
 
@@ -48,11 +49,22 @@
 		return monaco.editor.getModel(uri) ?? monaco.editor.createModel(buffer.code, 'glsl', uri);
 	}
 
-	/** Refreshes unused-symbol hints across every buffer of the workspace. */
+	/** Lints every buffer, Common shares its scope with every pass and each pass only with Common. */
 	function refreshAnalysis(monaco: typeof Monaco): void {
 		const models = getWorkspaceModels(monaco);
-		const sources = models.map((model) => model.getValue());
-		for (const model of models) applyHints(monaco, model, sources);
+		const common = getWorkspaceModel(monaco, COMMON_BUFFER_ID);
+		for (const model of models) {
+			const shared = model === common ? models.filter((other) => other !== model) : common ? [common] : [];
+			applyLint(monaco, model, shared.map((other) => other.getValue()));
+		}
+	}
+
+	function refreshErrors(monaco: typeof Monaco): void {
+		const targets = buffers.flatMap((buffer) => {
+			const model = buffer.id === COMMON_BUFFER_ID ? null : getWorkspaceModel(monaco, buffer.id);
+			return model ? [{ label: buffer.label, model }] : [];
+		});
+		applyErrors(monaco, targets, getWorkspaceModel(monaco, COMMON_BUFFER_ID), errors);
 	}
 
 	function scheduleAnalysis(monaco: typeof Monaco): void {
@@ -117,6 +129,11 @@
 
 			disposables.push(
 				instance,
+				monaco.editor.addKeybindingRule({
+					command: 'editor.action.quickFix',
+					keybinding: monaco.KeyMod.Alt | monaco.KeyCode.Enter,
+					when: 'textInputFocus && !editorReadonly',
+				}),
 				instance.addAction({
 					id: 'glsl.toggleWordWrap',
 					keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyZ],
@@ -179,8 +196,7 @@
 
 			if (onRun) instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, onRun);
 
-			const model = instance.getModel();
-			if (model) applyErrors(monaco, model, errors);
+			refreshErrors(monaco);
 			refreshAnalysis(monaco);
 
 			monacoApi = monaco;
@@ -230,10 +246,10 @@
 		scheduleAnalysis(monaco);
 	});
 
+	/** `refreshErrors` reads `errors` and every buffer id and label, a new compile result or an added/renamed buffer reroutes the markers. */
 	$effect(() => {
 		const monaco = monacoApi;
-		const model = editor?.getModel();
-		if (monaco && model) applyErrors(monaco, model, errors);
+		if (monaco && editor) refreshErrors(monaco);
 	});
 
 	$effect(() => {

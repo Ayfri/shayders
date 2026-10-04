@@ -3,6 +3,7 @@ import { BUILTIN_DOCS, UNIFORM_DOCS } from '#lib/glsl/builtins.js';
 import { TYPE_DOCS, GLSL_TYPES, getSwizzles } from '#lib/glsl/types.js';
 import { GLSL_KEYWORDS, GLSL_PREPROCESSOR } from '#lib/glsl/keywords.js';
 import { analyzeModel, resolveType, resolveScopedType, type GlslDocument } from '#lib/glsl/analyze.js';
+import { registerCodeActions } from '#lib/glsl/code-actions.js';
 import { type ColorPreviewListener, registerColorProvider } from '#lib/glsl/color-provider.js';
 import { registerSemanticTokens } from '#lib/glsl/semantic-tokens.js';
 
@@ -23,6 +24,7 @@ export function registerGlslProviders(monaco: typeof Monaco, onColorPreview?: Co
 		registerInlayHints(monaco),
 		registerSemanticTokens(monaco),
 		registerColorProvider(monaco, onColorPreview),
+		registerCodeActions(monaco),
 	];
 }
 
