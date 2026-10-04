@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Camera, Circle, GitFork, Info, Square } from '@lucide/svelte';
 	import { auth } from '#features/auth/auth-client.svelte.js';
+	import { CanvasRecorder } from '#features/shaders/canvas/canvas-capture.svelte.js';
 	import { shaderState } from '#features/shaders/model/shader-state.svelte.js';
 
 	interface Props {
@@ -10,12 +11,10 @@
 		canRecordVideo?: boolean;
 		captureScreenshot: () => void;
 		isSavingLocally?: boolean;
-		isRecording?: boolean;
-		recordingElapsedMs?: number;
-		recordingLimitMs?: number;
 		onFork?: () => void;
 		onOpenInfo: () => void;
 		readonly?: boolean;
+		recorder: CanvasRecorder;
 		toggleRecording: () => void;
 		viewOnly?: boolean;
 	}
@@ -27,9 +26,7 @@
 		canRecordVideo = true,
 		captureScreenshot,
 		isSavingLocally = false,
-		isRecording = false,
-		recordingElapsedMs = 0,
-		recordingLimitMs = 0,
+		recorder,
 		onFork = undefined,
 		onOpenInfo,
 		readonly = false,
@@ -83,17 +80,17 @@
 	<button
 		onclick={toggleRecording}
 		disabled={!canRecordVideo}
-		aria-pressed={isRecording}
-		class={isRecording
+		aria-pressed={recorder.isRecording}
+		class={recorder.isRecording
 			? 'flex cursor-pointer shrink-0 items-center gap-1 rounded border border-red-500/50 bg-red-950/35 px-2 py-0.5 text-red-300 transition-colors hover:border-red-400 hover:text-red-200'
 			: 'flex cursor-pointer shrink-0 items-center gap-1 rounded border border-border bg-surface/70 px-2 py-0.5 text-muted transition-colors hover:border-red-500/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40'}
 		title={canRecordVideo
-			? isRecording
-				? `Stop recording at ${formatDuration(recordingElapsedMs)} / ${formatDuration(recordingLimitMs)}`
-				: 'Start video recording (5 minute limit)'
+			? recorder.isRecording
+				? `Stop recording at ${formatDuration(recorder.elapsedMs)} / ${formatDuration(CanvasRecorder.limitMs)}`
+				: `Start video recording (${CanvasRecorder.limitMs / 60_000} minute limit)`
 			: 'Video recording is not supported in this browser'}
 	>
-		{#if isRecording}
+		{#if recorder.isRecording}
 			<Square size={11} />
 			<span class="hidden sm:inline">Stop</span>
 		{:else}
@@ -101,10 +98,16 @@
 			<span class="hidden sm:inline">Record</span>
 		{/if}
 	</button>
+
+	{#if recorder.isRecording}
+		<span class="shrink-0 rounded border border-red-500/40 bg-red-950/25 px-2 py-1 font-mono text-10 text-red-300">
+			{formatDuration(recorder.elapsedMs)} / {formatDuration(CanvasRecorder.limitMs)}
+		</span>
+	{/if}
 {/snippet}
 
 <div class="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-panel px-2 py-1 text-xs text-muted sm:gap-3 sm:px-3 sm:py-2">
-	<span class={isRecording ? 'size-3 shrink-0 rounded-full bg-red-400 shadow-[0_0_0_4px_rgba(248,113,113,0.12)]' : 'size-3 shrink-0 rounded-full bg-green-400'}></span>
+	<span class={recorder.isRecording ?'size-3 shrink-0 rounded-full bg-red-400 shadow-[0_0_0_4px_rgba(248,113,113,0.12)]' : 'size-3 shrink-0 rounded-full bg-green-400'}></span>
 	<span class="hidden shrink-0 font-medium tracking-wider sm:inline">Preview</span>
 	<span class="shrink-0 text-muted-foreground">•</span>
 	<span class="shrink-0"><span class="hidden sm:inline">Build: </span>{buildTime.toFixed(2)}ms</span>
@@ -116,11 +119,6 @@
 	{:else if viewOnly}
 		<div class="ml-auto flex min-w-0 items-center gap-2">
 			{@render captureButtons()}
-			{#if isRecording}
-				<span class="rounded border border-red-500/40 bg-red-950/25 px-2 py-1 font-mono text-10 text-red-300">
-					{formatDuration(recordingElapsedMs)} / {formatDuration(recordingLimitMs)}
-				</span>
-			{/if}
 			<div class="flex shrink-0 items-center gap-1 text-xs text-muted">
 				{#if authorId && authorName}
 					<a href="/users/{authorId}" class="transition-colors hover:text-foreground">{authorName}</a>
@@ -136,11 +134,6 @@
 	{:else if !readonly && auth.isLoggedIn}
 		<div class="ml-auto flex min-w-0 items-center gap-2">
 			{@render captureButtons()}
-			{#if isRecording}
-				<span class="rounded border border-red-500/40 bg-red-950/25 px-2 py-1 font-mono text-10 text-red-300">
-					{formatDuration(recordingElapsedMs)} / {formatDuration(recordingLimitMs)}
-				</span>
-			{/if}
 			<div class="flex items-center gap-1">
 				{#if authorId && authorName && authorId !== auth.user?.id}
 					<a href="/users/{authorId}" class="text-xs text-muted transition-colors hover:text-foreground">{authorName}</a>

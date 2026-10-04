@@ -5,19 +5,10 @@
 	import { editorSettings } from '#features/shaders/editor/editor-settings.svelte.js';
 	import ShaderInfoModal from '#features/shaders/editor/ShaderInfoModal.svelte';
 	import { FULLSCREEN_TOGGLE_KEY } from '#features/shaders/model/shader-domain.js';
+	import { CanvasRecorder, captureFileName, downloadBlob } from '#features/shaders/canvas/canvas-capture.svelte.js';
 	import { ShaderCanvasRuntime } from '#features/shaders/canvas/runtime.js';
 	import { shaderState } from '#features/shaders/model/shader-state.svelte.js';
 	import type { ChannelEntry, ShaderBuffer } from '#features/shaders/model/shader-content.js';
-
-	const MAX_BITRATE = 48_000_000;
-	const MAX_RECORDING_DURATION_MS = 5 * 60 * 1000;
-	const RECORDING_FPS = 60;
-
-	const canRecordVideo =
-		typeof MediaRecorder !== 'undefined'
-		&& typeof HTMLCanvasElement !== 'undefined'
-		&& typeof HTMLCanvasElement.prototype.captureStream === 'function'
-		&& !!pickRecordingMimeType();
 
 	interface Props {
 		authorId?: string;
@@ -48,22 +39,15 @@
 	}: Props = $props();
 
 	let buildTime = $state(0);
+	/** Resolved on mount, SSR has no MediaRecorder to ask. */
+	let canRecordVideo = $state(false);
 	let infosOpen = $state(false);
 	let isFullscreen = $state(false);
 	let isHovered = $state(false);
-	let isRecording = $state(false);
-	let recordingElapsedMs = $state(0);
 	let canvas: HTMLCanvasElement | null = null;
 	let wrapper: HTMLDivElement | null = null;
 
-	let recordingRecorder: MediaRecorder | null = null;
-	let recordingStream: MediaStream | null = null;
-	let recordingTimerId: ReturnType<typeof setInterval> | null = null;
-	let recordingTimeoutId: ReturnType<typeof setTimeout> | null = null;
-	let recordingChunks: BlobPart[] = [];
-	let recordingStartedAt = 0;
-	let recordingShouldDownload = false;
-	let recordingMimeType = '';
+	const recorder = new CanvasRecorder();
 
 	const runtime = new ShaderCanvasRuntime({
 		getBuffers: () => buffers,
@@ -87,169 +71,14 @@
 			);
 	}
 
-	function clearRecordingTimers(): void {
-		if (recordingTimerId) {
-			clearInterval(recordingTimerId);
-			recordingTimerId = null;
-		}
-
-		if (recordingTimeoutId) {
-			clearTimeout(recordingTimeoutId);
-			recordingTimeoutId = null;
-		}
-	}
-
-	function createDownloadFileName(extension: string): string {
-		const safeName = (shaderState.name || 'shader')
-			.trim()
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-+|-+$/g, '') || 'shader';
-		const stamp = new Date().toISOString().replace(/[:]/g, '-').replace(/\..+$/, '');
-		return `${safeName}-${stamp}.${extension}`;
-	}
-
-	function downloadBlob(blob: Blob, fileName: string): void {
-		const url = URL.createObjectURL(blob);
-		const link = document.createElement('a');
-		link.href = url;
-		link.download = fileName;
-		link.rel = 'noopener';
-		link.click();
-		window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-	}
-
-	function pickRecordingMimeType(): string | undefined {
-		if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
-			return undefined;
-		}
-
-		const mimeTypes = [
-			'video/webm;codecs=vp8,opus',
-			'video/webm;codecs=vp9,opus',
-			'video/webm;codecs=vp9',
-			'video/webm;codecs=vp8',
-			'video/webm',
-		];
-
-		return mimeTypes.find((mimeType) => MediaRecorder.isTypeSupported(mimeType));
-	}
-
 	async function captureScreenshot(): Promise<void> {
-		const targetCanvas = canvas;
-		if (!targetCanvas) return;
-
-		const webpBlob = await new Promise<Blob | null>((resolve) => {
-			targetCanvas.toBlob((blob) => resolve(blob), 'image/webp', 0.95);
-		});
-
-		if (webpBlob) {
-			downloadBlob(webpBlob, createDownloadFileName('webp'));
-			return;
-		}
-
-		const pngBlob = await new Promise<Blob | null>((resolve) => {
-			targetCanvas.toBlob((blob) => resolve(blob), 'image/png');
-		});
-
-		if (pngBlob) {
-			downloadBlob(pngBlob, createDownloadFileName('png'));
-		}
-	}
-
-	function completeRecording(): void {
-		const shouldDownload = recordingShouldDownload;
-		const chunks = recordingChunks;
-		const mimeType = recordingRecorder?.mimeType || recordingMimeType || 'video/webm';
-		const stream = recordingStream;
-
-		recordingShouldDownload = false;
-		recordingRecorder = null;
-		recordingStream = null;
-		recordingChunks = [];
-		recordingMimeType = '';
-		recordingStartedAt = 0;
-		recordingElapsedMs = 0;
-		isRecording = false;
-		clearRecordingTimers();
-
-		if (stream) {
-			for (const track of stream.getTracks()) {
-				track.stop();
-			}
-		}
-
-		if (!shouldDownload || chunks.length === 0) {
-			return;
-		}
-
-		downloadBlob(new Blob(chunks, { type: mimeType }), createDownloadFileName('webm'));
-	}
-
-	function stopRecording(download = true): void {
-		if (!recordingRecorder) return;
-
-		recordingShouldDownload = download;
-		clearRecordingTimers();
-		recordingElapsedMs = Date.now() - recordingStartedAt;
-		isRecording = false;
-
-		if (recordingRecorder.state === 'inactive') {
-			completeRecording();
-			return;
-		}
-
-		try {
-			recordingRecorder.stop();
-		} catch {
-			completeRecording();
-		}
-	}
-
-	function startRecording(): void {
-		if (!canvas || !canRecordVideo || isRecording) return;
-
-		const stream = canvas.captureStream(RECORDING_FPS);
-		const mimeType = pickRecordingMimeType();
-		const recorder = mimeType
-			? new MediaRecorder(stream, { mimeType, videoBitsPerSecond: MAX_BITRATE })
-			: new MediaRecorder(stream, { videoBitsPerSecond: MAX_BITRATE });
-
-		recordingChunks = [];
-		recordingMimeType = recorder.mimeType || mimeType || 'video/webm';
-		recordingStream = stream;
-		recordingRecorder = recorder;
-		recordingShouldDownload = true;
-		recordingStartedAt = Date.now();
-		recordingElapsedMs = 0;
-		isRecording = true;
-
-		recorder.ondataavailable = (event) => {
-			if (event.data.size > 0) {
-				recordingChunks.push(event.data);
-			}
-		};
-
-		recorder.onstop = () => completeRecording();
-
-		recordingTimerId = setInterval(() => {
-			recordingElapsedMs = Date.now() - recordingStartedAt;
-		}, 250);
-
-		recordingTimeoutId = setTimeout(() => {
-			stopRecording(true);
-		}, MAX_RECORDING_DURATION_MS);
-
-		recorder.start(1000);
+		const blob = await runtime.captureFrame('image/webp', 0.95);
+		if (blob) downloadBlob(blob, captureFileName(shaderState.name, blob.type === 'image/webp' ? 'webp' : 'png'));
 	}
 
 	function toggleRecording(): void {
-		if (isRecording) {
-			stopRecording(true);
-			return;
-		}
-
-		startRecording();
+		if (recorder.isRecording) recorder.stop();
+		else if (canvas) recorder.start(canvas, (blob, extension) => downloadBlob(blob, captureFileName(shaderState.name, extension)));
 	}
 
 	function handleDocumentKeydown(event: KeyboardEvent): void {
@@ -292,9 +121,10 @@
 
 	onMount(() => {
 		if (!canvas) return;
+		canRecordVideo = CanvasRecorder.mimeType !== undefined;
 		runtime.mount(canvas);
 		return () => {
-			stopRecording(false);
+			recorder.stop(false);
 			runtime.destroy();
 		};
 	});
@@ -317,9 +147,7 @@
 			{canRecordVideo}
 			{captureScreenshot}
 			{isSavingLocally}
-			{isRecording}
-			{recordingElapsedMs}
-			recordingLimitMs={MAX_RECORDING_DURATION_MS}
+			{recorder}
 			{onFork}
 			onOpenInfo={() => (infosOpen = true)}
 			{readonly}
