@@ -79,7 +79,7 @@
 <svelte:head>
 	<meta name="application-name" content={SITE_NAME} />
 	<meta name="generator" content="SvelteKit {VERSION}" />
-	<meta name="theme-color" content="#1e1e1e" />
+	<meta name="theme-color" content="#1a1a1a" />
 	<link rel="canonical" href={buildSiteUrl(data.pathname)} />
 	<link rel="icon" type="image/png" href={favicon} />
 	<link rel="apple-touch-icon" sizes="400x400" href={favicon} />

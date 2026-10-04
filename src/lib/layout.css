@@ -7,6 +7,20 @@
 		color: var(--color-foreground);
 	}
 
+	/** Tailwind 4 dropped the pointer cursor on buttons, this restores it once instead of a `cursor-pointer` on every control. */
+	button:not(:disabled),
+	[role='button'],
+	[role='tab'],
+	select:not(:disabled),
+	input:is([type='checkbox'], [type='range']):not(:disabled),
+	label:has(> input[type='checkbox']) {
+		cursor: pointer;
+	}
+
+	:disabled {
+		cursor: not-allowed;
+	}
+
 	/** Chromium ignores the ::-webkit-scrollbar styles below as soon as `scrollbar-color` is set, so the standard properties are Firefox-only. */
 	@supports not selector(::-webkit-scrollbar) {
 		* {
@@ -37,7 +51,7 @@
 	}
 
 	::-webkit-scrollbar-thumb:active {
-		background-color: rgb(34 211 238 / 0.55);
+		background-color: color-mix(in oklab, var(--color-accent) 55%, transparent);
 	}
 }
 
@@ -49,6 +63,9 @@
 	--color-foreground: #eeffff;
 	--color-muted: #8aa5b2;
 	--color-subtle: #57666d;
+	/** Tailwind's cyan-400 and cyan-300. */
+	--color-accent: oklch(78.9% 0.154 211.53);
+	--color-accent-light: oklch(86.5% 0.127 207.078);
 
 	--font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
 	--font-sans: 'Roboto', 'Segoe UI', system-ui, sans-serif;
@@ -59,4 +76,33 @@
 	--text-11--line-height: 1;
 	--text-13: 0.8125rem;
 	--text-13--line-height: 1.25;
+}
+
+/** Shared control looks, they carry no padding or font size so each call site sizes them without class conflicts. */
+@utility btn-primary {
+	@apply inline-flex items-center justify-center gap-2 rounded-lg bg-accent font-semibold text-background transition-colors hover:bg-accent-light disabled:opacity-50;
+}
+
+@utility btn-secondary {
+	@apply inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface text-foreground transition-colors hover:bg-panel disabled:opacity-50;
+}
+
+@utility btn-accent {
+	@apply inline-flex items-center justify-center gap-1.5 rounded border border-accent/60 bg-accent/10 text-accent transition-colors hover:bg-accent/20 disabled:opacity-40;
+}
+
+@utility btn-ghost {
+	@apply inline-flex items-center justify-center gap-1.5 rounded border border-border text-muted transition-colors hover:bg-border hover:text-foreground disabled:opacity-40;
+}
+
+@utility btn-danger {
+	@apply inline-flex items-center justify-center gap-2 rounded-lg border border-red-900/50 bg-red-950/30 text-red-300 transition-colors hover:bg-red-900/50 disabled:opacity-50;
+}
+
+@utility field {
+	@apply w-full rounded-lg border border-border bg-panel text-sm text-foreground outline-none transition-colors placeholder:text-subtle focus:border-accent/50;
+}
+
+@utility alert-error {
+	@apply rounded-lg border border-red-900/50 bg-red-950/30 text-sm text-red-300;
 }
