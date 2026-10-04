@@ -51,8 +51,6 @@ void main() {
 <script lang="ts">
 	import { ShaderPreviewRenderer } from '#features/shaders/preview/preview-renderer.js';
 
-	let { class: className = '' }: { class?: string } = $props();
-
 	/** Runs only while on screen, the pointer glow eases toward the cursor so entering the hero never makes it jump. */
 	function attachHero(canvas: HTMLCanvasElement) {
 		const renderer = new ShaderPreviewRenderer(canvas, [{ code: HERO_CODE, id: 'image', label: 'Image' }], [], canvas.clientWidth, canvas.clientHeight);
@@ -92,4 +90,4 @@ void main() {
 	}
 </script>
 
-<canvas {@attach attachHero} aria-hidden="true" class="block h-full w-full {className}"></canvas>
+<canvas {@attach attachHero} aria-hidden="true" class="block h-full w-full"></canvas>

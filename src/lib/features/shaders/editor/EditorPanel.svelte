@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { Code, Play, Save, ChevronLeft, ChevronRight, Plus, X, Layers, Pencil, Copy, Trash2, Tv2, Settings } from '@lucide/svelte';
-	import { isShadertoyShader, convertFromShadertoy } from '#features/shaders/model/shadertoy-converter.js';
+	import { ChevronLeft, ChevronRight, Code, Copy, Layers, type LucideIcon, Pencil, Play, Plus, Save, Settings, Trash2, Tv2, X } from '@lucide/svelte';
+	import { convertFromShadertoy, isShadertoyShader } from '#features/shaders/model/shadertoy-converter.js';
 	import GlslEditor from '#features/shaders/editor/GlslEditor.svelte';
 	import BuiltinsPanel from '#features/shaders/editor/BuiltinsPanel.svelte';
 	import ChannelsPanel from '#features/shaders/editor/ChannelsPanel.svelte';
 	import EditorSettingsModal from '#features/shaders/editor/EditorSettingsModal.svelte';
 	import Modal from '#components/ui/Modal.svelte';
 	import type { ChannelEntry, ShaderBuffer } from '#features/shaders/model/shader-content.js';
-	import { editorSettings, saveEditorSettings } from '#features/shaders/editor/editor-settings.svelte.js';
+	import { editorSettings } from '#features/shaders/editor/editor-settings.svelte.js';
 	import type { UniformDescriptor } from '#features/shaders/editor/uniforms.js';
 	import { auth } from '#features/auth/auth-client.svelte.js';
 	import { canAddUserBuffer } from '#features/shaders/editor/buffers.js';
@@ -66,8 +66,12 @@
 		viewOnly = false,
 	}: Props = $props();
 
+	/** Context menu box, used to keep it inside the viewport. */
+	const CONTEXT_MENU_SIZE = { height: 120, width: 176 };
+
 	let visible = $state(true);
-	let width = $state(0);
+	/** Width side by side, height when stacked. */
+	let size = $state(0);
 	let isDragging = $state(false);
 	let channelsOpen = $state(false);
 	let showSettings = $state(false);
@@ -75,77 +79,33 @@
 	let promptedShadertoyByBuffer = $state<Record<string, true>>({});
 	let viewportHeight = $state(0);
 	let viewportWidth = $state(0);
+	let contextMenu = $state<{ bufferId: string; bufferLabel: string; x: number; y: number } | null>(null);
+	let editingTabId = $state<string | null>(null);
+	let editingLabel = $state('');
+	let renameInput = $state<HTMLInputElement | null>(null);
 
 	let dragStartPointer = 0;
 	let dragStartSize = 0;
-	let renameInputEl = $state<HTMLInputElement | null>(null);
 	let wasVerticalLayout: boolean | null = null;
 
 	/** Matches the `lg` breakpoint where ShaderEditorPage switches from stacked to side by side. */
 	const vertical = $derived(viewportWidth < 1024);
 	/** Stacked, the panel always leaves room for the header, the gutter and a usable canvas strip. */
 	const maxSize = $derived(vertical ? Math.min(viewportHeight * 0.75, viewportHeight - 220) : viewportWidth * 0.75);
-	const panelStyle = $derived(vertical ? `height: ${width}px` : `width: ${width}px`);
-
-	$effect(saveEditorSettings);
+	const hasCommon = $derived(buffers.some((buffer) => buffer.id === 'common'));
+	const canAddBuffer = $derived(canAddUserBuffer(buffers));
+	const isShadertoy = $derived(isShadertoyShader(value));
 
 	$effect(() => {
-		if (!viewportWidth || !viewportHeight) {
-			return;
-		}
+		if (!viewportWidth || !viewportHeight) return;
 
-		const nextWidth = vertical ? viewportHeight * 0.5 : viewportWidth * 0.5;
-		width = Math.min(width || nextWidth, maxSize);
-
-		if (wasVerticalLayout === vertical) {
-			return;
-		}
-
-		if (vertical && viewOnly) {
-			visible = false;
-		}
-
+		size = Math.min(size || (vertical ? viewportHeight : viewportWidth) * 0.5, maxSize);
+		if (wasVerticalLayout === vertical) return;
+		if (vertical && viewOnly) visible = false;
 		wasVerticalLayout = vertical;
 	});
 
-	const hasCommon = $derived(buffers.some((b) => b.id === 'common'));
-	const canAddBuffer = $derived(canAddUserBuffer(buffers));
-
-	// Context menu
-	interface CtxMenu { bufferId: string; bufferLabel: string; x: number; y: number; }
-	let ctxMenu = $state<CtxMenu | null>(null);
-
-	function openContextMenu(e: MouseEvent, buf: ShaderBuffer) {
-		if (buf.id === 'image') return;
-		e.preventDefault();
-		e.stopPropagation();
-		ctxMenu = { bufferId: buf.id, bufferLabel: buf.label, x: e.clientX, y: e.clientY };
-	}
-
-	function closeCtx() { ctxMenu = null; }
-
-	// Inline rename
-	let editingTabId = $state<string | null>(null);
-	let editingLabel = $state('');
-
-	async function startRename(id: string, label: string) {
-		closeCtx();
-		editingTabId = id;
-		editingLabel = label;
-		await tick();
-		renameInputEl?.focus();
-		renameInputEl?.select();
-	}
-
-	function commitRename() {
-		if (editingTabId && editingLabel.trim()) {
-			onRenameBuffer?.(editingTabId, editingLabel.trim());
-		}
-		editingTabId = null;
-	}
-
-	const isShadertoy = $derived(isShadertoyShader(value));
-
+	/** Asks once per buffer, pasting Shadertoy code again after it was fixed asks again. */
 	$effect(() => {
 		if (!isShadertoy) {
 			if (promptedShadertoyByBuffer[activeBufferId]) {
@@ -154,46 +114,49 @@
 			}
 			return;
 		}
+		if (showConvertModal || promptedShadertoyByBuffer[activeBufferId]) return;
 
-		if (showConvertModal || promptedShadertoyByBuffer[activeBufferId]) {
-			return;
-		}
-
-		promptedShadertoyByBuffer = {
-			...promptedShadertoyByBuffer,
-			[activeBufferId]: true,
-		};
+		promptedShadertoyByBuffer = { ...promptedShadertoyByBuffer, [activeBufferId]: true };
 		showConvertModal = true;
 	});
+
+	function openContextMenu(event: MouseEvent, buffer: ShaderBuffer) {
+		if (buffer.id === 'image') return;
+		event.preventDefault();
+		event.stopPropagation();
+		contextMenu = { bufferId: buffer.id, bufferLabel: buffer.label, x: event.clientX, y: event.clientY };
+	}
+
+	async function startRename(id: string, label: string) {
+		contextMenu = null;
+		editingTabId = id;
+		editingLabel = label;
+		await tick();
+		renameInput?.focus();
+		renameInput?.select();
+	}
+
+	function commitRename() {
+		if (editingTabId && editingLabel.trim()) onRenameBuffer?.(editingTabId, editingLabel.trim());
+		editingTabId = null;
+	}
 
 	function handleConvert() {
 		if (isShadertoy) value = convertFromShadertoy(value);
 		showConvertModal = false;
 	}
 
-	function handleCancelConvert() {
-		showConvertModal = false;
-	}
-
-	function startDrag(e: PointerEvent) {
-		e.preventDefault();
+	function startDrag(event: PointerEvent) {
+		event.preventDefault();
 		isDragging = true;
-		dragStartPointer = vertical ? e.clientY : e.clientX;
-		dragStartSize = width;
+		dragStartPointer = vertical ? event.clientY : event.clientX;
+		dragStartSize = size;
 	}
 
 	function handleWindowPointermove(event: PointerEvent) {
-		if (!isDragging) {
-			return;
-		}
-
+		if (!isDragging) return;
 		const delta = dragStartPointer - (vertical ? event.clientY : event.clientX);
-		const minWidth = vertical ? 100 : 240;
-		width = Math.max(minWidth, Math.min(maxSize, dragStartSize + delta));
-	}
-
-	function stopDrag() {
-		isDragging = false;
+		size = Math.max(vertical ? 100 : 240, Math.min(maxSize, dragStartSize + delta));
 	}
 </script>
 
@@ -201,24 +164,34 @@
 	bind:innerHeight={viewportHeight}
 	bind:innerWidth={viewportWidth}
 	onpointermove={handleWindowPointermove}
-	onpointerup={stopDrag}
-	onpointercancel={stopDrag}
+	onpointerup={() => (isDragging = false)}
+	onpointercancel={() => (isDragging = false)}
 />
+
+{#snippet menuItem(label: string, Icon: LucideIcon, onclick: () => void, danger = false)}
+	<button
+		{onclick}
+		class={['flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-surface', danger ? 'text-red-400' : 'text-foreground hover:text-accent']}
+	>
+		<Icon size={12} />
+		{label}
+	</button>
+{/snippet}
 
 {#if !visible}
 	<button
 		onclick={() => (visible = true)}
-		class="flex items-center justify-center gap-2 w-full h-10 lg:w-8 lg:h-full bg-panel border-t border-border lg:border-l lg:border-t-0 text-xs text-muted hover:text-cyan-400 hover:bg-surface transition-colors shrink-0 cursor-pointer"
+		class="flex h-10 w-full shrink-0 items-center justify-center gap-2 border-t border-border bg-panel text-xs text-muted transition-colors hover:bg-surface hover:text-accent lg:h-full lg:w-8 lg:border-l lg:border-t-0"
 		title="Show editor"
 	>
-		<ChevronLeft size={16} class="transform lg:rotate-0 rotate-90" />
+		<ChevronLeft size={16} class="rotate-90 lg:rotate-0" />
 		<span class="lg:hidden">Show code</span>
 	</button>
 {:else}
 	{#if !vertical}
 		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<div
-			class="w-1.5 shrink-0 touch-none cursor-col-resize transition-colors bg-border hover:bg-cyan-400/50 {isDragging ? 'bg-cyan-400/70' : ''}"
+			class={['w-1.5 shrink-0 cursor-col-resize touch-none transition-colors', isDragging ? 'bg-accent/70' : 'bg-border hover:bg-accent/50']}
 			onpointerdown={startDrag}
 			role="separator"
 			aria-label="Resize editor panel"
@@ -226,63 +199,74 @@
 	{:else}
 		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<div
-			class="flex h-4 w-full shrink-0 touch-none cursor-row-resize items-center justify-center bg-panel border-t border-border group"
+			class="group flex h-4 w-full shrink-0 cursor-row-resize touch-none items-center justify-center border-t border-border bg-panel"
 			onpointerdown={startDrag}
 			role="separator"
 			aria-label="Resize editor panel"
 		>
-			<span class="h-1 w-10 rounded-full transition-colors {isDragging ? 'bg-cyan-400' : 'bg-subtle group-hover:bg-cyan-400/60'}"></span>
+			<span class={['h-1 w-10 rounded-full transition-colors', isDragging ? 'bg-accent' : 'bg-subtle group-hover:bg-accent/60']}></span>
 		</div>
 	{/if}
 
-	<div class="flex flex-col min-w-0 bg-surface shrink-0 overflow-hidden max-w-full" style={panelStyle}>
-
-		<!-- Tab bar -->
-		<div class="flex items-stretch shrink-0 bg-panel border-b border-border overflow-x-auto overflow-y-hidden">
-			{#each buffers as buf (buf.id)}
-				{@const isActive = activeBufferId === buf.id}
-				{@const thumb = editorSettings.bufferPreviews ? thumbnails[buf.id] : null}
-				<!-- svelte-ignore a11y_interactive_supports_focus -->
+	<div class="flex min-w-0 max-w-full shrink-0 flex-col overflow-hidden bg-surface" style:width={vertical ? undefined : `${size}px`} style:height={vertical ? `${size}px` : undefined}>
+		<div role="tablist" aria-label="Buffers" class="flex shrink-0 items-stretch overflow-x-auto overflow-y-hidden border-b border-border bg-panel">
+			{#each buffers as buffer (buffer.id)}
+				{@const isActive = activeBufferId === buffer.id}
+				{@const thumb = editorSettings.bufferPreviews ? thumbnails[buffer.id] : null}
 				<div
 					role="tab"
 					aria-selected={isActive}
 					tabindex="0"
-					onclick={() => onTabChange?.(buf.id)}
-					oncontextmenu={(e) => openContextMenu(e, buf)}
-					onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTabChange?.(buf.id); } }}
-					class="relative flex items-center gap-1 sm:gap-1.5 px-2 py-1 sm:px-3 sm:py-1.5 text-xs font-medium border-r border-border cursor-pointer transition-colors shrink-0 group select-none
-						{isActive ? 'bg-surface text-cyan-400 border-b-2 border-b-cyan-400 -mb-px' : 'text-muted hover:text-foreground hover:bg-surface/50'}"
-					title={editingTabId === buf.id ? '' : buf.label}
+					onclick={() => onTabChange?.(buffer.id)}
+					oncontextmenu={(event) => openContextMenu(event, buffer)}
+					onkeydown={(event) => {
+						if (event.key !== 'Enter' && event.key !== ' ') return;
+						event.preventDefault();
+						onTabChange?.(buffer.id);
+					}}
+					class={[
+						'group relative flex shrink-0 select-none items-center gap-1 border-r border-border px-2 py-1 text-xs font-medium transition-colors sm:gap-1.5 sm:px-3 sm:py-1.5',
+						isActive ? '-mb-px border-b-2 border-b-accent bg-surface text-accent' : 'text-muted hover:bg-surface/50 hover:text-foreground',
+					]}
+					title={editingTabId === buffer.id ? '' : buffer.label}
 				>
-					{#if buf.id === 'common'}
+					{#if buffer.id === 'common'}
 						<Layers size={11} class="shrink-0" />
-					{:else if buf.id === 'image'}
+					{:else if buffer.id === 'image'}
 						<Code size={11} class="shrink-0" />
 					{:else if thumb}
-						<img src={thumb} alt={buf.label} class="h-5 rounded-sm object-cover shrink-0" style="width: 36px;" />
+						<img src={thumb} alt={buffer.label} class="h-5 w-9 shrink-0 rounded-sm object-cover" />
 					{:else}
-						<span class="size-2 rounded-sm bg-current opacity-40 shrink-0"></span>
+						<span class="size-2 shrink-0 rounded-sm bg-current opacity-40"></span>
 					{/if}
 
-					{#if editingTabId === buf.id}
-						<!-- svelte-ignore a11y_autofocus -->
+					{#if editingTabId === buffer.id}
 						<input
-							bind:this={renameInputEl}
+							bind:this={renameInput}
 							bind:value={editingLabel}
-							onclick={(e) => e.stopPropagation()}
+							onclick={(event) => event.stopPropagation()}
 							onblur={commitRename}
-							onkeydown={(e) => { if (e.key === 'Enter') commitRename(); else if (e.key === 'Escape') editingTabId = null; e.stopPropagation(); }}
-							class="w-20 bg-transparent border-b border-cyan-400 text-cyan-400 outline-none text-xs font-medium"
+							onkeydown={(event) => {
+								event.stopPropagation();
+								if (event.key === 'Enter') commitRename();
+								else if (event.key === 'Escape') editingTabId = null;
+							}}
+							aria-label="Buffer name"
+							class="w-20 border-b border-accent bg-transparent text-xs font-medium text-accent outline-none"
 						/>
 					{:else}
-						<span>{buf.label}</span>
+						<span>{buffer.label}</span>
 					{/if}
 
-					{#if buf.id !== 'image'}
+					{#if buffer.id !== 'image'}
 						<button
-							onclick={(e) => { e.stopPropagation(); onRemoveBuffer?.(buf.id); }}
-							class="ml-0.5 p-0.5 rounded opacity-0 group-hover:opacity-60 pointer-coarse:opacity-60 hover:opacity-100! hover:text-red-400 transition-all cursor-pointer"
-							title={`Remove ${buf.label}`}
+							onclick={(event) => {
+								event.stopPropagation();
+								onRemoveBuffer?.(buffer.id);
+							}}
+							class="ml-0.5 rounded p-0.5 opacity-0 transition-all hover:text-red-400 hover:opacity-100! group-hover:opacity-60 pointer-coarse:opacity-60"
+							title="Remove {buffer.label}"
+							aria-label="Remove {buffer.label}"
 						>
 							<X size={10} />
 						</button>
@@ -290,11 +274,10 @@
 				</div>
 			{/each}
 
-			<!-- Add Common (only if not present) -->
 			{#if !hasCommon}
 				<button
-					onclick={() => onAddCommon?.()}
-					class="flex items-center gap-1 px-3 py-1.5 text-xs text-subtle hover:text-cyan-400 hover:bg-surface/50 transition-colors cursor-pointer border-r border-border shrink-0"
+					onclick={onAddCommon}
+					class="flex shrink-0 items-center gap-1 border-r border-border px-3 py-1.5 text-xs text-subtle transition-colors hover:bg-surface/50 hover:text-accent"
 					title="Add Common"
 				>
 					<Plus size={12} />
@@ -302,11 +285,10 @@
 				</button>
 			{/if}
 
-			<!-- Add Buffer -->
 			<button
-				onclick={() => onAddBuffer?.()}
+				onclick={onAddBuffer}
 				disabled={!canAddBuffer}
-				class="flex items-center gap-1 sm:gap-1.5 px-2 py-1 sm:px-3 sm:py-1.5 text-xs text-subtle enabled:hover:text-cyan-400 enabled:hover:bg-surface/50 transition-colors cursor-pointer border-r border-border shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
+				class="flex shrink-0 items-center gap-1 border-r border-border px-2 py-1 text-xs text-subtle transition-colors enabled:hover:bg-surface/50 enabled:hover:text-accent disabled:opacity-40 sm:gap-1.5 sm:px-3 sm:py-1.5"
 				title={canAddBuffer ? 'Add buffer' : `Up to ${BUFFER_UNIFORM_NAMES.length} buffers`}
 			>
 				<Plus size={12} />
@@ -314,50 +296,47 @@
 			</button>
 		</div>
 
-		<!-- Run bar -->
-		<div class="flex items-center gap-1 sm:gap-2 px-2 py-1 sm:px-3 sm:py-1.5 bg-panel border-b border-border shrink-0">
+		<div class="flex shrink-0 items-center gap-1 border-b border-border bg-panel px-2 py-1 sm:gap-2 sm:px-3 sm:py-1.5">
 			<button
 				onclick={() => (showSettings = true)}
 				title="Editor settings"
 				aria-label="Editor settings"
-				class="flex items-center justify-center w-6 h-6 rounded text-muted hover:text-foreground hover:bg-border transition-colors cursor-pointer"
+				class="flex size-6 items-center justify-center rounded text-muted transition-colors hover:bg-border hover:text-foreground"
 			>
 				<Settings size={14} />
 			</button>
-			<span class="hidden sm:inline text-xs text-subtle font-mono mr-auto">Ctrl+Enter</span>
+			<span class="mr-auto hidden font-mono text-xs text-subtle sm:inline">Ctrl+Enter</span>
 			<button
 				onclick={() => (channelsOpen = !channelsOpen)}
-				class="flex items-center gap-1.5 px-3 py-1 rounded font-mono text-xs font-semibold tracking-wider cursor-pointer transition-colors
-					{channelsOpen ? 'bg-cyan-400/15 text-cyan-400 border border-cyan-400/60' : 'text-muted border border-border hover:text-foreground hover:bg-border'}"
+				aria-pressed={channelsOpen}
+				class={['px-3 py-1 font-mono text-xs font-semibold tracking-wider', channelsOpen ? 'btn-accent' : 'btn-ghost']}
 				title="Toggle channels"
 			>
 				<Tv2 size={12} />
 				<span class="hidden min-[360px]:inline">Channels</span>
 			</button>
-			<button
-				onclick={onRun}
-				class="flex items-center gap-1.5 px-2 py-0.5 sm:px-4 sm:py-1 bg-cyan-400/10 text-cyan-400 border border-cyan-400/60 rounded font-mono text-xs font-semibold tracking-wider cursor-pointer hover:bg-cyan-400/20 transition-colors"
-			>
+			<button onclick={onRun} class="btn-accent px-2 py-0.5 font-mono text-xs font-semibold tracking-wider sm:px-4 sm:py-1">
 				<Play size={12} />
 				Run
 			</button>
 			{#if !viewOnly}
-			<button
-				onclick={onSave}
-				disabled={isSaving}
-				class="flex items-center gap-1.5 px-2 py-0.5 sm:px-4 sm:py-1 bg-surface text-muted border border-border rounded font-mono text-xs font-semibold tracking-wider cursor-pointer hover:text-foreground hover:bg-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-				title={auth.isLoggedIn ? 'Save shader (Ctrl+S)' : 'Save to localhost (Ctrl+S)'}
-			>
-				<Save size={12} />
-				{isSaving ? 'Saving…' : 'Save'}
-			</button>
+				<button
+					onclick={onSave}
+					disabled={isSaving}
+					class="btn-ghost bg-surface px-2 py-0.5 font-mono text-xs font-semibold tracking-wider sm:px-4 sm:py-1"
+					title={auth.isLoggedIn ? 'Save shader (Ctrl+S)' : 'Save locally (Ctrl+S)'}
+				>
+					<Save size={12} />
+					{isSaving ? 'Saving…' : 'Save'}
+				</button>
 			{/if}
 			<button
 				onclick={() => (visible = false)}
-				class="flex items-center justify-center size-6 rounded text-muted hover:text-foreground hover:bg-border transition-colors cursor-pointer"
+				class="flex size-6 items-center justify-center rounded text-muted transition-colors hover:bg-border hover:text-foreground"
 				title="Hide editor"
+				aria-label="Hide editor"
 			>
-				<ChevronRight size={14} class="transform lg:rotate-0 rotate-90" />
+				<ChevronRight size={14} class="rotate-90 lg:rotate-0" />
 			</button>
 		</div>
 
@@ -369,63 +348,46 @@
 	</div>
 {/if}
 
-<!-- Context menu overlay -->
-{#if ctxMenu}
+{#if contextMenu}
+	{@const { bufferId, bufferLabel } = contextMenu}
 	<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 	<div
 		class="fixed inset-0 z-40"
 		role="presentation"
-		onclick={closeCtx}
-		oncontextmenu={(e) => { e.preventDefault(); closeCtx(); }}
+		onclick={() => (contextMenu = null)}
+		oncontextmenu={(event) => {
+			event.preventDefault();
+			contextMenu = null;
+		}}
 	></div>
 	<div
-		class="fixed z-50 min-w-40 py-1 bg-panel border border-border rounded shadow-xl text-xs"
-		style="left: {Math.min(ctxMenu.x, viewportWidth - 176)}px; top: {Math.min(ctxMenu.y, viewportHeight - 120)}px;"
+		role="menu"
+		class="fixed z-50 min-w-40 rounded border border-border bg-panel py-1 text-xs shadow-xl"
+		style:left="{Math.min(contextMenu.x, viewportWidth - CONTEXT_MENU_SIZE.width)}px"
+		style:top="{Math.min(contextMenu.y, viewportHeight - CONTEXT_MENU_SIZE.height)}px"
 	>
-		<button
-			onclick={() => startRename(ctxMenu!.bufferId, ctxMenu!.bufferLabel)}
-			class="flex items-center gap-2.5 w-full px-3 py-1.5 text-left text-foreground hover:bg-surface hover:text-cyan-400 transition-colors cursor-pointer"
-		>
-			<Pencil size={12} />
-			Rename
-		</button>
-		{#if ctxMenu.bufferId !== 'common' && canAddBuffer}
-			<button
-				onclick={() => { onDuplicateBuffer?.(ctxMenu!.bufferId); closeCtx(); }}
-				class="flex items-center gap-2.5 w-full px-3 py-1.5 text-left text-foreground hover:bg-surface hover:text-cyan-400 transition-colors cursor-pointer"
-			>
-				<Copy size={12} />
-				Duplicate
-			</button>
+		{@render menuItem('Rename', Pencil, () => startRename(bufferId, bufferLabel))}
+		{#if bufferId !== 'common' && canAddBuffer}
+			{@render menuItem('Duplicate', Copy, () => {
+				onDuplicateBuffer?.(bufferId);
+				contextMenu = null;
+			})}
 		{/if}
 		<div class="my-1 border-t border-border"></div>
-		<button
-			onclick={() => { onRemoveBuffer?.(ctxMenu!.bufferId); closeCtx(); }}
-			class="flex items-center gap-2.5 w-full px-3 py-1.5 text-left text-red-400 hover:bg-surface transition-colors cursor-pointer"
-		>
-			<Trash2 size={12} />
-			Remove
-		</button>
+		{@render menuItem('Remove', Trash2, () => {
+			onRemoveBuffer?.(bufferId);
+			contextMenu = null;
+		}, true)}
 	</div>
 {/if}
 
 <EditorSettingsModal open={showSettings} onClose={() => (showSettings = false)} />
-<Modal open={showConvertModal} onClose={handleCancelConvert} title="Convert from Shadertoy?">
+<Modal open={showConvertModal} onClose={() => (showConvertModal = false)} title="Convert from Shadertoy?">
 	<div class="px-5 py-4">
-		<p class="text-sm text-foreground mb-6">We detected that this shader is in Shadertoy format. Would you like to convert it to WebGL shader format?</p>
+		<p class="mb-6 text-sm text-foreground">This shader looks like Shadertoy code. Convert it to the WebGL format Shayders runs?</p>
 		<div class="flex items-center justify-end gap-2">
-			<button
-				onclick={handleCancelConvert}
-				class="px-4 py-2 rounded font-mono text-xs font-semibold border border-border text-muted hover:text-foreground hover:bg-border transition-colors cursor-pointer"
-			>
-				Cancel
-			</button>
-			<button
-				onclick={handleConvert}
-				class="px-4 py-2 rounded font-mono text-xs font-semibold bg-cyan-400/10 text-cyan-400 border border-cyan-400/60 hover:bg-cyan-400/20 transition-colors cursor-pointer"
-			>
-				Convert
-			</button>
+			<button onclick={() => (showConvertModal = false)} class="btn-ghost px-4 py-2 font-mono text-xs font-semibold">Cancel</button>
+			<button onclick={handleConvert} class="btn-accent px-4 py-2 font-mono text-xs font-semibold">Convert</button>
 		</div>
 	</div>
 </Modal>

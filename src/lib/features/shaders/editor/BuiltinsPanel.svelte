@@ -121,9 +121,9 @@
 		{#if typeof part === 'string'}
 			{part}
 		{:else if part.type === 'italic'}
-			<em class="not-italic text-cyan-300">{part.content}</em>
+			<em class="not-italic text-accent">{part.content}</em>
 		{:else if part.type === 'bold'}
-			<strong class="font-semibold text-cyan-200">{part.content}</strong>
+			<strong class="font-semibold text-accent-light">{part.content}</strong>
 		{:else}
 			<code class="bg-background px-0.5 rounded text-amber-300">{part.content}</code>
 		{/if}
@@ -169,20 +169,21 @@
 <div class="border-t border-border flex flex-col min-h-0 shrink-0">
 	<button
 		onclick={() => (open = !open)}
-		class="flex w-full items-center gap-2 px-4 py-2 text-xs text-muted hover:text-foreground transition-colors cursor-pointer shrink-0"
+		aria-expanded={open}
+		class="flex w-full shrink-0 items-center gap-2 px-4 py-2 text-xs text-muted transition-colors hover:text-foreground"
 	>
 		{#if open}
 			<ChevronDown size={12} class="shrink-0" />
 		{:else}
 			<ChevronRight size={12} class="shrink-0" />
 		{/if}
-		<Variable size={12} class="text-cyan-400 shrink-0" />
+		<Variable size={12} class="shrink-0 text-accent" />
 		<span class="font-medium tracking-wider">Built-ins</span>
 		<span class="ml-auto text-subtle font-mono">{total}</span>
 	</button>
 
 	{#if open}
-		<label class="mx-4 mb-1 flex items-center gap-2 rounded border border-border bg-background px-2 py-1 text-xs text-muted focus-within:border-cyan-400/60">
+		<label class="mx-4 mb-1 flex items-center gap-2 rounded border border-border bg-background px-2 py-1 text-xs text-muted focus-within:border-accent/60">
 			<Search size={12} class="shrink-0" />
 			<input bind:value={query} placeholder="Search a function, a uniform…" class="w-full bg-transparent text-foreground outline-none placeholder:text-subtle" />
 		</label>
@@ -195,10 +196,11 @@
 						<button
 							onclick={() => onToggle?.(u.name, u.type)}
 							title={present ? `Remove uniform ${u.name}` : `Add uniform ${u.name}`}
-							class="relative flex items-center justify-center w-3.5 shrink-0 self-center cursor-pointer"
+							aria-label={present ? `Remove uniform ${u.name}` : `Add uniform ${u.name}`}
+							class="relative flex w-3.5 shrink-0 items-center justify-center self-center"
 						>
-							<span class="block group-hover:hidden w-1.5 h-1.5 rounded-full {present ? 'bg-green-400/70' : 'bg-border'}"></span>
-							<span class="hidden group-hover:block text-11 font-bold leading-none {present ? 'text-red-400' : 'text-cyan-400'}">{present ? '−' : '+'}</span>
+							<span class={['block size-1.5 rounded-full group-hover:hidden', present ? 'bg-green-400/70' : 'bg-border']}></span>
+							<span class={['hidden text-11 font-bold leading-none group-hover:block', present ? 'text-red-400' : 'text-accent']}>{present ? '−' : '+'}</span>
 						</button>
 						<span class="{present ? getTypeColor(u.type) : 'text-subtle'} font-mono shrink-0 text-11">{u.type}</span>
 						<span class="{present ? 'text-foreground' : 'text-muted'} font-mono shrink-0 font-semibold text-11">{u.name}</span>
@@ -217,7 +219,7 @@
 			{#if visibleVariables.length > 0}
 				{@render sectionTitle('Built-in variables')}
 				{#each visibleVariables as entry (entry.name)}
-					<button onclick={() => (expanded = expanded === entry.name ? null : entry.name)} class="flex w-full items-baseline gap-1 px-4 py-1 text-left hover:bg-panel group cursor-pointer">
+					<button onclick={() => (expanded = expanded === entry.name ? null : entry.name)} class="flex w-full items-baseline gap-1 px-4 py-1 text-left hover:bg-panel">
 						<span class="{getTypeColor(entry.type)} font-mono shrink-0 text-11 whitespace-nowrap">{entry.type}</span>
 						<span class="text-foreground font-mono shrink-0 font-semibold text-11 whitespace-nowrap">{entry.name}</span>
 						<span class="text-muted ml-1 flex-1 leading-snug text-11 {expanded === entry.name ? '' : 'truncate'}">{@render markdown(entry.doc.description)}</span>
@@ -229,7 +231,7 @@
 			{#each visibleCategories as category (category.label)}
 				{@render sectionTitle(category.label)}
 				{#each category.entries as entry (entry.name)}
-					<button onclick={() => (expanded = expanded === entry.name ? null : entry.name)} class="flex w-full items-baseline gap-1 px-4 py-1 text-left hover:bg-panel group cursor-pointer">
+					<button onclick={() => (expanded = expanded === entry.name ? null : entry.name)} class="flex w-full items-baseline gap-1 px-4 py-1 text-left hover:bg-panel">
 						<span class="font-mono shrink-0 text-11 whitespace-nowrap">
 							{#if entry.signatures[0]}{@render signature(entry.signatures[0])}{:else}<span class="text-blue-300">{entry.name}</span>{/if}
 						</span>

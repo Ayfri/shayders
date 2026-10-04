@@ -277,8 +277,7 @@
 	});
 
 	$effect(() => {
-		const options = monacoOptions();
-		editor?.updateOptions(options);
+		editor?.updateOptions(monacoOptions());
 	});
 </script>
 

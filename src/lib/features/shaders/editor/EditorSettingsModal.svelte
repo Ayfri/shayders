@@ -1,236 +1,141 @@
+<script lang="ts" module>
+	import { EDITOR_DEFAULTS, type EditorSettingsData } from '#features/shaders/editor/editor-settings.svelte.js';
+
+	type KeysOf<T> = { [K in keyof EditorSettingsData]: EditorSettingsData[K] extends T ? K : never }[keyof EditorSettingsData];
+
+	type SettingControl =
+		| { key: KeysOf<boolean>; kind: 'toggle'; label: string }
+		| { key: KeysOf<number>; kind: 'range'; label: string; max: number; min: number }
+		| { disabledUnless?: KeysOf<boolean>; key: KeysOf<string>; kind: 'select'; label: string; options: [value: string, label: string][] };
+
+	const SECTIONS: { controls: SettingControl[]; title: string }[] = [
+		{
+			controls: [
+				{
+					key: 'fontFamily',
+					kind: 'select',
+					label: 'Font family',
+					options: [
+						[EDITOR_DEFAULTS.fontFamily, 'JetBrains Mono'],
+						["'Fira Code', monospace", 'Fira Code'],
+						["'Cascadia Code', monospace", 'Cascadia Code'],
+						["'Source Code Pro', monospace", 'Source Code Pro'],
+						["'Inconsolata', monospace", 'Inconsolata'],
+						['monospace', 'System monospace'],
+					],
+				},
+				{ key: 'fontSize', kind: 'range', label: 'Font size', max: 24, min: 10 },
+				{ key: 'lineHeight', kind: 'range', label: 'Line height', max: 40, min: 16 },
+			],
+			title: 'Appearance',
+		},
+		{ controls: [{ key: 'bufferPreviews', kind: 'toggle', label: 'Buffer previews' }], title: 'Tabs' },
+		{
+			controls: [
+				{ key: 'bracketPairColorization', kind: 'toggle', label: 'Bracket pair colorization' },
+				{ key: 'folding', kind: 'toggle', label: 'Code folding' },
+				{ key: 'foldingStrategy', kind: 'select', label: 'Folding strategy', options: [['indentation', 'Indentation'], ['auto', 'Auto']] },
+				{ key: 'matchBrackets', kind: 'select', label: 'Match brackets', options: [['always', 'Always'], ['near', 'Near'], ['never', 'Never']] },
+				{ key: 'minimapEnabled', kind: 'toggle', label: 'Minimap' },
+				{ disabledUnless: 'minimapEnabled', key: 'minimapSize', kind: 'select', label: 'Minimap size', options: [['proportional', 'Proportional'], ['fill', 'Fill'], ['fit', 'Fit']] },
+				{ key: 'renderLineHighlight', kind: 'select', label: 'Line highlight', options: [['gutter', 'Gutter'], ['line', 'Line'], ['all', 'All'], ['none', 'None']] },
+				{
+					key: 'renderWhitespace',
+					kind: 'select',
+					label: 'Render whitespace',
+					options: [['selection', 'Selection'], ['boundary', 'Boundary'], ['trailing', 'Trailing'], ['all', 'All'], ['none', 'None']],
+				},
+				{ key: 'stickyScroll', kind: 'toggle', label: 'Sticky scroll' },
+				{ key: 'wordWrap', kind: 'select', label: 'Word wrap (Alt+Z)', options: [['off', 'Off'], ['on', 'On']] },
+			],
+			title: 'Display',
+		},
+		{
+			controls: [
+				{ key: 'contextmenu', kind: 'toggle', label: 'Context menu' },
+				{ key: 'copyWithSyntaxHighlighting', kind: 'toggle', label: 'Copy with syntax highlighting' },
+				{ key: 'cursorSmoothCaretAnimation', kind: 'select', label: 'Cursor animation', options: [['on', 'On'], ['explicit', 'Explicit'], ['off', 'Off']] },
+				{ key: 'formatOnPaste', kind: 'toggle', label: 'Format on paste' },
+				{ key: 'mouseWheelZoom', kind: 'toggle', label: 'Mouse wheel zoom (Ctrl)' },
+				{ key: 'scrollBeyondLastLine', kind: 'toggle', label: 'Scroll beyond last line' },
+				{ key: 'smoothScrolling', kind: 'toggle', label: 'Smooth scrolling' },
+			],
+			title: 'Behavior',
+		},
+		{
+			controls: [
+				{ key: 'colorDecorators', kind: 'toggle', label: 'Color pickers' },
+				{ key: 'hoverEnabled', kind: 'toggle', label: 'Hover tooltips' },
+				{ key: 'inlayHints', kind: 'select', label: 'Inlay hints', options: [['on', 'On'], ['offUnlessPressed', 'On press (Ctrl+Alt)'], ['off', 'Off']] },
+				{ key: 'parameterHints', kind: 'toggle', label: 'Parameter hints' },
+				{ key: 'quickSuggestions', kind: 'toggle', label: 'Quick suggestions' },
+				{ key: 'showSnippets', kind: 'toggle', label: 'Show snippets' },
+				{ key: 'showWords', kind: 'toggle', label: 'Show word suggestions' },
+			],
+			title: 'IntelliSense',
+		},
+	];
+</script>
+
 <script lang="ts">
-	import {
-		EDITOR_DEFAULTS,
-		editorSettings as settings,
-		resetEditorSettings,
-		type EditorSettingsData,
-	} from '#features/shaders/editor/editor-settings.svelte.js';
+	import { editorSettings as settings, resetEditorSettings } from '#features/shaders/editor/editor-settings.svelte.js';
 	import Modal from '#components/ui/Modal.svelte';
 	import SettingRow from '#components/ui/SettingRow.svelte';
 
 	interface Props {
-		open: boolean;
 		onClose: () => void;
+		open: boolean;
 	}
 
-	let { open = false, onClose }: Props = $props();
+	let { onClose, open = false }: Props = $props();
 
-	function rb<K extends keyof EditorSettingsData>(key: K) {
-		return () => (settings[key] = EDITOR_DEFAULTS[key]);
+	function resetSetting(key: keyof EditorSettingsData) {
+		Object.assign(settings, { [key]: EDITOR_DEFAULTS[key] });
 	}
-
-	function resetAll() {
-		resetEditorSettings();
-		onClose();
-	}
-
-	function changed<K extends keyof EditorSettingsData>(key: K): boolean {
-		return settings[key] !== EDITOR_DEFAULTS[key];
-	}
-
-	const sel = 'cursor-pointer text-xs bg-panel border border-border text-foreground rounded px-2 py-1 w-32 focus:outline-none focus:border-muted';
-	const chk = 'cursor-pointer w-4 h-4 accent-muted';
 </script>
 
 <Modal {open} {onClose} title="Editor settings">
-	<div class="px-5 py-4 max-h-[70vh] overflow-y-auto space-y-5">
-		<section>
-			<h3 class="text-sm font-bold text-foreground uppercase tracking-wide mb-3">Appearance</h3>
-			<div class="space-y-4">
-				<SettingRow label="Font family" changed={changed('fontFamily')} onReset={rb('fontFamily')}>
-					<select bind:value={settings.fontFamily} class={sel}>
-						<option value="'JetBrains Mono', 'Fira Code', monospace">JetBrains Mono</option>
-						<option value="'Fira Code', monospace">Fira Code</option>
-						<option value="'Cascadia Code', monospace">Cascadia Code</option>
-						<option value="'Source Code Pro', monospace">Source Code Pro</option>
-						<option value="'Inconsolata', monospace">Inconsolata</option>
-						<option value="monospace">System monospace</option>
-					</select>
-				</SettingRow>
-
-				<SettingRow label="Font size" changed={changed('fontSize')} onReset={rb('fontSize')}>
-					<div class="flex items-center gap-2">
-						<input type="range" min="10" max="24" step="1" bind:value={settings.fontSize} class="cursor-pointer w-32 accent-muted" />
-						<span class="text-xs text-foreground opacity-70">{settings.fontSize}px</span>
-					</div>
-				</SettingRow>
-
-				<SettingRow label="Line height" changed={changed('lineHeight')} onReset={rb('lineHeight')}>
-					<div class="flex items-center gap-2">
-						<input type="range" min="16" max="40" step="1" bind:value={settings.lineHeight} class="cursor-pointer w-32 accent-muted" />
-						<span class="text-xs text-foreground opacity-70">{settings.lineHeight}px</span>
-					</div>
-				</SettingRow>
-			</div>
-		</section>
-
-		<section>
-			<h3 class="text-sm font-bold text-foreground uppercase tracking-wide mb-3">Tabs</h3>
-			<div class="space-y-4">
-				<SettingRow label="Buffer previews" changed={changed('bufferPreviews')} onReset={rb('bufferPreviews')}>
-					<input type="checkbox" bind:checked={settings.bufferPreviews} class={chk} />
-				</SettingRow>
-			</div>
-		</section>
-
-		<section>
-			<h3 class="text-sm font-bold text-foreground uppercase tracking-wide mb-3">Display</h3>
-			<div class="space-y-4">
-				<SettingRow label="Bracket pair colorization" changed={changed('bracketPairColorization')} onReset={rb('bracketPairColorization')}>
-					<input type="checkbox" bind:checked={settings.bracketPairColorization} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Code folding" changed={changed('folding')} onReset={rb('folding')}>
-					<input type="checkbox" bind:checked={settings.folding} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Folding strategy" changed={changed('foldingStrategy')} onReset={rb('foldingStrategy')}>
-					<select bind:value={settings.foldingStrategy} class={sel}>
-						<option value="indentation">Indentation</option>
-						<option value="auto">Auto</option>
-					</select>
-				</SettingRow>
-
-				<SettingRow label="Match brackets" changed={changed('matchBrackets')} onReset={rb('matchBrackets')}>
-					<select bind:value={settings.matchBrackets} class={sel}>
-						<option value="always">Always</option>
-						<option value="near">Near</option>
-						<option value="never">Never</option>
-					</select>
-				</SettingRow>
-
-				<SettingRow label="Minimap" changed={changed('minimapEnabled')} onReset={rb('minimapEnabled')}>
-					<input type="checkbox" bind:checked={settings.minimapEnabled} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Minimap size" changed={changed('minimapSize')} onReset={rb('minimapSize')}>
-					<select bind:value={settings.minimapSize} disabled={!settings.minimapEnabled} class={`${sel} disabled:opacity-30 disabled:cursor-not-allowed`}>
-						<option value="proportional">Proportional</option>
-						<option value="fill">Fill</option>
-						<option value="fit">Fit</option>
-					</select>
-				</SettingRow>
-
-				<SettingRow label="Line highlight" changed={changed('renderLineHighlight')} onReset={rb('renderLineHighlight')}>
-					<select bind:value={settings.renderLineHighlight} class={sel}>
-						<option value="gutter">Gutter</option>
-						<option value="line">Line</option>
-						<option value="all">All</option>
-						<option value="none">None</option>
-					</select>
-				</SettingRow>
-
-				<SettingRow label="Render whitespace" changed={changed('renderWhitespace')} onReset={rb('renderWhitespace')}>
-					<select bind:value={settings.renderWhitespace} class={sel}>
-						<option value="selection">Selection</option>
-						<option value="boundary">Boundary</option>
-						<option value="trailing">Trailing</option>
-						<option value="all">All</option>
-						<option value="none">None</option>
-					</select>
-				</SettingRow>
-
-				<SettingRow label="Sticky scroll" changed={changed('stickyScroll')} onReset={rb('stickyScroll')}>
-					<input type="checkbox" bind:checked={settings.stickyScroll} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Word wrap (Alt+Z)" changed={changed('wordWrap')} onReset={rb('wordWrap')}>
-					<select bind:value={settings.wordWrap} class={sel}>
-						<option value="off">Off</option>
-						<option value="on">On</option>
-					</select>
-				</SettingRow>
-			</div>
-		</section>
-
-		<section>
-			<h3 class="text-sm font-bold text-foreground uppercase tracking-wide mb-3">Behavior</h3>
-			<div class="space-y-4">
-				<SettingRow label="Context menu" changed={changed('contextmenu')} onReset={rb('contextmenu')}>
-					<input type="checkbox" bind:checked={settings.contextmenu} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Copy with syntax highlighting" changed={changed('copyWithSyntaxHighlighting')} onReset={rb('copyWithSyntaxHighlighting')}>
-					<input type="checkbox" bind:checked={settings.copyWithSyntaxHighlighting} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Cursor animation" changed={changed('cursorSmoothCaretAnimation')} onReset={rb('cursorSmoothCaretAnimation')}>
-					<select bind:value={settings.cursorSmoothCaretAnimation} class={sel}>
-						<option value="on">On</option>
-						<option value="explicit">Explicit</option>
-						<option value="off">Off</option>
-					</select>
-				</SettingRow>
-
-				<SettingRow label="Format on paste" changed={changed('formatOnPaste')} onReset={rb('formatOnPaste')}>
-					<input type="checkbox" bind:checked={settings.formatOnPaste} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Mouse wheel zoom (Ctrl)" changed={changed('mouseWheelZoom')} onReset={rb('mouseWheelZoom')}>
-					<input type="checkbox" bind:checked={settings.mouseWheelZoom} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Scroll beyond last line" changed={changed('scrollBeyondLastLine')} onReset={rb('scrollBeyondLastLine')}>
-					<input type="checkbox" bind:checked={settings.scrollBeyondLastLine} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Smooth scrolling" changed={changed('smoothScrolling')} onReset={rb('smoothScrolling')}>
-					<input type="checkbox" bind:checked={settings.smoothScrolling} class={chk} />
-				</SettingRow>
-			</div>
-		</section>
-
-		<section>
-			<h3 class="text-sm font-bold text-foreground uppercase tracking-wide mb-3">IntelliSense</h3>
-			<div class="space-y-4">
-				<SettingRow label="Color pickers" changed={changed('colorDecorators')} onReset={rb('colorDecorators')}>
-					<input type="checkbox" bind:checked={settings.colorDecorators} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Hover tooltips" changed={changed('hoverEnabled')} onReset={rb('hoverEnabled')}>
-					<input type="checkbox" bind:checked={settings.hoverEnabled} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Inlay hints" changed={changed('inlayHints')} onReset={rb('inlayHints')}>
-					<select bind:value={settings.inlayHints} class={sel}>
-						<option value="on">On</option>
-						<option value="offUnlessPressed">On press (Ctrl+Alt)</option>
-						<option value="off">Off</option>
-					</select>
-				</SettingRow>
-
-				<SettingRow label="Parameter hints" changed={changed('parameterHints')} onReset={rb('parameterHints')}>
-					<input type="checkbox" bind:checked={settings.parameterHints} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Quick suggestions" changed={changed('quickSuggestions')} onReset={rb('quickSuggestions')}>
-					<input type="checkbox" bind:checked={settings.quickSuggestions} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Show snippets" changed={changed('showSnippets')} onReset={rb('showSnippets')}>
-					<input type="checkbox" bind:checked={settings.showSnippets} class={chk} />
-				</SettingRow>
-
-				<SettingRow label="Show word suggestions" changed={changed('showWords')} onReset={rb('showWords')}>
-					<input type="checkbox" bind:checked={settings.showWords} class={chk} />
-				</SettingRow>
-			</div>
-		</section>
-
+	<div class="max-h-[70vh] space-y-5 overflow-y-auto px-5 py-4">
+		{#each SECTIONS as section (section.title)}
+			<section>
+				<h3 class="mb-3 text-sm font-bold uppercase tracking-wide text-foreground">{section.title}</h3>
+				<div class="space-y-4">
+					{#each section.controls as control (control.key)}
+						<SettingRow label={control.label} changed={settings[control.key] !== EDITOR_DEFAULTS[control.key]} onReset={() => resetSetting(control.key)}>
+							{#if control.kind === 'toggle'}
+								<input type="checkbox" bind:checked={settings[control.key]} aria-label={control.label} class="size-4 accent-muted" />
+							{:else if control.kind === 'range'}
+								<input type="range" min={control.min} max={control.max} step="1" bind:value={settings[control.key]} aria-label={control.label} class="w-32 accent-muted" />
+								<span class="w-8 text-xs text-foreground/70">{settings[control.key]}px</span>
+							{:else}
+								<select
+									bind:value={settings[control.key]}
+									disabled={control.disabledUnless && !settings[control.disabledUnless]}
+									aria-label={control.label}
+									class="w-32 rounded border border-border bg-panel px-2 py-1 text-xs text-foreground focus:border-muted focus:outline-none disabled:opacity-30"
+								>
+									{#each control.options as [value, label] (value)}
+										<option {value}>{label}</option>
+									{/each}
+								</select>
+							{/if}
+						</SettingRow>
+					{/each}
+				</div>
+			</section>
+		{/each}
 	</div>
 
-	<div class="px-5 py-3 border-t border-border bg-background flex items-center justify-between">
+	<div class="flex items-center justify-between border-t border-border bg-background px-5 py-3">
 		<button
-			onclick={resetAll}
-			class="cursor-pointer text-xs px-3 py-1.5 border border-border text-subtle hover:text-foreground hover:border-muted rounded transition-colors"
+			onclick={() => {
+				resetEditorSettings();
+				onClose();
+			}}
+			class="btn-ghost px-3 py-1.5 text-xs"
 		>
 			Reset all to defaults
 		</button>
-		<button
-			onclick={onClose}
-			class="cursor-pointer text-xs px-4 py-1.5 bg-panel border border-border text-foreground hover:bg-muted hover:border-muted hover:text-background rounded font-medium transition-colors"
-		>
-			Close
-		</button>
+		<button onclick={onClose} class="btn-accent px-4 py-1.5 text-xs font-medium">Close</button>
 	</div>
 </Modal>

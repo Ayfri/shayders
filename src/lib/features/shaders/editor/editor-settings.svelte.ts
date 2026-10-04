@@ -1,3 +1,4 @@
+import { browser } from '$app/env';
 import type { editor } from 'monaco-editor/editor';
 
 export interface EditorSettingsData {
@@ -83,19 +84,23 @@ function loadSettings(): EditorSettingsData {
 	}
 }
 
-/** Browser-local editor preferences shared by the editor, the settings modal and the canvas runtime. */
+/** Browser-local editor preferences shared by the editor, the settings modal and the canvas runtime, persisted on every change. */
 export const editorSettings = $state<EditorSettingsData>(loadSettings());
+
+if (browser) {
+	$effect.root(() => {
+		$effect(() => {
+			try {
+				localStorage.setItem(STORAGE_KEY, JSON.stringify(editorSettings));
+			} catch {
+				/** Storage can be full or disabled (private mode), settings then only live for the session. */
+			}
+		});
+	});
+}
 
 export function resetEditorSettings(): void {
 	Object.assign(editorSettings, EDITOR_DEFAULTS);
-}
-
-export function saveEditorSettings(): void {
-	try {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(editorSettings));
-	} catch {
-		/** Storage can be full or disabled (private mode), settings then only live for the session. */
-	}
 }
 
 export function settingsToMonaco(s: EditorSettingsData): editor.IEditorOptions {

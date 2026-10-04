@@ -63,7 +63,7 @@
 
 <div
 	{@attach snapshot}
-	class="relative block h-full w-full cursor-pointer rounded bg-black"
+	class="relative block h-full w-full rounded bg-black"
 	role="img"
 	aria-label={name}
 	title={name}
