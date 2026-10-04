@@ -11,5 +11,5 @@ export function createPocketBase(): TypedPocketBase {
 export const pb = createPocketBase();
 
 export function getAvatarUrl(user: { avatar?: string | null; id: string }): string | null {
-	return user.avatar ? `${pb.baseURL}/api/files/users/${user.id}/${user.avatar}` : null;
+	return user.avatar ? pb.buildURL(`/api/files/users/${user.id}/${user.avatar}`) : null;
 }
