@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { LogIn } from '@lucide/svelte';
 	import SeoHead from '#components/SeoHead.svelte';
+	import AuthField from '#features/auth/AuthField.svelte';
+	import AuthForm from '#features/auth/AuthForm.svelte';
 	import type { PageProps } from './$types';
 
 	let { form }: PageProps = $props();
@@ -12,58 +14,14 @@
 	robots="noindex, follow"
 />
 
-<div class="min-h-screen flex flex-col items-center justify-center bg-background">
-	<div class="w-full max-w-sm px-8 py-10 bg-surface border border-border rounded-lg shadow-lg">
-		<div class="flex items-center justify-center gap-2 mb-6">
-			<h1 class="text-2xl font-semibold text-foreground">Welcome back</h1>
-		</div>
+<AuthForm title="Welcome back" error={form?.error} submitIcon={LogIn} submitLabel="Sign in">
+	<AuthField id="email" label="Email address" type="email" name="email" autocomplete="email" value={form?.email ?? ''} placeholder="you@example.com" />
+	<AuthField id="password" label="Password" type="password" name="password" autocomplete="current-password" placeholder="••••••••" />
 
-		<form method="POST" class="flex flex-col gap-4">
-			<div class="flex flex-col gap-2">
-				<label for="email" class="text-sm font-medium text-muted">Email address</label>
-				<input
-					id="email"
-					type="email"
-					name="email"
-					required
-					autocomplete="email"
-					value={form?.email ?? ''}
-					class="px-3 py-2.5 rounded bg-panel border border-border text-foreground text-sm focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30 transition-colors"
-					placeholder="you@example.com"
-				/>
-			</div>
-
-			<div class="flex flex-col gap-2">
-				<label for="password" class="text-sm font-medium text-muted">Password</label>
-				<input
-					id="password"
-					type="password"
-					name="password"
-					required
-					autocomplete="current-password"
-					class="px-3 py-2.5 rounded bg-panel border border-border text-foreground text-sm focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/30 transition-colors"
-					placeholder="••••••••"
-				/>
-			</div>
-
-			{#if form?.error}
-				<div class="px-3 py-2 rounded bg-red-950/30 border border-red-700/50 text-red-300 text-sm">{form.error}</div>
-			{/if}
-
-			<button
-				type="submit"
-				class="mt-2 px-4 py-2.5 rounded font-medium text-white bg-linear-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 border border-cyan-400/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-			>
-				<span class="flex items-center justify-center gap-2">
-					<LogIn size={16} />
-					Sign in
-				</span>
-			</button>
-		</form>
-
+	{#snippet footer()}
 		<p class="mt-6 text-center text-sm text-muted">
 			No account yet?
-			<a href="/signup" class="text-cyan-300 hover:text-white font-medium transition-colors">Create one</a>
+			<a href="/signup" class="font-medium text-accent transition-colors hover:text-accent-light">Create one</a>
 		</p>
-	</div>
-</div>
+	{/snippet}
+</AuthForm>
