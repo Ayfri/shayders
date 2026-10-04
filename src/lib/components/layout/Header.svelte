@@ -37,7 +37,7 @@
 			<span class="hidden min-[400px]:inline">Shayders</span>
 		</a>
 
-		<nav class="flex items-center gap-1 text-sm sm:ml-4">
+		<nav class="flex items-center gap-3 text-sm sm:ml-4">
 			<a href="/#gallery" class="hidden rounded-md px-3 py-1.5 text-muted transition-colors hover:bg-panel hover:text-foreground sm:block">Gallery</a>
 			<a
 				href="/new"
@@ -48,7 +48,7 @@
 				]}
 			>
 				<Plus size={14} />
-				New<span class="hidden sm:inline">&nbsp;shader</span>
+				<span>New<span class="hidden sm:inline">&nbsp;shader</span></span>
 			</a>
 		</nav>
 
