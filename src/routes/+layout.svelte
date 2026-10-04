@@ -90,7 +90,8 @@
 	<link rel="canonical" href={buildSiteUrl(page.url.pathname)} />
 	<!-- Served from `static/`: the Cloudflare adapter sends `X-Robots-Tag: noindex` on `/_app/*` and hashed URLs change, both stop Google from showing it. -->
 	<link rel="icon" type="image/png" sizes="400x400" href="/favicon.png" />
-	<link rel="apple-touch-icon" sizes="400x400" href="/favicon.png" />	<link rel="search" type="application/opensearchdescription+xml" title="Shayders Search" href="/opensearch.xml" />
+	<link rel="apple-touch-icon" sizes="400x400" href="/favicon.png" />
+	<link rel="manifest" href="/manifest.webmanifest" />	<link rel="search" type="application/opensearchdescription+xml" title="Shayders Search" href="/opensearch.xml" />
 	<link rel="sitemap" type="application/xml" href="/sitemap.xml" />
 	{@html `<script type="application/ld+json">${siteStructuredData}</script>`}
 
