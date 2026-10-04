@@ -90,7 +90,7 @@
 			numberOfItems: data.totalShaders,
 		},
 		name: 'Explore Shaders',
-		url: SITE_URL,
+		url: `${SITE_URL}/`,
 	}}
 />
 

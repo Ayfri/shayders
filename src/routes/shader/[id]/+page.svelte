@@ -49,7 +49,7 @@
 			{
 				'@type': 'BreadcrumbList',
 				itemListElement: [
-					{ '@type': 'ListItem', item: SITE_URL, name: 'Shaders', position: 1 },
+					{ '@type': 'ListItem', item: `${SITE_URL}/`, name: 'Shaders', position: 1 },
 					{ '@type': 'ListItem', item: authorUrl, name: shader.authorName, position: 2 },
 					{ '@type': 'ListItem', item: url, name: shader.name, position: 3 },
 				],
