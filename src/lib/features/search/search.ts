@@ -9,10 +9,8 @@ export const SEARCH_PREVIEW_USER_LIMIT = 4;
 export const SEARCH_QUERY_MAX_LENGTH = 64;
 
 export interface SearchShaderMatch {
-	authorId: string;
 	authorName: string;
 	authorProfilePath: string;
-	authorUsername: string;
 	buffers: ShaderBuffer[];
 	channels: ChannelEntry[];
 	created: string;
@@ -26,7 +24,6 @@ export interface SearchUserMatch {
 	displayName: string;
 	id: string;
 	profilePath: string;
-	username: string;
 }
 
 export interface SiteSearchResults {
@@ -55,3 +52,22 @@ export function buildSearchHref(query: string): string {
 	return `${SITE_SEARCH_PATH}?${params}`;
 }
 
+/**
+ * Splits text around the case-insensitive matches of `query` so the UI can highlight them.
+ * @example splitMatches('Water Noise', 'no') === [{ match: false, text: 'Water ' }, { match: true, text: 'No' }, { match: false, text: 'ise' }]
+ */
+export function splitMatches(text: string, query: string): { match: boolean; text: string }[] {
+	const needle = query.toLocaleLowerCase('en-US');
+	if (!needle) return [{ match: false, text }];
+
+	const haystack = text.toLocaleLowerCase('en-US');
+	const parts: { match: boolean; text: string }[] = [];
+	let cursor = 0;
+	for (let index = haystack.indexOf(needle); index !== -1; index = haystack.indexOf(needle, cursor)) {
+		if (index > cursor) parts.push({ match: false, text: text.slice(cursor, index) });
+		parts.push({ match: true, text: text.slice(index, index + needle.length) });
+		cursor = index + needle.length;
+	}
+	if (cursor < text.length) parts.push({ match: false, text: text.slice(cursor) });
+	return parts;
+}

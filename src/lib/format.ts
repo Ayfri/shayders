@@ -9,7 +9,3 @@ export function formatDate(date: string): string {
 export function plural(count: number, word: string): string {
 	return `${count} ${word}${count === 1 ? '' : 's'}`;
 }
-
-export function formatUserHandle(username: string, fallbackId: string): string {
-	return username ? `@${username}` : fallbackId;
-}

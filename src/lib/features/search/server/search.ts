@@ -14,136 +14,52 @@ import { getUserProfilePath } from '#lib/site.js';
 interface SearchSiteOptions {
 	shaderLimit?: number;
 	userLimit?: number;
+	/** The header preview never shows totals, skipping them saves PocketBase a COUNT query per collection. */
+	withTotals?: boolean;
 }
 
-type ExpandedShader = ShadersResponse<unknown, { user_id?: UsersResponse }>;
+type ExpandedShader = ShadersResponse<unknown, { user_id?: Pick<UsersResponse, 'name'> }>;
+
+const SHADER_FIELDS = 'id,name,description,created,user_id,content,expand.user_id.name';
+const USER_FIELDS = 'id,name,avatar';
 
 const searchCollator = new Intl.Collator('en-US', { numeric: true, sensitivity: 'base' });
 
-function createEmptySearchResults(query: string | null | undefined): SiteSearchResults {
-	const normalized = normalizeSearchQuery(query);
-
-	return {
-		hasQuery: normalized.length > 0,
-		query: normalized,
-		shaders: [],
-		totalShaders: 0,
-		totalUsers: 0,
-		users: [],
-	};
+function getUserDisplayName(name: string | null | undefined): string {
+	return name?.trim() || 'Unknown';
 }
 
-function getUserDisplayName(user: Pick<UsersResponse, 'name' | 'username'> | null | undefined): string {
-	const name = user?.name?.trim();
-	if (name) {
-		return name;
-	}
-
-	const username = user?.username?.trim();
-	if (username) {
-		return username;
-	}
-
-	return 'Unknown';
-}
-
-function normalizeForRanking(value: string): string {
-	return value.trim().toLocaleLowerCase('en-US');
-}
-
+/** Lower is better: exact, prefix, word prefix, substring, then no direct match (matched through the author). */
 function scoreMatch(value: string, query: string): number {
-	const normalizedValue = normalizeForRanking(value);
-	if (!normalizedValue) {
-		return Number.POSITIVE_INFINITY;
-	}
-
-	if (normalizedValue === query) {
-		return 0;
-	}
-
-	if (normalizedValue.startsWith(query)) {
-		return 1;
-	}
-
-	if (normalizedValue.split(/[\s._-]+/).some((part) => part.startsWith(query))) {
-		return 2;
-	}
-
-	if (normalizedValue.includes(query)) {
-		return 3;
-	}
-
+	const normalizedValue = value.trim().toLocaleLowerCase('en-US');
+	if (normalizedValue === query) return 0;
+	if (normalizedValue.startsWith(query)) return 1;
+	if (normalizedValue.split(/[\s._-]+/).some((part) => part.startsWith(query))) return 2;
+	if (normalizedValue.includes(query)) return 3;
 	return 4;
 }
 
-function compareUsers(left: SearchUserMatch, right: SearchUserMatch, normalizedQuery: string): number {
-	const leftScore = Math.min(
-		scoreMatch(left.displayName, normalizedQuery),
-		scoreMatch(left.username, normalizedQuery),
-	);
-	const rightScore = Math.min(
-		scoreMatch(right.displayName, normalizedQuery),
-		scoreMatch(right.username, normalizedQuery),
-	);
-	if (leftScore !== rightScore) {
-		return leftScore - rightScore;
-	}
-
-	const byDisplayName = searchCollator.compare(left.displayName, right.displayName);
-	if (byDisplayName !== 0) {
-		return byDisplayName;
-	}
-
-	return searchCollator.compare(left.username, right.username);
+function rank<T>(items: T[], score: (item: T) => number, tieBreak: (left: T, right: T) => number): T[] {
+	return items
+		.map((item) => ({ item, score: score(item) }))
+		.sort((left, right) => left.score - right.score || tieBreak(left.item, right.item))
+		.map(({ item }) => item);
 }
 
-function compareShaders(left: SearchShaderMatch, right: SearchShaderMatch, normalizedQuery: string): number {
-	const leftNameScore = scoreMatch(left.name, normalizedQuery);
-	const rightNameScore = scoreMatch(right.name, normalizedQuery);
-	if (leftNameScore !== rightNameScore) {
-		return leftNameScore - rightNameScore;
-	}
-
-	const leftAuthorScore = Math.min(
-		scoreMatch(left.authorName, normalizedQuery),
-		scoreMatch(left.authorUsername, normalizedQuery),
-	);
-	const rightAuthorScore = Math.min(
-		scoreMatch(right.authorName, normalizedQuery),
-		scoreMatch(right.authorUsername, normalizedQuery),
-	);
-	if (leftAuthorScore !== rightAuthorScore) {
-		return leftAuthorScore - rightAuthorScore;
-	}
-
-	const byCreated = right.created.localeCompare(left.created);
-	if (byCreated !== 0) {
-		return byCreated;
-	}
-
-	return searchCollator.compare(left.name, right.name);
-}
-
-function mapUser(user: UsersResponse): SearchUserMatch {
+function mapUser(user: Pick<UsersResponse, 'avatar' | 'id' | 'name'>): SearchUserMatch {
 	return {
 		avatarUrl: getAvatarUrl(user),
-		displayName: getUserDisplayName(user),
+		displayName: getUserDisplayName(user.name),
 		id: user.id,
 		profilePath: getUserProfilePath(user.id),
-		username: user.username?.trim() ?? '',
 	};
 }
 
 function mapShader(shader: ExpandedShader): SearchShaderMatch {
-	const author = shader.expand?.user_id;
-	const content = deserializeShaderContent(shader.content);
-
 	return {
-		authorId: shader.user_id,
-		authorName: getUserDisplayName(author),
+		authorName: getUserDisplayName(shader.expand?.user_id?.name),
 		authorProfilePath: getUserProfilePath(shader.user_id),
-		authorUsername: author?.username?.trim() ?? '',
-		buffers: content.buffers,
+		buffers: deserializeShaderContent(shader.content).buffers,
 		channels: hydrateChannels(shader.content),
 		created: shader.created,
 		description: shader.description ?? '',
@@ -152,63 +68,59 @@ function mapShader(shader: ExpandedShader): SearchShaderMatch {
 	};
 }
 
-async function fetchUserMatches(pb: TypedPocketBase, query: string, limit: number) {
-	const fetchLimit = Math.max(limit * 3, 12);
+/** Twice the shown count is fetched so the relevance ranking has candidates beyond PocketBase's date order. */
+function fetchShaderMatches(pb: TypedPocketBase, query: string, limit: number, withTotals: boolean) {
+	return pb.collection('shaders').getList<ExpandedShader>(1, limit * 2, {
+		expand: 'user_id',
+		fields: SHADER_FIELDS,
+		filter: pb.filter('visiblity = "public" && (name ~ {:query} || user_id.name ~ {:query})', { query }),
+		skipTotal: !withTotals,
+		sort: '-created',
+	});
+}
 
-	return pb.collection('users').getList(1, fetchLimit, {
+function fetchUserMatches(pb: TypedPocketBase, query: string, limit: number, withTotals: boolean) {
+	return pb.collection('users').getList(1, limit * 2, {
+		fields: USER_FIELDS,
 		filter: pb.filter('name ~ {:query}', { query }),
+		skipTotal: !withTotals,
 		sort: 'name',
 	});
 }
 
-async function fetchShaderMatches(pb: TypedPocketBase, query: string, limit: number) {
-	const fetchLimit = Math.max(limit * 3, 24);
-
-	return pb.collection('shaders').getList<ExpandedShader>(1, fetchLimit, {
-		expand: 'user_id',
-		filter: pb.filter(
-			'visiblity = "public" && (name ~ {:query} || user_id.name ~ {:query})',
-			{ query },
-		),
-		sort: '-created,name',
-	});
-}
-
-export async function searchSite(
-	query: string | null | undefined,
-	options: SearchSiteOptions = {},
-): Promise<SiteSearchResults> {
+export async function searchSite(query: string | null | undefined, options: SearchSiteOptions = {}): Promise<SiteSearchResults> {
 	const normalizedQuery = normalizeSearchQuery(query);
 	if (!normalizedQuery) {
-		return createEmptySearchResults(query);
+		return { hasQuery: false, query: '', shaders: [], totalShaders: 0, totalUsers: 0, users: [] };
 	}
 
 	const pb = createPocketBase();
-	const shaderLimit = options.shaderLimit ?? SEARCH_PAGE_SHADER_LIMIT;
-	const userLimit = options.userLimit ?? SEARCH_PAGE_USER_LIMIT;
-	const rankingQuery = normalizeForRanking(normalizedQuery);
+	const { shaderLimit = SEARCH_PAGE_SHADER_LIMIT, userLimit = SEARCH_PAGE_USER_LIMIT, withTotals = true } = options;
+	const rankingQuery = normalizedQuery.toLocaleLowerCase('en-US');
 
 	const [shaderResponse, userResponse] = await Promise.all([
-		fetchShaderMatches(pb, normalizedQuery, shaderLimit),
-		fetchUserMatches(pb, normalizedQuery, userLimit),
+		fetchShaderMatches(pb, normalizedQuery, shaderLimit, withTotals),
+		fetchUserMatches(pb, normalizedQuery, userLimit, withTotals),
 	]);
 
-	const shaders = shaderResponse.items
-		.map(mapShader)
-		.sort((left, right) => compareShaders(left, right, rankingQuery))
-		.slice(0, shaderLimit);
-	const users = userResponse.items
-		.map(mapUser)
-		.sort((left, right) => compareUsers(left, right, rankingQuery))
-		.slice(0, userLimit);
+	/** Ranked on the raw records so only the shown shaders pay for content deserialization. */
+	const shaders = rank(
+		shaderResponse.items,
+		(shader) => scoreMatch(shader.name, rankingQuery) * 5 + scoreMatch(shader.expand?.user_id?.name ?? '', rankingQuery),
+		(left, right) => right.created.localeCompare(left.created) || searchCollator.compare(left.name, right.name),
+	).slice(0, shaderLimit).map(mapShader);
+	const users = rank(
+		userResponse.items.map(mapUser),
+		(user) => scoreMatch(user.displayName, rankingQuery),
+		(left, right) => searchCollator.compare(left.displayName, right.displayName),
+	).slice(0, userLimit);
 
 	return {
 		hasQuery: true,
 		query: normalizedQuery,
 		shaders,
-		totalShaders: shaderResponse.totalItems,
-		totalUsers: userResponse.totalItems,
+		totalShaders: withTotals ? shaderResponse.totalItems : shaders.length,
+		totalUsers: withTotals ? userResponse.totalItems : users.length,
 		users,
 	};
 }
-

@@ -1,102 +1,113 @@
 <script lang="ts">
-	import { Search } from '@lucide/svelte';
+	import { ArrowRight, Search, Sparkles } from '@lucide/svelte';
 	import SeoHead from '#components/SeoHead.svelte';
 	import Button from '#components/ui/Button.svelte';
 	import EmptyState from '#components/ui/EmptyState.svelte';
 	import UserAvatar from '#components/ui/UserAvatar.svelte';
+	import SearchHighlight from '#features/search/SearchHighlight.svelte';
 	import ShaderCard from '#features/shaders/preview/ShaderCard.svelte';
 	import { buildSearchHref } from '#features/search/search.js';
-	import { formatUserHandle, plural } from '#lib/format.js';
+	import { plural } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
-	const EXAMPLE_QUERIES = ['water', 'noise', 'plasma', 'ayfri'];
+	const EXAMPLE_QUERIES = ['water', 'noise', 'plasma', 'fractal', 'raymarch'];
 </script>
 
 <SeoHead
 	title={data.hasQuery ? `Search results for "${data.query}" - Shayders` : 'Search - Shayders'}
 	description={data.hasQuery
 		? `Browse public shaders and creators matching "${data.query}" on Shayders.`
-		: 'Search public shaders and creators by shader name or username on Shayders.'}
+		: 'Search public shaders and creators by shader name or creator name on Shayders.'}
 	robots={data.hasQuery ? 'noindex, follow' : undefined}
 />
 
-{#snippet sectionHeader(title: string, subtitle: string, shown: number, total: number)}
-	<div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-		<div>
-			<h2 class="text-xl font-semibold text-foreground">{title}</h2>
-			<p class="text-sm text-muted">{subtitle}</p>
-		</div>
-		<p class="text-xs text-subtle">Showing {shown} of {total}</p>
+{#snippet sectionHeader(title: string, shown: number, total: number)}
+	<div class="mb-4 flex items-baseline justify-between gap-4">
+		<h2 class="text-xl font-semibold text-white">{title} <span class="ml-1 text-sm font-normal text-subtle">{total}</span></h2>
+		{#if total > shown}<p class="text-xs text-subtle">Top {shown}, refine the query to narrow it down</p>{/if}
 	</div>
 {/snippet}
 
-<div class="min-h-full bg-background p-6 text-foreground lg:p-10">
-	<div class="mx-auto max-w-6xl">
-		<section class="mb-8 rounded-xl border border-border bg-surface p-5 sm:p-6">
-			<p class="font-mono text-11 uppercase tracking-[0.2em] text-subtle">Site search</p>
-			<h1 class="mt-3 text-3xl font-bold text-foreground sm:text-4xl">Find shaders and creators</h1>
-			<p class="mt-3 max-w-2xl text-sm leading-6 text-muted">
-				Search public shaders by title, or jump to creators by display name and username.
+{#snippet exampleChips()}
+	{#each EXAMPLE_QUERIES as example (example)}
+		<a
+			href={buildSearchHref(example)}
+			class="rounded-full border border-border bg-background/60 px-3 py-1 text-sm text-muted backdrop-blur transition-colors hover:border-accent/40 hover:text-accent"
+		>
+			{example}
+		</a>
+	{/each}
+{/snippet}
+
+<div class="min-h-full bg-background text-foreground">
+	<section class="relative isolate overflow-hidden border-b border-border">
+		<div class="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_80%_100%_at_50%_0%,--alpha(var(--color-accent)/14%),transparent_70%)]"></div>
+
+		<div class="mx-auto max-w-3xl px-6 pb-10 pt-14 text-center lg:pt-20">
+			<h1 class="text-3xl font-bold tracking-tight text-white sm:text-5xl">
+				{#if data.hasQuery}Results for <span class="text-accent-light">"{data.query}"</span>{:else}Find shaders and creators{/if}
+			</h1>
+			<p class="mx-auto mt-4 max-w-xl text-sm leading-6 text-muted sm:text-base">
+				{#if data.hasQuery}
+					{plural(data.totalShaders, 'shader')} and {plural(data.totalUsers, 'creator')} match your search.
+				{:else}
+					Search the public gallery by shader title or creator name.
+				{/if}
 			</p>
 
-			<form method="GET" action="/search" class="mt-6 flex flex-col gap-3 sm:flex-row">
-				<label class="relative flex-1">
-					<Search size={18} class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
-					<input
-						type="search"
-						name="q"
-						value={data.query}
-						placeholder="Search by shader name or username"
-						aria-label="Search by shader name or username"
-						class="w-full rounded-lg border border-border bg-background px-12 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-subtle focus:border-accent/50"
-					/>
-				</label>
+			<form method="GET" action="/search" class="mx-auto mt-8 flex max-w-2xl items-center gap-2 rounded-xl border border-border bg-surface p-1.5 shadow-[0_12px_40px_-16px_--alpha(var(--color-accent)/40%)] transition-colors focus-within:border-accent/50">
+				<Search size={18} class="ml-3 shrink-0 text-muted" />
+				<input
+					type="search"
+					name="q"
+					value={data.query}
+					placeholder="Shader title or creator name"
+					aria-label="Search by shader title or creator name"
+					class="min-w-0 flex-1 bg-transparent px-1 py-2 text-base text-foreground outline-none placeholder:text-subtle"
+				/>
 				<Button type="submit" variant="primary" size="lg">Search</Button>
 			</form>
 
-			<div class="mt-4 flex flex-wrap gap-2 text-sm text-muted">
-				{#if data.hasQuery}
-					<span class="rounded-full border border-border bg-panel px-3 py-1">{plural(data.totalShaders, 'shader')}</span>
-					<span class="rounded-full border border-border bg-panel px-3 py-1">{plural(data.totalUsers, 'creator')}</span>
-				{:else}
-					{#each EXAMPLE_QUERIES as example (example)}
-						<a href={buildSearchHref(example)} class="rounded-full border border-border bg-panel px-3 py-1 transition-colors hover:bg-background hover:text-foreground">
-							Try "{example}"
-						</a>
-					{/each}
-				{/if}
-			</div>
-		</section>
+			{#if !data.hasQuery}
+				<div class="mt-6 flex flex-wrap items-center justify-center gap-2">
+					<span class="flex items-center gap-1.5 text-xs text-subtle"><Sparkles size={12} /> Try</span>
+					{@render exampleChips()}
+				</div>
+			{/if}
+		</div>
+	</section>
 
+	<div class="mx-auto max-w-6xl px-6 py-10 lg:px-10">
 		{#if !data.hasQuery}
-			<section class="rounded-xl border border-border bg-surface p-6 text-sm text-muted">
-				<p class="text-base font-medium text-foreground">Start with a shader title or a creator handle.</p>
-				<p class="mt-2 max-w-2xl leading-6">
-					The search page matches shader names, creator names, and usernames. Use the header search bar for live suggestions anywhere on the site.
-				</p>
-			</section>
+			<p class="text-center text-sm text-muted">
+				The search bar in the header gives live suggestions from any page.
+				<a href="/#gallery" class="inline-flex items-center gap-1 text-accent transition-colors hover:text-accent-light">
+					Or browse the gallery <ArrowRight size={13} />
+				</a>
+			</p>
 		{:else if data.shaders.length === 0 && data.users.length === 0}
-			<EmptyState icon={Search} title={`No results for "${data.query}".`}>
-				Try a shorter shader name, a creator display name, or a username without punctuation.
+			<EmptyState icon={Search} title={`Nothing matches "${data.query}".`}>
+				Try a shorter or different word, search matches anywhere in shader titles and creator names.
+				<div class="mt-2 flex flex-wrap justify-center gap-2">{@render exampleChips()}</div>
 			</EmptyState>
 		{:else}
-			<div class="flex flex-col gap-8">
+			<div class="flex flex-col gap-12">
 				{#if data.users.length > 0}
 					<section>
-						{@render sectionHeader('Creators', 'Matched by display name or username.', data.users.length, data.totalUsers)}
-						<div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+						{@render sectionHeader('Creators', data.users.length, data.totalUsers)}
+						<div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
 							{#each data.users as user (user.id)}
 								<a
 									href={user.profilePath}
-									class="flex items-center gap-3 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-subtle hover:bg-panel"
+									class="group flex items-center gap-3 rounded-xl border border-border bg-surface p-3 transition-all hover:-translate-y-0.5 hover:border-accent/40"
 								>
 									<UserAvatar src={user.avatarUrl} size={12} />
-									<div class="min-w-0">
-										<p class="truncate text-sm font-medium text-foreground">{user.displayName}</p>
-										<p class="mt-1 truncate text-xs text-muted">{formatUserHandle(user.username, user.id)}</p>
-									</div>
+									<span class="min-w-0 flex-1 truncate font-medium text-foreground">
+										<SearchHighlight query={data.query} text={user.displayName} />
+									</span>
+									<ArrowRight size={14} class="shrink-0 text-subtle transition-all group-hover:translate-x-0.5 group-hover:text-accent" />
 								</a>
 							{/each}
 						</div>
@@ -105,14 +116,10 @@
 
 				{#if data.shaders.length > 0}
 					<section>
-						{@render sectionHeader('Shaders', 'Matched by shader title or creator identity.', data.shaders.length, data.totalShaders)}
-						<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+						{@render sectionHeader('Shaders', data.shaders.length, data.totalShaders)}
+						<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 							{#each data.shaders as shader (shader.id)}
-								<ShaderCard
-									{shader}
-									author={{ href: shader.authorProfilePath, name: shader.authorName }}
-									fallbackDescription={formatUserHandle(shader.authorUsername, shader.authorId)}
-								/>
+								<ShaderCard {shader} author={{ href: shader.authorProfilePath, name: shader.authorName }} />
 							{/each}
 						</div>
 					</section>

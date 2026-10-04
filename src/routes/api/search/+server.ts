@@ -14,7 +14,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	const query = normalizeSearchQuery(url.searchParams.get('q'));
 	const results: SiteSearchResults = query.length < SEARCH_PREVIEW_MIN_QUERY_LENGTH
 		? { hasQuery: query.length > 0, query, shaders: [], totalShaders: 0, totalUsers: 0, users: [] }
-		: await searchSite(query, { shaderLimit: SEARCH_PREVIEW_SHADER_LIMIT, userLimit: SEARCH_PREVIEW_USER_LIMIT });
+		: await searchSite(query, { shaderLimit: SEARCH_PREVIEW_SHADER_LIMIT, userLimit: SEARCH_PREVIEW_USER_LIMIT, withTotals: false });
 
 	return Response.json(results, { headers: CACHE_HEADERS });
 };
