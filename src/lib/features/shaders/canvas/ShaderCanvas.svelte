@@ -18,21 +18,19 @@
 		error?: string;
 		isSavingLocally?: boolean;
 		onFork?: () => void;
-		readonly?: boolean;
 		thumbnails?: Record<string, string>;
 		uniformValues?: Record<string, string>;
 		viewOnly?: boolean;
 	}
 
 	let {
-		authorId = undefined,
-		authorName = undefined,
+		authorId,
+		authorName,
 		buffers,
 		channels = [],
 		error = $bindable(''),
 		isSavingLocally = false,
-		onFork = undefined,
-		readonly = false,
+		onFork,
 		thumbnails = $bindable({}),
 		uniformValues = $bindable({}),
 		viewOnly = false,
@@ -43,7 +41,6 @@
 	let canRecordVideo = $state(false);
 	let infosOpen = $state(false);
 	let isFullscreen = $state(false);
-	let isHovered = $state(false);
 	let canvas: HTMLCanvasElement | null = null;
 	let wrapper: HTMLDivElement | null = null;
 
@@ -62,13 +59,7 @@
 
 	function isEditingField(element: Element | null): boolean {
 		return element instanceof HTMLElement
-			&& (
-				element.tagName === 'INPUT'
-				|| element.tagName === 'TEXTAREA'
-				|| element.getAttribute('contenteditable') === 'true'
-				|| element.classList.contains('monaco-editor')
-				|| element.closest('.monaco-editor') !== null
-			);
+			&& (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable || element.closest('.monaco-editor') !== null);
 	}
 
 	async function captureScreenshot(): Promise<void> {
@@ -85,10 +76,6 @@
 		if (event.key.toLowerCase() !== FULLSCREEN_TOGGLE_KEY || isEditingField(document.activeElement)) return;
 		event.preventDefault();
 		void toggleFullscreen();
-	}
-
-	function handleFullscreenChange(): void {
-		isFullscreen = !!document.fullscreenElement;
 	}
 
 	function handlePointerMove(event: PointerEvent): void {
@@ -130,15 +117,9 @@
 	});
 </script>
 
-<svelte:document onfullscreenchange={handleFullscreenChange} onkeydown={handleDocumentKeydown} />
+<svelte:document onfullscreenchange={() => (isFullscreen = !!document.fullscreenElement)} onkeydown={handleDocumentKeydown} />
 
-<div
-	bind:this={wrapper}
-	role="application"
-	class="relative flex h-full min-w-0 w-full flex-col bg-black outline-none"
-	onmouseenter={() => (isHovered = true)}
-	onmouseleave={() => (isHovered = false)}
->
+<div bind:this={wrapper} role="application" class="group relative flex h-full w-full min-w-0 flex-col bg-black outline-none">
 	{#if !isFullscreen}
 		<ShaderCanvasToolbar
 			{authorId}
@@ -150,19 +131,21 @@
 			{recorder}
 			{onFork}
 			onOpenInfo={() => (infosOpen = true)}
-			{readonly}
 			{toggleRecording}
 			{viewOnly}
 		/>
 	{/if}
 
-	<div class="relative flex-1 min-h-0 min-w-0 overflow-hidden">
+	<div class="relative min-h-0 min-w-0 flex-1 overflow-hidden">
 		<canvas
 			bind:this={canvas}
 			class="block h-full w-full touch-none"
 			height={600}
 			width={800}
-			onpointerdown={(event) => { handlePointerMove(event); runtime.setMouseDown(true); }}
+			onpointerdown={(event) => {
+				handlePointerMove(event);
+				runtime.setMouseDown(true);
+			}}
 			onpointermove={handlePointerMove}
 			onpointerup={() => runtime.setMouseDown(false)}
 			onpointercancel={() => runtime.setMouseDown(false)}
@@ -171,9 +154,9 @@
 
 		<button
 			onclick={toggleFullscreen}
-			class="absolute bottom-3 right-3 rounded p-1.5 text-white transition-opacity duration-200 pointer-coarse:opacity-60!"
-			style="filter: drop-shadow(0 1px 4px rgba(0,0,0,0.95)); opacity: {isHovered ? 0.5 : 0.1};"
+			class="absolute bottom-3 right-3 rounded p-1.5 text-white opacity-10 drop-shadow-[0_1px_4px_rgb(0_0_0/0.95)] transition-opacity duration-200 group-hover:opacity-50 hover:opacity-80! pointer-coarse:opacity-60"
 			title={isFullscreen ? 'Quit fullscreen (F)' : 'Fullscreen (F)'}
+			aria-label={isFullscreen ? 'Quit fullscreen' : 'Fullscreen'}
 		>
 			{#if isFullscreen}
 				<Minimize2 size={18} />
@@ -184,7 +167,7 @@
 	</div>
 
 	{#if error}
-		<div class="absolute bottom-0 left-0 right-0 flex max-h-1/2 items-start gap-2 overflow-y-auto border-t border-red-500 bg-red-950 px-4 py-1.5 bg-opacity-15">
+		<div class="absolute inset-x-0 bottom-0 flex max-h-1/2 items-start gap-2 overflow-y-auto border-t border-red-500 bg-red-950/15 px-4 py-1.5">
 			<CircleAlert size={11} class="mt-1 shrink-0 text-red-400" />
 			<pre class="m-0 whitespace-pre-wrap font-mono text-xs leading-normal text-red-400">{error}</pre>
 		</div>
