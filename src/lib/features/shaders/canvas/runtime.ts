@@ -1,4 +1,4 @@
-import { THUMB_SIZE } from '#features/shaders/model/shader-domain.js';
+import { BUFFER_UNIFORM_NAMES, THUMB_SIZE } from '#features/shaders/model/shader-domain.js';
 import type { ChannelEntry, ShaderBuffer } from '#features/shaders/model/shader-content.js';
 import { ChannelTextureManager } from './channel-textures.js';
 import {
@@ -30,7 +30,7 @@ interface RuntimeOptions {
 	updateUniformValues: (value: Record<string, string>) => void;
 }
 
-const THUMBNAIL_CAPTURE_INTERVAL_MS = 400;
+const THUMBNAIL_CAPTURE_INTERVAL_MS = 200;
 /** The uniform readout is for humans, refreshing it every frame only re-renders the panel 60 times a second. */
 const UNIFORM_READOUT_INTERVAL_MS = 100;
 /** Fragment uniform vectors kept free for user uniforms, channels and buffers when sizing the literal array. */
@@ -89,7 +89,6 @@ export class ShaderCanvasRuntime {
 	private frameCount = 0;
 	private fps = 0;
 	private readonly thumbnailCache: Record<string, string> = {};
-	private thumbnailCursor = 0;
 	private thumbnailGenerationPending = false;
 	private thumbnailOutputCanvas: HTMLCanvasElement | null = null;
 	private thumbnailOutputContext: CanvasRenderingContext2D | null = null;
@@ -363,58 +362,46 @@ export class ShaderCanvasRuntime {
 		pass.shownSeq = Math.max(pass.shownSeq, seq);
 	}
 
+	/** Every buffer is drawn into its own row of one atlas, so a single `readPixels` (a GPU sync) refreshes all the tab previews. */
 	private captureThumbnails(userOrder: string[]): void {
-		const canvas = this.options.getCanvas();
-		if (!this.gl || !canvas || userOrder.length === 0 || this.thumbnailGenerationPending || !this.options.getBufferPreviewsEnabled()) return;
-		this.thumbnailGenerationPending = true;
-
-		const id = userOrder[this.thumbnailCursor % userOrder.length];
-		this.thumbnailCursor = (this.thumbnailCursor + 1) % userOrder.length;
-		const state = this.passes.get(id);
-		const sourceTexture = state?.texture[state?.prevIdx ?? 0] ?? null;
-		if (!sourceTexture) {
-			this.thumbnailGenerationPending = false;
-			return;
-		}
-
+		if (!this.gl || userOrder.length === 0 || this.thumbnailGenerationPending || !this.options.getBufferPreviewsEnabled()) return;
 		this.setupThumbPass();
-		if (!this.thumbFbo || !this.thumbProgram || !this.thumbTexture || this.thumbLocPosition < 0 || !this.thumbLocTex) {
-			this.thumbnailGenerationPending = false;
-			return;
-		}
+		if (!this.thumbFbo || !this.thumbProgram || this.thumbLocPosition < 0 || !this.thumbLocTex) return;
+		this.ensureThumbnailCanvases();
+		const context = this.thumbnailOutputContext;
+		const output = this.thumbnailOutputCanvas;
+		if (!context || !output) return;
 
+		const { height, width } = THUMB_SIZE;
+		const ids = userOrder.slice(0, BUFFER_UNIFORM_NAMES.length);
 		this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.thumbFbo);
-		this.gl.viewport(0, 0, THUMB_SIZE.width, THUMB_SIZE.height);
 		this.gl.useProgram(this.thumbProgram);
 		this.gl.activeTexture(this.gl.TEXTURE0);
-		this.gl.bindTexture(this.gl.TEXTURE_2D, sourceTexture);
 		this.gl.uniform1i(this.thumbLocTex, 0);
-
 		this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.quadBuffer);
 		this.gl.enableVertexAttribArray(this.thumbLocPosition);
 		this.gl.vertexAttribPointer(this.thumbLocPosition, 2, this.gl.FLOAT, false, 0, 0);
-		this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+		const drawnRows = ids.flatMap((id, row) => {
+			const pass = this.passes.get(id);
+			const texture = pass?.texture[pass.prevIdx] ?? null;
+			if (!texture) return [];
+			this.gl!.viewport(0, row * height, width, height);
+			this.gl!.bindTexture(this.gl!.TEXTURE_2D, texture);
+			this.gl!.drawArrays(this.gl!.TRIANGLE_STRIP, 0, 4);
+			return [{ id, row }];
+		});
 
-		const pixels = new Uint8Array(THUMB_SIZE.width * THUMB_SIZE.height * 4);
-		this.gl.readPixels(0, 0, THUMB_SIZE.width, THUMB_SIZE.height, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
+		const pixels = new Uint8ClampedArray(width * height * 4 * ids.length);
+		this.gl.readPixels(0, 0, width, height * ids.length, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
 		this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
 
-		this.ensureThumbnailCanvases();
-		if (!this.thumbnailOutputContext || !this.thumbnailOutputCanvas) {
-			this.thumbnailGenerationPending = false;
-			return;
-		}
-
-		this.thumbnailOutputContext.putImageData(new ImageData(new Uint8ClampedArray(pixels.buffer), THUMB_SIZE.width, THUMB_SIZE.height), 0, 0);
-
-		void Promise.all([
-			this.canvasToObjectUrl(this.thumbnailOutputCanvas),
-			this.canvasToObjectUrl(canvas),
-		]).then(([bufferThumb, imageThumb]) => {
-			if (bufferThumb) this.setThumbnailUrl(id, bufferThumb);
-			if (imageThumb) this.setThumbnailUrl('image', imageThumb);
-			this.options.updateThumbnails({ ...this.thumbnailCache });
-		}).finally(() => {
+		this.thumbnailGenerationPending = true;
+		const rowBytes = width * height * 4;
+		/** `toBlob` snapshots the canvas when called, so one small canvas is reused for every row. */
+		void Promise.all(drawnRows.map(({ id, row }) => {
+			context.putImageData(new ImageData(pixels.subarray(row * rowBytes, (row + 1) * rowBytes), width, height), 0, 0);
+			return this.canvasToObjectUrl(output).then((url) => url && this.setThumbnailUrl(id, url));
+		})).then(() => this.options.updateThumbnails({ ...this.thumbnailCache })).finally(() => {
 			this.thumbnailGenerationPending = false;
 		});
 	}
@@ -422,17 +409,18 @@ export class ShaderCanvasRuntime {
 	private setupThumbPass(): void {
 		if (!this.gl || this.thumbFbo) return;
 
-		const fbo = createFbo(this.gl, THUMB_SIZE.width, THUMB_SIZE.height, UNSIGNED_BYTE_TEXTURE_TYPE);
+		const fbo = createFbo(this.gl, THUMB_SIZE.width, THUMB_SIZE.height * BUFFER_UNIFORM_NAMES.length, UNSIGNED_BYTE_TEXTURE_TYPE);
 		if (!fbo) return;
 		this.thumbFbo = fbo.fbo;
 		this.thumbTexture = fbo.texture;
 
+		/** `fract` maps every atlas row back to 0..1, flipped so the bottom-up `readPixels` rows come out top-down. */
 		const { program } = buildProgram(
 			this.gl,
 			`precision mediump float;
 uniform sampler2D uTex;
 void main() {
-	vec2 vUv = gl_FragCoord.xy / vec2(${THUMB_SIZE.width}.0, ${THUMB_SIZE.height}.0);
+	vec2 vUv = fract(gl_FragCoord.xy / vec2(${THUMB_SIZE.width}.0, ${THUMB_SIZE.height}.0));
 	vUv.y = 1.0 - vUv.y;
 	gl_FragColor = texture2D(uTex, vUv);
 }`,
