@@ -79,6 +79,7 @@
 
 <script lang="ts">
 	import { editorSettings as settings, resetEditorSettings } from '#features/shaders/editor/editor-settings.svelte.js';
+	import Button from '#components/ui/Button.svelte';
 	import Modal from '#components/ui/Modal.svelte';
 	import SettingRow from '#components/ui/SettingRow.svelte';
 
@@ -127,15 +128,16 @@
 	</div>
 
 	<div class="flex items-center justify-between border-t border-border bg-background px-5 py-3">
-		<button
+		<Button
 			onclick={() => {
 				resetEditorSettings();
 				onClose();
 			}}
-			class="btn-ghost px-3 py-1.5 text-xs"
+			variant="ghost"
+			size="sm"
 		>
 			Reset all to defaults
-		</button>
-		<button onclick={onClose} class="btn-accent px-4 py-1.5 text-xs font-medium">Close</button>
+		</Button>
+		<Button onclick={onClose} variant="accent" size="sm">Close</Button>
 	</div>
 </Modal>

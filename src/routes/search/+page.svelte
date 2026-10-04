@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Search } from '@lucide/svelte';
 	import SeoHead from '#components/SeoHead.svelte';
+	import Button from '#components/ui/Button.svelte';
 	import EmptyState from '#components/ui/EmptyState.svelte';
 	import UserAvatar from '#components/ui/UserAvatar.svelte';
 	import ShaderCard from '#features/shaders/preview/ShaderCard.svelte';
@@ -49,15 +50,10 @@
 						value={data.query}
 						placeholder="Search by shader name or username"
 						aria-label="Search by shader name or username"
-						class="w-full rounded-lg border border-border bg-background px-12 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-subtle focus:border-accent/50"
+						class="w-full rounded-lg border border-border bg-background px-12 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-subtle focus:border-accent/50"
 					/>
 				</label>
-				<button
-					type="submit"
-					class="inline-flex items-center justify-center rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-background transition-colors hover:bg-accent-light"
-				>
-					Search
-				</button>
+				<Button type="submit" variant="primary" size="lg">Search</Button>
 			</form>
 
 			<div class="mt-4 flex flex-wrap gap-2 text-sm text-muted">
@@ -96,7 +92,7 @@
 									href={user.profilePath}
 									class="flex items-center gap-3 rounded-xl border border-border bg-surface p-4 transition-colors hover:border-subtle hover:bg-panel"
 								>
-									<UserAvatar src={user.avatarUrl} class="size-12" />
+									<UserAvatar src={user.avatarUrl} size={12} />
 									<div class="min-w-0">
 										<p class="truncate text-sm font-medium text-foreground">{user.displayName}</p>
 										<p class="mt-1 truncate text-xs text-muted">{formatUserHandle(user.username, user.id)}</p>

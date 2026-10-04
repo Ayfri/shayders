@@ -5,6 +5,7 @@
 	import { auth, logout, requestVerification, throwIfAuthenticatedApiError } from '#features/auth/auth-client.svelte.js';
 	import EditProfileSection from '#features/profile/EditProfileSection.svelte';
 	import SeoHead from '#components/SeoHead.svelte';
+	import Button from '#components/ui/Button.svelte';
 	import EmptyState from '#components/ui/EmptyState.svelte';
 	import UserAvatar from '#components/ui/UserAvatar.svelte';
 	import ShaderCard from '#features/shaders/preview/ShaderCard.svelte';
@@ -127,17 +128,17 @@
 />
 
 {#snippet createShaderLink()}
-	<a href="/new" class="btn-secondary self-start px-4 py-2 text-sm">
+	<Button href="/new" size="lg" class="self-start">
 		Create a shader
 		<ArrowRight size={14} />
-	</a>
+	</Button>
 {/snippet}
 
 <div class="min-h-full bg-background p-6 text-foreground lg:p-10">
 	<div class="mx-auto max-w-5xl">
 		<div class="mb-8 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
 			<div class="flex items-start gap-4">
-				<UserAvatar src={avatarUrl} alt="{displayName}'s avatar" class="size-14" />
+				<UserAvatar src={avatarUrl} alt="{displayName}'s avatar" size={14} />
 				<div>
 					<h1 class="text-2xl font-semibold text-foreground">{displayName}</h1>
 					<p class="mt-1 text-sm text-muted">{isOwner ? 'Manage your shaders and uploads.' : `Public shaders by ${displayName}.`}</p>
@@ -195,10 +196,10 @@
 						{#if isOwner && confirmId === shader.id}
 							<div class="alert-error flex items-center gap-2 px-3 py-2 text-xs">
 								<span class="flex-1">Delete this shader?</span>
-								<button onclick={() => deleteShader(shader.id)} disabled={deletingId === shader.id} class="btn-danger px-2 py-1">
+								<Button onclick={() => deleteShader(shader.id)} disabled={deletingId === shader.id} variant="danger" size="xs">
 									{deletingId === shader.id ? 'Deleting…' : 'Confirm'}
-								</button>
-								<button onclick={() => (confirmId = null)} class="btn-ghost px-2 py-1">Cancel</button>
+								</Button>
+								<Button onclick={() => (confirmId = null)} variant="ghost" size="xs">Cancel</Button>
 							</div>
 						{/if}
 
@@ -247,10 +248,10 @@
 						{#if resendError}
 							<p class="mt-2 text-xs text-red-300">{resendError}</p>
 						{/if}
-						<button onclick={resendVerificationCode} disabled={resendLoading} class="btn-secondary mt-3 px-3 py-1.5 text-xs">
+						<Button onclick={resendVerificationCode} disabled={resendLoading} size="sm" class="mt-3">
 							<RefreshCw size={12} class={resendLoading ? 'animate-spin' : ''} />
 							{resendLoading ? 'Sending…' : 'Resend verification email'}
-						</button>
+						</Button>
 					</div>
 				</div>
 			{/if}
@@ -265,18 +266,18 @@
 				{#if confirmDeleteAccount}
 					<div class="flex flex-wrap items-center gap-3">
 						<span class="text-sm text-muted">This deletes your account, every shader and every upload. It can't be undone.</span>
-						<button onclick={deleteAccount} disabled={deletingAccount} class="btn-danger px-3 py-1.5 text-sm font-medium">
+						<Button onclick={deleteAccount} disabled={deletingAccount} variant="danger">
 							{deletingAccount ? 'Deleting…' : 'Yes, delete my account'}
-						</button>
+						</Button>
 						<button onclick={() => (confirmDeleteAccount = false)} class="px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground">
 							Cancel
 						</button>
 					</div>
 				{:else}
-					<button onclick={() => (confirmDeleteAccount = true)} class="btn-danger px-3 py-1.5 text-sm">
+					<Button onclick={() => (confirmDeleteAccount = true)} variant="danger">
 						<Trash2 size={14} />
 						Delete my account
-					</button>
+					</Button>
 				{/if}
 			</div>
 		{/if}

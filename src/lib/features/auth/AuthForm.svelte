@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import type { LucideIcon } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
+	import Button from '#components/ui/Button.svelte';
 
 	interface Props {
 		action?: string;
@@ -44,10 +45,10 @@
 				<div class="alert-error px-3 py-2">{error}</div>
 			{/if}
 
-			<button type="submit" disabled={pending} class="btn-primary mt-2 px-4 py-2.5 text-sm">
+			<Button type="submit" variant="primary" size="lg" disabled={pending} class="mt-2">
 				<SubmitIcon size={16} />
 				{submitLabel}
-			</button>
+			</Button>
 		</form>
 
 		{@render footer?.()}

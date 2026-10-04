@@ -5,6 +5,7 @@
 	import type { AuthUser } from '#features/auth/auth-shared.js';
 	import { auth, logout } from '#features/auth/auth-client.svelte.js';
 	import logo from '#lib/assets/logo.png';
+	import Button from '#components/ui/Button.svelte';
 	import UserAvatar from '#components/ui/UserAvatar.svelte';
 	import SiteSearch from '#features/search/SiteSearch.svelte';
 	import { getAvatarUrl } from '#lib/pocketbase.js';
@@ -70,7 +71,7 @@
 					href={getUserProfilePath(currentUser.id)}
 					class="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-muted transition-colors hover:bg-panel hover:text-foreground"
 				>
-					<UserAvatar src={getAvatarUrl(currentUser)} class="size-6" />
+					<UserAvatar src={getAvatarUrl(currentUser)} size={6} />
 					<span class="hidden max-w-32 truncate sm:inline">{currentUser.name || currentUser.username}</span>
 				</a>
 				<button
@@ -83,7 +84,7 @@
 				</button>
 			{:else}
 				<a href="/login" class="rounded-md px-2.5 py-1 text-muted transition-colors hover:bg-panel hover:text-foreground">Login</a>
-				<a href="/signup" class="rounded-md bg-accent px-2.5 py-1 font-medium text-background transition-colors hover:bg-accent-light">Sign up</a>
+				<Button href="/signup" variant="primary">Sign up</Button>
 			{/if}
 		</nav>
 	</div>

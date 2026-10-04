@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Camera, Check, Eye, EyeOff, KeyRound, RefreshCw } from '@lucide/svelte';
+	import Button from '#components/ui/Button.svelte';
 	import UserAvatar from '#components/ui/UserAvatar.svelte';
 	import { auth } from '#features/auth/auth-client.svelte.js';
 	import { getAvatarUrl, pb } from '#lib/pocketbase.js';
@@ -117,7 +118,7 @@
 				aria-label="Change avatar"
 				class="group relative overflow-hidden rounded-full disabled:opacity-60"
 			>
-				<UserAvatar src={auth.user && getAvatarUrl(auth.user)} alt="Avatar" class="size-16 transition-colors group-hover:border-subtle" />
+				<UserAvatar src={auth.user && getAvatarUrl(auth.user)} alt="Avatar" size={16} />
 				<div class="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
 					{#if avatarLoading}
 						<RefreshCw size={16} class="animate-spin text-white" />
@@ -137,11 +138,7 @@
 			<label for="profile-name" class="block text-xs text-muted">Display name</label>
 			<div class="flex gap-2">
 				<input id="profile-name" bind:value={name} type="text" placeholder="Display name" class="field flex-1 px-3 py-1.5" />
-				<button
-					type="submit"
-					disabled={nameLoading || !name.trim()}
-					class="btn-secondary min-w-16 px-3 py-1.5 text-sm"
-				>
+				<Button type="submit" disabled={nameLoading || !name.trim()} class="min-w-16">
 					{#if nameLoading}
 						<RefreshCw size={13} class="animate-spin" />
 					{:else if nameSuccess}
@@ -149,7 +146,7 @@
 					{:else}
 						Save
 					{/if}
-				</button>
+				</Button>
 			</div>
 			{#if nameError}
 				<p class="text-xs text-red-300">{nameError}</p>
@@ -176,7 +173,7 @@
 			{#if passwordSuccess}
 				<p class="flex items-center gap-1.5 text-xs text-green-400"><Check size={12} /> Password updated.</p>
 			{/if}
-			<button type="submit" disabled={passwordLoading || !oldPassword || !newPassword || !newPasswordConfirm} class="btn-secondary px-3 py-1.5 text-sm">
+			<Button type="submit" disabled={passwordLoading || !oldPassword || !newPassword || !newPasswordConfirm}>
 				{#if passwordLoading}
 					<RefreshCw size={13} class="animate-spin" />
 					Updating…
@@ -184,7 +181,7 @@
 					<KeyRound size={14} />
 					Update password
 				{/if}
-			</button>
+			</Button>
 		</div>
 	</form>
 </div>

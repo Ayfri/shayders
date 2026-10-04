@@ -144,7 +144,7 @@
 						{@render groupTitle('Creators')}
 						{#each results.users as user (user.id)}
 							<a href={user.profilePath} class="flex items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-panel">
-								<UserAvatar src={user.avatarUrl} class="size-9" />
+								<UserAvatar src={user.avatarUrl} size={9} />
 								<div class="min-w-0">
 									<p class="truncate text-13 font-medium text-foreground">{user.displayName}</p>
 									<p class="mt-1 truncate text-xs text-muted">{formatUserHandle(user.username, user.id)}</p>
