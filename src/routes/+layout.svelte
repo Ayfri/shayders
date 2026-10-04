@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '#lib/layout.css';
 	import { VERSION } from '@sveltejs/kit';
+	import { afterNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import favicon from '#lib/assets/logo.png';
 	import { hydrateAuth } from '#features/auth/auth-client.svelte.js';
@@ -74,6 +75,12 @@
 	$effect(() => {
 		hydrateAuth(sessionUser);
 	});
+
+	let main: HTMLElement;
+	/** SvelteKit only resets the window scroll, the scrolling element here is `main`. Same-path query changes (sorting) and anchors keep their position. */
+	afterNavigate(({ from, to, type }) => {
+		if (type !== 'popstate' && !to?.url.hash && from?.url.pathname !== to?.url.pathname) main.scrollTop = 0;
+	});
 </script>
 
 <svelte:head>
@@ -100,7 +107,7 @@
 <div class="flex flex-col h-dvh">
 	<Header {sessionUser} />
 	<!-- `relative` keeps absolutely positioned descendants from growing the document, which would let anchor jumps scroll the header away. -->
-	<main class="relative flex-1 min-h-0 overflow-y-auto">
+	<main bind:this={main} class="relative flex-1 min-h-0 overflow-y-auto">
 		<div class={showFooter ? 'flex min-h-full flex-col' : 'h-full'}>
 			<div class={showFooter ? 'flex-1' : 'h-full'}>
 				{@render children()}
