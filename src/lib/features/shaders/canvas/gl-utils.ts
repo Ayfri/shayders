@@ -201,23 +201,71 @@ export function applyStandardUniforms(
 	}
 }
 
+interface CopyProgram {
+	position: number;
+	program: WebGLProgram;
+	quad: WebGLBuffer;
+	texelSize: WebGLUniformLocation | null;
+}
+
+const copyPrograms = new WeakMap<WebGLRenderingContext, CopyProgram | null>();
+
+function getCopyProgram(gl: WebGLRenderingContext): CopyProgram | null {
+	if (copyPrograms.has(gl)) return copyPrograms.get(gl) ?? null;
+	const { program } = buildProgram(gl, `#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform sampler2D uSource;
+uniform vec2 uTexelSize;
+void main() {
+	gl_FragColor = texture2D(uSource, gl_FragCoord.xy * uTexelSize);
+}`, 'resize');
+	const quad = program ? createQuadBuffer(gl) : null;
+	const copy = program && quad
+		? { position: gl.getAttribLocation(program, 'aPosition'), program, quad, texelSize: gl.getUniformLocation(program, 'uTexelSize') }
+		: null;
+	copyPrograms.set(gl, copy);
+	return copy;
+}
+
+/**
+ * Swaps every feedback texture for one of the new size, scaling the old content into it so a resize doesn't wipe accumulated frames.
+ * `preserve: false` starts from empty textures, which is how a run with `resetTime` clears the buffers.
+ */
 export function resizeBufferTextures(
 	gl: WebGLRenderingContext,
 	bufferStates: ReadonlyMap<string, InternalBufState>,
 	width: number,
 	height: number,
 	textureType: number,
+	preserve = true,
 ): void {
+	const copy = preserve ? getCopyProgram(gl) : null;
 	for (const [id, state] of bufferStates.entries()) {
 		if (id === 'image') continue;
 
-		for (const texture of state.texture) {
-			if (!texture) continue;
-			gl.bindTexture(gl.TEXTURE_2D, texture);
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, textureType, null);
-			gl.bindTexture(gl.TEXTURE_2D, null);
+		for (const index of [0, 1] as const) {
+			const previous = state.texture[index];
+			const target = previous ? createFbo(gl, width, height, textureType) : null;
+			if (!previous || !target) continue;
+			if (copy) {
+				gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+				gl.viewport(0, 0, width, height);
+				gl.useProgram(copy.program);
+				gl.activeTexture(gl.TEXTURE0);
+				gl.bindTexture(gl.TEXTURE_2D, previous);
+				gl.uniform2f(copy.texelSize, 1 / width, 1 / height);
+				drawQuad(gl, copy.quad, copy.position);
+			}
+			if (state.fbo[index]) gl.deleteFramebuffer(state.fbo[index]);
+			gl.deleteTexture(previous);
+			state.fbo[index] = target.fbo;
+			state.texture[index] = target.texture;
 		}
 	}
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 }
 
 export function drawQuad(gl: WebGLRenderingContext, quadBuffer: WebGLBuffer | null, positionLocation: number): void {

@@ -474,9 +474,11 @@ void main() {
 
 	private ensureFboSize(width: number, height: number): void {
 		if (!this.gl || (this.fboWidth === width && this.fboHeight === height)) return;
+		/** A zero width is how `run(resetTime)` asks for cleared buffers, any other change is a live resize that keeps their content. */
+		const preserve = this.fboWidth > 0;
 		this.fboHeight = height;
 		this.fboWidth = width;
-		resizeBufferTextures(this.gl, this.passes, width, height, this.fboTexType);
+		resizeBufferTextures(this.gl, this.passes, width, height, this.fboTexType, preserve);
 	}
 
 	private renderFrame(): void {
@@ -541,6 +543,10 @@ void main() {
 		if (width > 0 && height > 0 && (canvas.width !== width || canvas.height !== height)) {
 			canvas.height = height;
 			canvas.width = width;
+			/** Resizing clears the canvas after this frame's rAF already ran, drawing right away keeps the next paint from going black. */
+			if (!this.quadBuffer) return;
+			cancelAnimationFrame(this.animationId);
+			this.renderFrame();
 		}
 	}
 }

@@ -178,7 +178,10 @@ export class ShaderPreviewRenderer {
 		this.canvas.width = nextWidth;
 		this.canvas.height = nextHeight;
 		resizeBufferTextures(this.gl, this.bufferStates, nextWidth, nextHeight, this.fboTextureType);
-		this.requestFrame();
+		/** Resizing cleared the canvas, drawing now instead of on the next rAF avoids painting one black frame. */
+		cancelAnimationFrame(this.animationFrame);
+		window.clearTimeout(this.idleTimer);
+		this.frame();
 	}
 
 	private frame(): void {
