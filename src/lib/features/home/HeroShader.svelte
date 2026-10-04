@@ -55,7 +55,6 @@ void main() {
 	function attachHero(canvas: HTMLCanvasElement) {
 		const renderer = new ShaderPreviewRenderer(canvas, [{ code: HERO_CODE, id: 'image', label: 'Image' }], [], canvas.clientWidth, canvas.clientHeight);
 		const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-		const host = canvas.parentElement ?? canvas;
 		const mouse = { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 };
 		const target = { ...mouse };
 		let frame = 0;
@@ -80,10 +79,11 @@ void main() {
 		renderer.setMouse(mouse.x, mouse.y);
 		const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting && !reducedMotion));
 		observer.observe(canvas);
-		host.addEventListener('pointermove', onPointerMove);
+		/** Listens on window because the hero content sits above the canvas and swallows pointer events over the text. */
+		addEventListener('pointermove', onPointerMove, { passive: true });
 		return () => {
 			observer.disconnect();
-			host.removeEventListener('pointermove', onPointerMove);
+			removeEventListener('pointermove', onPointerMove);
 			cancelAnimationFrame(frame);
 			renderer.destroy();
 		};
