@@ -52,6 +52,13 @@ interface BuildBufferStatesOutput {
 	states: Map<string, InternalBufState>;
 }
 
+/** WebGL 1 rejects `#extension` directives for extensions the context never requested, so every shader-language extension is turned on up front. */
+const SHADER_EXTENSIONS = ['OES_standard_derivatives', 'EXT_shader_texture_lod', 'EXT_frag_depth'] as const;
+
+export function enableShaderExtensions(gl: WebGLRenderingContext): void {
+	for (const extension of SHADER_EXTENSIONS) gl.getExtension(extension);
+}
+
 export const FLOAT_TEXTURE_TYPE = 0x1406;
 export const UNSIGNED_BYTE_TEXTURE_TYPE = 0x1401;
 

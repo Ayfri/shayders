@@ -3,6 +3,7 @@ import {
 	buildBufferStates,
 	createQuadBuffer,
 	destroyBufferStates,
+	enableShaderExtensions,
 	FLOAT_TEXTURE_TYPE,
 	type InternalBufState,
 	listUserBufferIds,
@@ -70,6 +71,7 @@ export class ShaderPreviewRenderer {
 		});
 		if (!this.gl || !buffers.some((buffer) => buffer.id === 'image')) return;
 
+		enableShaderExtensions(this.gl);
 		if (this.gl.getExtension('OES_texture_float')) {
 			this.gl.getExtension('OES_texture_float_linear');
 			this.fboTextureType = FLOAT_TEXTURE_TYPE;

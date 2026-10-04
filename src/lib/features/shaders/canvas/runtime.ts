@@ -7,6 +7,7 @@ import {
 	buildProgram,
 	createFbo,
 	createQuadBuffer,
+	enableShaderExtensions,
 	FLOAT_TEXTURE_TYPE,
 	type InternalBufState,
 	listUserBufferIds,
@@ -141,6 +142,7 @@ export class ShaderCanvasRuntime {
 		});
 		if (!this.gl) return;
 
+		enableShaderExtensions(this.gl);
 		if (this.gl.getExtension('OES_texture_float')) {
 			this.gl.getExtension('OES_texture_float_linear');
 			this.fboTexType = FLOAT_TEXTURE_TYPE;
