@@ -133,12 +133,11 @@ export const POST: RequestHandler = async ({ request }) => {
 		: await pb.collection('shaders').create(payload);
 
 	const nextKeys = new Set(extractStoredAssetKeys(content));
-	const removedKeys = previousRecord ? extractStoredAssetKeys(previousRecord.content).filter((key) => !nextKeys.has(key)) : [];
+	const removedKeys = previousRecord ? extractStoredAssetKeys(previousRecord.content) : [];
+	const cleanupKeys = Array.isArray(body.cleanupKeys) ? body.cleanupKeys.filter((key): key is string => typeof key === 'string') : [];
+	/** The previous content may have been written straight to PocketBase, so both lists only delete keys under the owner's prefix. */
 	const ownedPrefix = `users/${user.id}/`;
-	const cleanupKeys = Array.isArray(body.cleanupKeys)
-		? body.cleanupKeys.filter((key): key is string => typeof key === 'string' && key.startsWith(ownedPrefix) && !nextKeys.has(key))
-		: [];
-	const keysToDelete = [...new Set([...removedKeys, ...cleanupKeys])];
+	const keysToDelete = [...new Set([...removedKeys, ...cleanupKeys])].filter((key) => key.startsWith(ownedPrefix) && !nextKeys.has(key));
 	if (keysToDelete.length > 0) {
 		waitUntil(deleteR2Objects(bucket, keysToDelete).catch((err) => console.error('Failed to clean up replaced shader assets:', err)));
 	}

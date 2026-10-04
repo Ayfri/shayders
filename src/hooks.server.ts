@@ -4,6 +4,14 @@ import { clearAuthCookie, setAuthCookie } from '#features/auth/server/auth-sessi
 import { createPocketBase } from '#lib/pocketbase.js';
 import type { UsersResponse } from '#lib/pocketbase-types.js';
 
+/** No full CSP yet: Monaco workers, blob textures and the inline gtag snippet need a nonce setup, so only framing and sniffing are locked down. */
+const SECURITY_HEADERS = [
+	['content-security-policy', "frame-ancestors 'none'"],
+	['referrer-policy', 'strict-origin-when-cross-origin'],
+	['x-content-type-options', 'nosniff'],
+	['x-frame-options', 'DENY'],
+] as const;
+
 export const handle: Handle = async ({ event, resolve }) => {
 	const pb = createPocketBase();
 	event.locals.pb = pb;
@@ -24,5 +32,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		}
 	}
 
-	return resolve(event);
+	const response = await resolve(event);
+	for (const [name, value] of SECURITY_HEADERS) response.headers.set(name, value);
+	return response;
 };

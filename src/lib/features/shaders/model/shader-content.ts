@@ -302,7 +302,8 @@ export function hydrateChannels(content: unknown): ChannelEntry[] {
 		channels[entry.id] = {
 			...channels[entry.id],
 			type: entry.type === 'texture' ? 'image' : 'video',
-			url: entry.url || buildShaderAssetUrl(entry.key),
+			/** Stored `url` is ignored, content written straight to PocketBase could point every viewer at a third-party host. */
+			url: buildShaderAssetUrl(entry.key),
 			name: entry.name,
 			bufferId: null,
 			filter: entry.filter,
@@ -329,9 +330,10 @@ export function extractStoredAssets(content: unknown): StoredShaderAsset[] {
 		return [{
 			channelId: entry.id,
 			key: entry.key,
-			url: entry.url || buildShaderAssetUrl(entry.key),
+			url: buildShaderAssetUrl(entry.key),
 			mime: entry.mime,
-			size: entry.size,
+			/** Clamped so a negative size planted directly in PocketBase can't shrink the quota usage. */
+			size: Number.isFinite(entry.size) ? Math.max(0, entry.size) : 0,
 			type: entry.type,
 		}];
 	});

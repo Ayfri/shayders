@@ -19,7 +19,8 @@ export const DELETE: RequestHandler = async ({ request, params }) => {
 		return Response.json({ error: 'Unauthorized.' }, { status: 403 });
 	}
 
-	const assetKeys = extractStoredAssetKeys(shader.content);
+	/** Stored content can be written straight to PocketBase, so only keys under the owner's prefix are trusted for deletion. */
+	const assetKeys = extractStoredAssetKeys(shader.content).filter((key) => key.startsWith(`users/${user.id}/`));
 	await pb.collection('shaders').delete(params.id);
 	waitUntil(deleteR2Objects(env.ASSETS_STORAGE, assetKeys).catch((err) => console.error('Failed to delete shader assets from R2:', err)));
 
