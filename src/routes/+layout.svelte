@@ -3,7 +3,6 @@
 	import { VERSION } from '@sveltejs/kit';
 	import { afterNavigate } from '$app/navigation';
 	import { page } from '$app/state';
-	import favicon from '#lib/assets/logo.png';
 	import { hydrateAuth } from '#features/auth/auth-client.svelte.js';
 	import Footer from '#components/layout/Footer.svelte';
 	import Header from '#components/layout/Header.svelte';
@@ -41,7 +40,7 @@
 				target: SITE_SEARCH_URL_TEMPLATE,
 				'query-input': 'required name=search_term_string',
 			},
-			url: SITE_URL,
+			url: `${SITE_URL}/`,
 		},
 		{
 			'@id': `${SITE_URL}/#app`,
@@ -62,6 +61,7 @@
 				'Public shader gallery and creator profiles',
 			],
 			name: `${SITE_NAME} GLSL editor`,
+			offers: { '@type': 'Offer', price: 0, priceCurrency: 'USD' },
 			operatingSystem: 'Any',
 			url: `${SITE_URL}/new`,
 		},
@@ -88,9 +88,9 @@
 	<meta name="generator" content="SvelteKit {VERSION}" />
 	<meta name="theme-color" content="#1a1a1a" />
 	<link rel="canonical" href={buildSiteUrl(page.url.pathname)} />
-	<link rel="icon" type="image/png" href={favicon} />
-	<link rel="apple-touch-icon" sizes="400x400" href={favicon} />
-	<link rel="search" type="application/opensearchdescription+xml" title="Shayders Search" href="/opensearch.xml" />
+	<!-- Served from `static/`: the Cloudflare adapter sends `X-Robots-Tag: noindex` on `/_app/*` and hashed URLs change, both stop Google from showing it. -->
+	<link rel="icon" type="image/png" sizes="400x400" href="/favicon.png" />
+	<link rel="apple-touch-icon" sizes="400x400" href="/favicon.png" />	<link rel="search" type="application/opensearchdescription+xml" title="Shayders Search" href="/opensearch.xml" />
 	<link rel="sitemap" type="application/xml" href="/sitemap.xml" />
 	{@html `<script type="application/ld+json">${siteStructuredData}</script>`}
 
