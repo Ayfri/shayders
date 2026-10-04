@@ -6,6 +6,39 @@
 		background-color: var(--color-background);
 		color: var(--color-foreground);
 	}
+
+	/** Chromium ignores the ::-webkit-scrollbar styles below as soon as `scrollbar-color` is set, so the standard properties are Firefox-only. */
+	@supports not selector(::-webkit-scrollbar) {
+		* {
+			scrollbar-color: rgb(255 255 255 / 0.16) transparent;
+			scrollbar-width: thin;
+		}
+	}
+
+	::-webkit-scrollbar {
+		width: 10px;
+		height: 10px;
+	}
+
+	::-webkit-scrollbar-track,
+	::-webkit-scrollbar-corner {
+		background: transparent;
+	}
+
+	::-webkit-scrollbar-thumb {
+		border: 3px solid transparent;
+		border-radius: 999px;
+		background: rgb(255 255 255 / 0.14) padding-box;
+	}
+
+	::-webkit-scrollbar-thumb:hover {
+		border-width: 2px;
+		background-color: rgb(255 255 255 / 0.26);
+	}
+
+	::-webkit-scrollbar-thumb:active {
+		background-color: rgb(34 211 238 / 0.55);
+	}
 }
 
 @theme {

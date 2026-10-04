@@ -30,9 +30,9 @@ export function registerMaterialDarkerTheme(monaco: typeof Monaco) {
 			'editorBracketMatch.border':           '#89DDFF',
 			// Scrollbar
 			'scrollbar.shadow':                    '#00000000',
-			'scrollbarSlider.background':          '#61616180',
-			'scrollbarSlider.hoverBackground':     '#616161C0',
-			'scrollbarSlider.activeBackground':    '#616161',
+			'scrollbarSlider.background':          '#FFFFFF24',
+			'scrollbarSlider.hoverBackground':     '#FFFFFF42',
+			'scrollbarSlider.activeBackground':    '#22D3EE8C',
 			// Widgets
 			'editorWidget.background':             '#292929',
 			'editorSuggestWidget.background':      '#292929',
