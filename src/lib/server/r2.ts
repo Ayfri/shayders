@@ -82,3 +82,13 @@ export async function getOwnedObjectHead(bucket: R2Bucket, key: string, userId: 
 export async function deleteR2Objects(bucket: R2Bucket, keys: string[]): Promise<void> {
 	if (keys.length > 0) await bucket.delete([...new Set(keys)]);
 }
+
+/** `list` and `delete` both cap at 1000 keys, so the prefix is drained page by page. */
+export async function deleteR2Prefix(bucket: R2Bucket, prefix: string): Promise<void> {
+	let cursor: string | undefined;
+	do {
+		const page = await bucket.list({ cursor, prefix });
+		await deleteR2Objects(bucket, page.objects.map((object) => object.key));
+		cursor = page.truncated ? page.cursor : undefined;
+	} while (cursor);
+}
