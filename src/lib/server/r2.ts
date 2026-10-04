@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import { waitUntil } from 'cloudflare:workers';
 import { buildShaderAssetUrl } from '#features/shaders/assets/shader-asset-url.js';
 
 export interface StoredObjectHead {
@@ -41,6 +42,13 @@ function objectHeaders(object: R2Object): Headers {
 	return headers;
 }
 
+function resolveRange(range: R2Range, size: number): [start: number, end: number] {
+	if ('suffix' in range) return [Math.max(0, size - range.suffix), size - 1];
+	const start = range.offset ?? 0;
+	return [start, range.length === undefined ? size - 1 : start + range.length - 1];
+}
+
+/** Full responses go to the colo's edge cache, whose `match` answers Range and If-None-Match requests on its own. */
 export async function streamR2Asset(bucket: R2Bucket, key: string, request: Request, method: 'GET' | 'HEAD'): Promise<Response> {
 	if (!key.startsWith('users/')) error(404, 'Asset not found');
 
@@ -52,18 +60,26 @@ export async function streamR2Asset(bucket: R2Bucket, key: string, request: Requ
 		return new Response(null, { headers });
 	}
 
+	const cache = await caches.open('assets');
+	const cached = await cache.match(request);
+	if (cached) return new Response(cached.body, cached);
+
 	const isRangeRequest = request.headers.has('range');
-	const object = await bucket.get(key, isRangeRequest ? { range: request.headers } : {});
+	const object = await bucket.get(key, { onlyIf: request.headers, range: isRangeRequest ? request.headers : undefined });
 	if (!object) error(404, 'Asset not found');
 
 	const headers = objectHeaders(object);
-	if (object.range && !('suffix' in object.range)) {
-		const { offset = 0, length } = object.range;
-		const end = length !== undefined ? offset + length - 1 : object.size - 1;
-		headers.set('content-range', `bytes ${offset}-${end}/${object.size}`);
+	if (!('body' in object)) return new Response(null, { status: 304, headers });
+
+	if (object.range) {
+		const [start, end] = resolveRange(object.range, object.size);
+		headers.set('content-range', `bytes ${start}-${end}/${object.size}`);
+		return new Response(object.body, { status: 206, headers });
 	}
 
-	return new Response(object.body, { status: isRangeRequest ? 206 : 200, headers });
+	const response = new Response(object.body, { headers });
+	waitUntil(cache.put(request, response.clone()));
+	return response;
 }
 
 export async function putR2Asset(
