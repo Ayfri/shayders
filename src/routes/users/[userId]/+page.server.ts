@@ -25,6 +25,7 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
 		isOwner,
 		profileUser: {
 			avatarUrl: getAvatarUrl(profileUser),
+			created: profileUser.created,
 			id: profileUser.id,
 			name: profileUser.name ?? '',
 			verified: profileUser.verified ?? false,

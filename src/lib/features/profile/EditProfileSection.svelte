@@ -106,8 +106,8 @@
 	</button>
 {/snippet}
 
-<div class="mt-12 space-y-8 border-t border-border pt-8">
-	<h2 class="text-sm font-semibold text-foreground">Edit profile</h2>
+<div class="space-y-8 rounded-xl border border-border bg-surface p-5 sm:p-6">
+	<h3 class="text-sm font-medium text-foreground">Profile</h3>
 
 	<div class="flex items-start gap-6">
 		<div class="flex shrink-0 flex-col items-center gap-1">
@@ -154,8 +154,8 @@
 		</form>
 	</div>
 
-	<form onsubmit={savePassword} class="space-y-3">
-		<h3 class="text-xs font-medium uppercase tracking-wide text-muted">Change password</h3>
+	<form onsubmit={savePassword} class="space-y-3 border-t border-border pt-6">
+		<h4 class="text-xs font-medium uppercase tracking-wide text-muted">Change password</h4>
 		<div class="max-w-xs space-y-2">
 			<input type="text" name="username" autocomplete="username" value={auth.user?.email ?? ''} hidden />
 			<div class="relative">

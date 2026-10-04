@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { ArrowRight, CodeXml, MailCheck, RefreshCw, Trash2 } from '@lucide/svelte';
+	import { ArrowRight, CalendarDays, CodeXml, HardDrive, MailCheck, RefreshCw, TriangleAlert, Trash2 } from '@lucide/svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { auth, logout, requestVerification, throwIfAuthenticatedApiError } from '#features/auth/auth-client.svelte.js';
 	import EditProfileSection from '#features/profile/EditProfileSection.svelte';
@@ -12,7 +12,7 @@
 	import ShaderSortNav from '#features/shaders/preview/ShaderSortNav.svelte';
 	import { getVisibilityOption } from '#features/shaders/model/shader-visibility.js';
 	import { getAvatarUrl, pb } from '#lib/pocketbase.js';
-	import { plural } from '#lib/format.js';
+	import { formatDate, plural } from '#lib/format.js';
 	import { buildSiteUrl, getShaderPath, getUserProfilePath, type JsonLdNode, SITE_NAME, toIsoDate } from '#lib/site.js';
 	import {
 		createQuotaSummary,
@@ -20,7 +20,6 @@
 		SHADER_IMAGE_MAX_BYTES,
 		SHADER_VIDEO_MAX_BYTES,
 	} from '#features/shaders/assets/shader-asset-policy.js';
-	import { getShaderSortLabel } from '#features/shaders/model/shader-list.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -66,6 +65,16 @@
 	const shaders = $derived(data.shaders.filter((shader) => !deletedIds.has(shader.id)));
 	const ownerQuota = $derived(createQuotaSummary(shaders.reduce((total, shader) => total + shader.assetBytes, 0)));
 	const uploadedMediaCount = $derived(shaders.reduce((total, shader) => total + shader.mediaCount, 0));
+	const stats = $derived([
+		{ label: 'Shaders', value: shaders.length },
+		...(isOwner
+			? [
+				{ label: 'Public', value: shaders.filter((shader) => shader.visiblity === 'public').length },
+				{ label: 'Unlisted', value: shaders.filter((shader) => shader.visiblity === 'unlisted').length },
+				{ label: 'Private', value: shaders.filter((shader) => shader.visiblity === 'private').length },
+			]
+			: [{ label: 'Media', value: uploadedMediaCount }]),
+	]);
 
 	async function resendVerificationCode() {
 		if (!auth.user?.email) return;
@@ -134,33 +143,47 @@
 	</Button>
 {/snippet}
 
-<div class="min-h-full bg-background p-6 text-foreground lg:p-10">
-	<div class="mx-auto max-w-5xl">
-		<div class="mb-8 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-			<div class="flex items-start gap-4">
-				<UserAvatar src={avatarUrl} alt="{displayName}'s avatar" size={14} />
-				<div>
-					<h1 class="text-2xl font-semibold text-foreground">{displayName}</h1>
-					<p class="mt-1 text-sm text-muted">{isOwner ? 'Manage your shaders and uploads.' : `Public shaders by ${displayName}.`}</p>
-					<div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
-						<span>{plural(shaders.length, 'shader')}</span>
-						<span>Sorted by {getShaderSortLabel(data.selectedSort).toLowerCase()}</span>
-					</div>
+<div class="min-h-full bg-background text-foreground">
+	<section class="relative isolate overflow-hidden border-b border-border">
+		<div class="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_70%_120%_at_15%_0%,--alpha(var(--color-accent)/14%),transparent_70%)]"></div>
+
+		<div class="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-10 sm:flex-row sm:items-end sm:justify-between lg:px-10 lg:py-14">
+			<div class="flex items-center gap-5">
+				<div class="rounded-full bg-linear-to-br from-accent to-fuchsia-400 p-0.5 shadow-[0_0_40px_-8px_var(--color-accent)]">
+					<div class="rounded-full bg-background p-0.5"><UserAvatar src={avatarUrl} alt="{displayName}'s avatar" size={20} /></div>
+				</div>
+				<div class="min-w-0">
+					<h1 class="truncate text-3xl font-bold tracking-tight text-white sm:text-4xl">{displayName}</h1>
+					<p class="mt-2 flex items-center gap-1.5 text-sm text-muted">
+						<CalendarDays size={14} class="text-subtle" />
+						Joined {formatDate(data.profileUser.created)}
+					</p>
 				</div>
 			</div>
 
 			{#if isOwner}{@render createShaderLink()}{/if}
 		</div>
 
+		<div class="mx-auto flex max-w-6xl flex-wrap gap-x-10 gap-y-4 px-6 pb-8 lg:px-10">
+			{#each stats as stat (stat.label)}
+				<div>
+					<p class="text-2xl font-semibold text-white tabular-nums">{stat.value}</p>
+					<p class="font-mono text-10 uppercase tracking-[0.16em] text-subtle">{stat.label}</p>
+				</div>
+			{/each}
+		</div>
+	</section>
+
+	<div class="mx-auto max-w-6xl px-6 py-10 lg:px-10">
 		{#if deleteError}
 			<div class="alert-error mb-6 px-4 py-3">{deleteError}</div>
 		{/if}
 
-		<div class="mb-8 flex flex-col gap-4 rounded-xl border border-border bg-surface p-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
+		<div class="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
 			<div>
-				<p class="text-sm font-medium text-foreground">{isOwner ? 'Your shader library' : 'Public shaders'}</p>
-				<p class="text-xs text-muted">
-					{isOwner ? 'Sort your full library, including private and unlisted work.' : `Browse the public work published by ${displayName}.`}
+				<h2 class="text-xl font-semibold text-white">{isOwner ? 'Your library' : 'Shaders'}</h2>
+				<p class="mt-1 text-sm text-muted">
+					{isOwner ? 'Everything you made, including private and unlisted work.' : `Public work published by ${displayName}.`}
 				</p>
 			</div>
 			<ShaderSortNav label="Sort profile shaders" selected={data.selectedSort} />
@@ -176,7 +199,7 @@
 				{/if}
 			</EmptyState>
 		{:else}
-			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 				{#each shaders as shader (shader.id)}
 					{@const visibility = getVisibilityOption(shader.visiblity)}
 					<ShaderCard {shader}>
@@ -218,68 +241,68 @@
 		{/if}
 
 		{#if isOwner}
-			<div class="mt-8 rounded-xl border border-border bg-surface p-4 sm:px-5">
-				<div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-					<div>
-						<p class="font-mono text-11 uppercase tracking-[0.2em] text-subtle">Storage quota</p>
-						<p class="mt-1 text-lg font-semibold text-foreground">
-							{formatBytes(ownerQuota.usedBytes)} / {formatBytes(ownerQuota.totalBytes)}
-						</p>
-						<p class="text-xs text-muted">
-							{formatBytes(ownerQuota.remainingBytes)} remaining. Images up to {formatBytes(SHADER_IMAGE_MAX_BYTES)}, videos up to {formatBytes(SHADER_VIDEO_MAX_BYTES)}.
-						</p>
-					</div>
-					<div class="text-sm text-muted sm:text-right">
-						<p>{Math.round(ownerQuota.usedPercent)}% used</p>
-						<p>{plural(uploadedMediaCount, 'media item')} uploaded</p>
-					</div>
-				</div>
-				<div class="mt-3 h-2 overflow-hidden rounded-full bg-panel">
-					<div class="h-full rounded-full bg-linear-to-r from-accent to-sky-400 transition-[width] duration-300" style:width="{ownerQuota.usedPercent}%"></div>
-				</div>
-			</div>
+			<section class="mt-16 border-t border-border pt-10">
+				<h2 class="text-xl font-semibold text-white">Account settings</h2>
+				<p class="mt-1 text-sm text-muted">Only you can see this part of the page.</p>
 
-			{#if !(auth.user?.verified ?? data.profileUser.verified)}
-				<div class="mt-12 flex items-start gap-3 border-t border-border pt-8">
-					<MailCheck size={16} class="mt-1 shrink-0 text-yellow-400" />
-					<div class="flex-1">
-						<p class="text-sm font-medium text-foreground">Email not verified</p>
-						<p class="mt-1 text-sm text-muted">Verify your email to unlock full features.</p>
-						{#if resendError}
-							<p class="mt-2 text-xs text-red-300">{resendError}</p>
+				<div class="mt-6 grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_22rem]">
+					<EditProfileSection initialName={data.profileUser.name} />
+
+					<div class="flex flex-col gap-4">
+						{#if !(auth.user?.verified ?? data.profileUser.verified)}
+							<div class="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-5">
+								<p class="flex items-center gap-2 text-sm font-medium text-yellow-300"><MailCheck size={15} /> Email not verified</p>
+								<p class="mt-1.5 text-sm text-muted">Verify your email to unlock full features.</p>
+								{#if resendError}
+									<p class="mt-2 text-xs text-red-300">{resendError}</p>
+								{/if}
+								<Button onclick={resendVerificationCode} disabled={resendLoading} size="sm" class="mt-3">
+									<RefreshCw size={12} class={resendLoading ? 'animate-spin' : ''} />
+									{resendLoading ? 'Sending…' : 'Resend verification email'}
+								</Button>
+							</div>
 						{/if}
-						<Button onclick={resendVerificationCode} disabled={resendLoading} size="sm" class="mt-3">
-							<RefreshCw size={12} class={resendLoading ? 'animate-spin' : ''} />
-							{resendLoading ? 'Sending…' : 'Resend verification email'}
-						</Button>
+
+						<div class="rounded-xl border border-border bg-surface p-5">
+							<div class="flex items-center justify-between gap-3">
+								<p class="flex items-center gap-2 text-sm font-medium text-foreground"><HardDrive size={15} class="text-accent" /> Storage</p>
+								<p class="text-xs text-muted tabular-nums">{Math.round(ownerQuota.usedPercent)}% used</p>
+							</div>
+							<p class="mt-3 text-2xl font-semibold text-white tabular-nums">
+								{formatBytes(ownerQuota.usedBytes)} <span class="text-sm font-normal text-subtle">/ {formatBytes(ownerQuota.totalBytes)}</span>
+							</p>
+							<div class="mt-3 h-1.5 overflow-hidden rounded-full bg-panel">
+								<div class="h-full rounded-full bg-linear-to-r from-accent to-sky-400 transition-[width] duration-300" style:width="{ownerQuota.usedPercent}%"></div>
+							</div>
+							<p class="mt-3 text-xs leading-5 text-muted">
+								{plural(uploadedMediaCount, 'media item')}, {formatBytes(ownerQuota.remainingBytes)} left. Images up to {formatBytes(SHADER_IMAGE_MAX_BYTES)}, videos up to {formatBytes(SHADER_VIDEO_MAX_BYTES)}.
+							</p>
+						</div>
+
+						<div class="rounded-xl border border-red-900/50 bg-red-950/10 p-5">
+							<p class="flex items-center gap-2 text-sm font-medium text-red-400"><TriangleAlert size={15} /> Danger zone</p>
+							{#if deleteAccountError}
+								<div class="alert-error mt-3 px-3 py-2">{deleteAccountError}</div>
+							{/if}
+							{#if confirmDeleteAccount}
+								<p class="mt-2 text-sm text-muted">This deletes your account, every shader and every upload. It can't be undone.</p>
+								<div class="mt-3 flex flex-wrap items-center gap-2">
+									<Button onclick={deleteAccount} disabled={deletingAccount} variant="danger">
+										{deletingAccount ? 'Deleting…' : 'Yes, delete my account'}
+									</Button>
+									<Button onclick={() => (confirmDeleteAccount = false)} variant="ghost">Cancel</Button>
+								</div>
+							{:else}
+								<p class="mt-2 text-sm text-muted">Delete your account with all its shaders and uploads.</p>
+								<Button onclick={() => (confirmDeleteAccount = true)} variant="danger" class="mt-3">
+									<Trash2 size={14} />
+									Delete my account
+								</Button>
+							{/if}
+						</div>
 					</div>
 				</div>
-			{/if}
-
-			<EditProfileSection initialName={data.profileUser.name} />
-
-			<div class="mt-16 border-t border-border pt-8">
-				<h2 class="mb-3 text-sm font-semibold text-red-400">Danger zone</h2>
-				{#if deleteAccountError}
-					<div class="alert-error mb-3 px-3 py-2">{deleteAccountError}</div>
-				{/if}
-				{#if confirmDeleteAccount}
-					<div class="flex flex-wrap items-center gap-3">
-						<span class="text-sm text-muted">This deletes your account, every shader and every upload. It can't be undone.</span>
-						<Button onclick={deleteAccount} disabled={deletingAccount} variant="danger">
-							{deletingAccount ? 'Deleting…' : 'Yes, delete my account'}
-						</Button>
-						<button onclick={() => (confirmDeleteAccount = false)} class="px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground">
-							Cancel
-						</button>
-					</div>
-				{:else}
-					<Button onclick={() => (confirmDeleteAccount = true)} variant="danger">
-						<Trash2 size={14} />
-						Delete my account
-					</Button>
-				{/if}
-			</div>
+			</section>
 		{/if}
 	</div>
 </div>

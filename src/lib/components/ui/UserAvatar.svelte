@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	const SIZES = { 6: 'size-6', 9: 'size-9', 12: 'size-12', 14: 'size-14', 16: 'size-16' } as const;
+	const SIZES = { 6: 'size-6', 9: 'size-9', 12: 'size-12', 14: 'size-14', 16: 'size-16', 20: 'size-20' } as const;
 </script>
 
 <script lang="ts">
