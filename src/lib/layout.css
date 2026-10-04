@@ -1,6 +1,10 @@
 @import 'tailwindcss';
 
 @layer base {
+	html {
+		color-scheme: dark;
+	}
+
 	html,
 	body {
 		background-color: var(--color-background);
