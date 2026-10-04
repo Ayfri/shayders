@@ -1,17 +1,17 @@
-import type { ShadersVisiblityOptions } from '#lib/pocketbase-types.js';
+import type { ShaderVisibility } from '#features/shaders/model/shader-visibility.js';
 
 interface ShaderState {
 	currentShaderId: string | null;
-	name: string;
-	description?: string;
-	visiblity: keyof typeof ShadersVisiblityOptions;
+	description: string;
 	isSaving: boolean;
+	name: string;
+	visiblity: ShaderVisibility;
 }
 
 export const shaderState = $state<ShaderState>({
-	currentShaderId: null as string | null,
-	name: '',
-	description: undefined,
-	visiblity: 'public',
+	currentShaderId: null,
+	description: '',
 	isSaving: false,
+	name: '',
+	visiblity: 'public',
 });
