@@ -19,6 +19,11 @@ export function addCommonBuffer(buffers: ShaderBuffer[]): ShaderBuffer[] {
 	return nextBuffers;
 }
 
+/** Each user buffer is bound to one of the `uBufferA`..`uBufferH` uniforms, so there can't be more buffers than names. */
+export function canAddUserBuffer(buffers: ShaderBuffer[]): boolean {
+	return listUserBuffers(buffers).length < BUFFER_UNIFORM_NAMES.length;
+}
+
 export function addUserBuffer(buffers: ShaderBuffer[]): { activeBufferId: string; buffers: ShaderBuffer[] } {
 	const nextIndex = findNextBufferIndex(buffers);
 	const nextId = `buf${nextIndex}`;

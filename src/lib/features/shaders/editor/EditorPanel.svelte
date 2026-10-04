@@ -11,6 +11,8 @@
 	import { editorSettings, saveEditorSettings } from '#features/shaders/editor/editor-settings.svelte.js';
 	import type { UniformDescriptor } from '#features/shaders/editor/uniforms.js';
 	import { auth } from '#features/auth/auth-client.svelte.js';
+	import { canAddUserBuffer } from '#features/shaders/editor/buffers.js';
+	import { BUFFER_UNIFORM_NAMES } from '#features/shaders/model/shader-domain.js';
 
 	interface Props {
 		value: string;
@@ -107,6 +109,7 @@
 	});
 
 	const hasCommon = $derived(buffers.some((b) => b.id === 'common'));
+	const canAddBuffer = $derived(canAddUserBuffer(buffers));
 
 	// Context menu
 	interface CtxMenu { bufferId: string; bufferLabel: string; x: number; y: number; }
@@ -302,8 +305,9 @@
 			<!-- Add Buffer -->
 			<button
 				onclick={() => onAddBuffer?.()}
-				class="flex items-center gap-1 sm:gap-1.5 px-2 py-1 sm:px-3 sm:py-1.5 text-xs text-subtle hover:text-cyan-400 hover:bg-surface/50 transition-colors cursor-pointer border-r border-border shrink-0"
-				title="Add buffer"
+				disabled={!canAddBuffer}
+				class="flex items-center gap-1 sm:gap-1.5 px-2 py-1 sm:px-3 sm:py-1.5 text-xs text-subtle enabled:hover:text-cyan-400 enabled:hover:bg-surface/50 transition-colors cursor-pointer border-r border-border shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
+				title={canAddBuffer ? 'Add buffer' : `Up to ${BUFFER_UNIFORM_NAMES.length} buffers`}
 			>
 				<Plus size={12} />
 				<span>Buffer</span>
@@ -385,7 +389,7 @@
 			<Pencil size={12} />
 			Rename
 		</button>
-		{#if ctxMenu.bufferId !== 'common'}
+		{#if ctxMenu.bufferId !== 'common' && canAddBuffer}
 			<button
 				onclick={() => { onDuplicateBuffer?.(ctxMenu!.bufferId); closeCtx(); }}
 				class="flex items-center gap-2.5 w-full px-3 py-1.5 text-left text-foreground hover:bg-surface hover:text-cyan-400 transition-colors cursor-pointer"

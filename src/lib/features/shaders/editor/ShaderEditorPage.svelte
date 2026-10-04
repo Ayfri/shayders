@@ -10,6 +10,7 @@
 		addCommonBuffer,
 		addUserBuffer,
 		applyChannelUniform,
+		canAddUserBuffer,
 		duplicateBufferAfter,
 		removeUserBuffer,
 		resolveInitialBuffers,
@@ -132,6 +133,7 @@
 	}
 
 	function addBuffer() {
+		if (!canAddUserBuffer(buffers)) return;
 		const nextState = addUserBuffer(buffersWithLatestCode());
 		applyBuffers(nextState.buffers, nextState.activeBufferId);
 		isDirty = true;
@@ -159,7 +161,7 @@
 	}
 
 	function duplicateBuffer(id: string) {
-		if (id === 'image') return;
+		if (id === 'image' || !canAddUserBuffer(buffers)) return;
 		const nextState = duplicateBufferAfter(buffersWithLatestCode(), id);
 		applyBuffers(nextState.buffers, nextState.activeBufferId);
 		isDirty = true;
