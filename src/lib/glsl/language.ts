@@ -61,7 +61,7 @@ export const language = {
 		'isampler2D', 'isampler3D', 'isamplerCube', 'isampler2DArray', 'usampler2D', 'usampler3D', 'usamplerCube', 'usampler2DArray',
 	],
 
-	builtins: [...BUILTIN_FUNCTION_NAMES, ...BUILTIN_VARIABLE_NAMES, 'dFdx', 'dFdy', 'fwidth', 'texture', 'textureLod'],
+	builtins: [...BUILTIN_FUNCTION_NAMES, ...BUILTIN_VARIABLE_NAMES, 'texture', 'textureLod'],
 
 	uniforms: Object.keys(UNIFORM_DOCS),
 

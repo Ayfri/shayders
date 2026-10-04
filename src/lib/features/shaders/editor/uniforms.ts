@@ -55,7 +55,7 @@ export function buildUniformCatalog(buffers: ShaderBuffer[], code: string): Unif
 		if (!name) return;
 
 		catalog.push({
-			description: `Offscreen "${buffer.label}" texture (sampler2D).`,
+			description: `Image drawn by "${buffer.label}", read it with \`texture2D(${name}, gl_FragCoord.xy / uResolution)\`.`,
 			name,
 			type: 'sampler2D',
 		});
