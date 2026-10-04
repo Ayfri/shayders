@@ -9,7 +9,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.pb = pb;
 	event.locals.user = null;
 
-	const token = event.cookies.get(AUTH_COOKIE_NAME);
+	/** API routes authenticate their own `Authorization` header and assets are public, refreshing the cookie session there is a wasted PocketBase round trip. */
+	const token = event.url.pathname.startsWith('/api/') ? undefined : event.cookies.get(AUTH_COOKIE_NAME);
 	if (token) {
 		pb.authStore.save(token);
 
