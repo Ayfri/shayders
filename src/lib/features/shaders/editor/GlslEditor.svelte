@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { MediaQuery } from 'svelte/reactivity';
 	import type * as Monaco from 'monaco-editor/editor';
 	import { editorSettings, settingsToMonaco } from '#features/shaders/editor/editor-settings.svelte.js';
 	import type { ShaderBuffer } from '#features/shaders/model/shader-content.js';
@@ -24,6 +25,20 @@
 	const COMMON_BUFFER_ID = 'common';
 	const GOTO_POSITION_COMMAND_ID = '__glslGotoPosition';
 	const WORKSPACE_SCHEME = 'glsl-buffer';
+
+	/** Phones get their few columns back, these override the user settings only below the `sm` breakpoint. */
+	const COMPACT_OPTIONS: Monaco.editor.IEditorOptions = {
+		folding: false,
+		lineDecorationsWidth: 10,
+		lineNumbersMinChars: 2,
+		minimap: { enabled: false },
+		stickyScroll: { enabled: false },
+	};
+	const compact = new MediaQuery('max-width: 639px');
+
+	function monacoOptions(): Monaco.editor.IEditorOptions {
+		return { ...settingsToMonaco(editorSettings), ...(compact.current ? COMPACT_OPTIONS : {}) };
+	}
 
 	let editorContainer = $state<HTMLElement | null>(null);
 	let editor = $state.raw<Monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -113,10 +128,11 @@
 				language: 'glsl',
 				model: initialModel,
 				padding: { top: 16 },
+				scrollbar: { horizontalScrollbarSize: 10, useShadows: false, verticalScrollbarSize: 10 },
 				'semanticHighlighting.enabled': true,
 				theme: 'material-darker',
 				wordBasedSuggestions: 'off',
-				...settingsToMonaco(editorSettings),
+				...monacoOptions(),
 			});
 			globals[ACTIVE_EDITOR_KEY] = instance;
 
@@ -261,7 +277,7 @@
 	});
 
 	$effect(() => {
-		const options = settingsToMonaco(editorSettings);
+		const options = monacoOptions();
 		editor?.updateOptions(options);
 	});
 </script>

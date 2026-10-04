@@ -79,7 +79,10 @@
 	let renameInputEl = $state<HTMLInputElement | null>(null);
 	let wasVerticalLayout: boolean | null = null;
 
-	const vertical = $derived(viewportWidth < 640);
+	/** Matches the `lg` breakpoint where ShaderEditorPage switches from stacked to side by side. */
+	const vertical = $derived(viewportWidth < 1024);
+	/** Stacked, the panel always leaves room for the header, the gutter and a usable canvas strip. */
+	const maxSize = $derived(vertical ? Math.min(viewportHeight * 0.75, viewportHeight - 220) : viewportWidth * 0.75);
 	const panelStyle = $derived(vertical ? `height: ${width}px` : `width: ${width}px`);
 
 	$effect(saveEditorSettings);
@@ -90,14 +93,13 @@
 		}
 
 		const nextWidth = vertical ? viewportHeight * 0.5 : viewportWidth * 0.5;
-		const maxWidth = vertical ? viewportHeight * 0.75 : viewportWidth * 0.75;
-		width = Math.min(width || nextWidth, maxWidth);
+		width = Math.min(width || nextWidth, maxSize);
 
 		if (wasVerticalLayout === vertical) {
 			return;
 		}
 
-		if (vertical) {
+		if (vertical && viewOnly) {
 			visible = false;
 		}
 
@@ -170,22 +172,21 @@
 		showConvertModal = false;
 	}
 
-	function startDrag(e: MouseEvent) {
+	function startDrag(e: PointerEvent) {
 		e.preventDefault();
 		isDragging = true;
 		dragStartPointer = vertical ? e.clientY : e.clientX;
 		dragStartSize = width;
 	}
 
-	function handleWindowMousemove(event: MouseEvent) {
+	function handleWindowPointermove(event: PointerEvent) {
 		if (!isDragging) {
 			return;
 		}
 
 		const delta = dragStartPointer - (vertical ? event.clientY : event.clientX);
-		const maxWidth = vertical ? viewportHeight * 0.75 : viewportWidth * 0.75;
 		const minWidth = vertical ? 100 : 240;
-		width = Math.max(minWidth, Math.min(maxWidth, dragStartSize + delta));
+		width = Math.max(minWidth, Math.min(maxSize, dragStartSize + delta));
 	}
 
 	function stopDrag() {
@@ -196,39 +197,39 @@
 <svelte:window
 	bind:innerHeight={viewportHeight}
 	bind:innerWidth={viewportWidth}
-	onmousemove={handleWindowMousemove}
-	onmouseup={stopDrag}
+	onpointermove={handleWindowPointermove}
+	onpointerup={stopDrag}
+	onpointercancel={stopDrag}
 />
 
 {#if !visible}
 	<button
 		onclick={() => (visible = true)}
-		class="flex items-center justify-center w-full h-8 lg:w-8 lg:h-full bg-panel border-t border-border lg:border-l lg:border-t-0 text-muted hover:text-cyan-400 hover:bg-surface transition-colors shrink-0 cursor-pointer"
+		class="flex items-center justify-center gap-2 w-full h-10 lg:w-8 lg:h-full bg-panel border-t border-border lg:border-l lg:border-t-0 text-xs text-muted hover:text-cyan-400 hover:bg-surface transition-colors shrink-0 cursor-pointer"
 		title="Show editor"
 	>
-		<!-- rotate the icon when vertical so it points up -->
 		<ChevronLeft size={16} class="transform lg:rotate-0 rotate-90" />
+		<span class="lg:hidden">Show code</span>
 	</button>
 {:else}
-	<!-- horizontal gutter shown only when not vertical/mobile -->
 	{#if !vertical}
 		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<div
-			class="hidden lg:block w-1.5 shrink-0 cursor-col-resize transition-colors bg-border hover:bg-cyan-400/50 {isDragging ? 'bg-cyan-400/70' : ''}"
-			onmousedown={startDrag}
+			class="w-1.5 shrink-0 touch-none cursor-col-resize transition-colors bg-border hover:bg-cyan-400/50 {isDragging ? 'bg-cyan-400/70' : ''}"
+			onpointerdown={startDrag}
 			role="separator"
 			aria-label="Resize editor panel"
 		></div>
-	{/if}
-	{#if vertical && visible}
-		<!-- vertical gutter for mobile resizing -->
+	{:else}
 		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<div
-			class="h-1.5 w-full shrink-0 cursor-row-resize transition-colors bg-border hover:bg-cyan-400/50 {isDragging ? 'bg-cyan-400/70' : ''}"
-			onmousedown={startDrag}
+			class="flex h-4 w-full shrink-0 touch-none cursor-row-resize items-center justify-center bg-panel border-t border-border group"
+			onpointerdown={startDrag}
 			role="separator"
 			aria-label="Resize editor panel"
-		></div>
+		>
+			<span class="h-1 w-10 rounded-full transition-colors {isDragging ? 'bg-cyan-400' : 'bg-subtle group-hover:bg-cyan-400/60'}"></span>
+		</div>
 	{/if}
 
 	<div class="flex flex-col min-w-0 bg-surface shrink-0 overflow-hidden max-w-full" style={panelStyle}>
@@ -277,7 +278,7 @@
 					{#if buf.id !== 'image'}
 						<button
 							onclick={(e) => { e.stopPropagation(); onRemoveBuffer?.(buf.id); }}
-							class="ml-0.5 p-0.5 rounded opacity-0 group-hover:opacity-60 hover:opacity-100! hover:text-red-400 transition-all cursor-pointer"
+							class="ml-0.5 p-0.5 rounded opacity-0 group-hover:opacity-60 pointer-coarse:opacity-60 hover:opacity-100! hover:text-red-400 transition-all cursor-pointer"
 							title={`Remove ${buf.label}`}
 						>
 							<X size={10} />
@@ -327,7 +328,7 @@
 				title="Toggle channels"
 			>
 				<Tv2 size={12} />
-				Channels
+				<span class="hidden min-[360px]:inline">Channels</span>
 			</button>
 			<button
 				onclick={onRun}
@@ -375,7 +376,7 @@
 	></div>
 	<div
 		class="fixed z-50 min-w-40 py-1 bg-panel border border-border rounded shadow-xl text-xs"
-		style="left: {ctxMenu.x}px; top: {ctxMenu.y}px;"
+		style="left: {Math.min(ctxMenu.x, viewportWidth - 176)}px; top: {Math.min(ctxMenu.y, viewportHeight - 120)}px;"
 	>
 		<button
 			onclick={() => startRename(ctxMenu!.bufferId, ctxMenu!.bufferLabel)}

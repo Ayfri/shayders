@@ -262,7 +262,7 @@
 		isFullscreen = !!document.fullscreenElement;
 	}
 
-	function handleMouseMove(event: MouseEvent): void {
+	function handlePointerMove(event: PointerEvent): void {
 		if (!canvas) return;
 		const rect = canvas.getBoundingClientRect();
 		runtime.setMouse({
@@ -331,18 +331,19 @@
 	<div class="relative flex-1 min-h-0 min-w-0 overflow-hidden">
 		<canvas
 			bind:this={canvas}
-			class="block h-full w-full"
+			class="block h-full w-full touch-none"
 			height={600}
 			width={800}
-			onmousedown={() => runtime.setMouseDown(true)}
-			onmousemove={handleMouseMove}
-			onmouseup={() => runtime.setMouseDown(false)}
-			onmouseleave={() => runtime.setMouseDown(false)}
+			onpointerdown={(event) => { handlePointerMove(event); runtime.setMouseDown(true); }}
+			onpointermove={handlePointerMove}
+			onpointerup={() => runtime.setMouseDown(false)}
+			onpointercancel={() => runtime.setMouseDown(false)}
+			onpointerleave={() => runtime.setMouseDown(false)}
 		></canvas>
 
 		<button
 			onclick={toggleFullscreen}
-			class="absolute bottom-3 right-3 rounded p-1.5 text-white transition-opacity duration-200"
+			class="absolute bottom-3 right-3 rounded p-1.5 text-white transition-opacity duration-200 pointer-coarse:opacity-60!"
 			style="filter: drop-shadow(0 1px 4px rgba(0,0,0,0.95)); opacity: {isHovered ? 0.5 : 0.1};"
 			title={isFullscreen ? 'Quit fullscreen (F)' : 'Fullscreen (F)'}
 		>
@@ -355,7 +356,7 @@
 	</div>
 
 	{#if error}
-		<div class="absolute bottom-0 left-0 right-0 flex items-start gap-2 border-t border-red-500 bg-red-950 px-4 py-1.5 bg-opacity-15">
+		<div class="absolute bottom-0 left-0 right-0 flex max-h-1/2 items-start gap-2 overflow-y-auto border-t border-red-500 bg-red-950 px-4 py-1.5 bg-opacity-15">
 			<CircleAlert size={11} class="mt-1 shrink-0 text-red-400" />
 			<pre class="m-0 whitespace-pre-wrap font-mono text-xs leading-normal text-red-400">{error}</pre>
 		</div>

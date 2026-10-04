@@ -52,7 +52,7 @@
 		title="Shader info"
 	>
 		<Info size={11} />
-		<span>Informations</span>
+		<span class="hidden sm:inline">Informations</span>
 	</button>
 {/snippet}
 
@@ -77,7 +77,7 @@
 		title="Capture screenshot as WebP"
 	>
 		<Camera size={11} />
-		<span>Screenshot</span>
+		<span class="hidden sm:inline">Screenshot</span>
 	</button>
 
 	<button
@@ -95,15 +95,15 @@
 	>
 		{#if isRecording}
 			<Square size={11} />
-			<span>Stop</span>
+			<span class="hidden sm:inline">Stop</span>
 		{:else}
 			<Circle size={11} />
-			<span>Record</span>
+			<span class="hidden sm:inline">Record</span>
 		{/if}
 	</button>
 {/snippet}
 
-<div class="flex shrink-0 items-center gap-2 border-b border-border bg-panel px-2 py-1 text-xs text-muted sm:gap-3 sm:px-3 sm:py-2">
+<div class="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-panel px-2 py-1 text-xs text-muted sm:gap-3 sm:px-3 sm:py-2">
 	<span class={isRecording ? 'size-3 shrink-0 rounded-full bg-red-400 shadow-[0_0_0_4px_rgba(248,113,113,0.12)]' : 'size-3 shrink-0 rounded-full bg-green-400'}></span>
 	<span class="hidden shrink-0 font-medium tracking-wider sm:inline">Preview</span>
 	<span class="shrink-0 text-muted-foreground">•</span>
@@ -126,7 +126,7 @@
 					<a href="/users/{authorId}" class="transition-colors hover:text-foreground">{authorName}</a>
 					<span>/</span>
 				{/if}
-				<span class="max-w-40 truncate text-xs font-semibold text-foreground">{shaderState.name || 'Untitled Shader'}</span>
+				<span class="max-w-24 truncate text-xs sm:max-w-40 font-semibold text-foreground">{shaderState.name || 'Untitled Shader'}</span>
 			</div>
 			{@render infoButton()}
 			{#if auth.isLoggedIn}
@@ -150,7 +150,7 @@
 					type="text"
 					bind:value={shaderState.name}
 					placeholder="Untitled Shader"
-					class="w-40 min-w-0 rounded border-none bg-transparent px-2 py-0.5 text-right text-xs font-semibold text-foreground outline-none transition-colors placeholder:text-subtle hover:bg-surface focus:bg-surface"
+					class="w-28 min-w-0 rounded sm:w-40 border-none bg-transparent px-2 py-0.5 text-right text-xs font-semibold text-foreground outline-none transition-colors placeholder:text-subtle hover:bg-surface focus:bg-surface"
 				/>
 			</div>
 			{@render infoButton()}

@@ -324,8 +324,8 @@
 
 <svelte:window onbeforeunload={handleWindowBeforeUnload} onkeydown={handleWindowKeydown} />
 
-<div class="flex flex-col lg:flex-row h-full w-full min-h-0 bg-background text-foreground overflow-auto lg:overflow-hidden font-sans">
-	<div class="flex-1 min-w-0 min-h-0">
+<div class="flex flex-col lg:flex-row h-full w-full min-h-0 bg-background text-foreground overflow-hidden font-sans">
+	<div class="flex-1 min-w-0 min-h-32">
 		<ShaderCanvas
 			bind:this={shaderCanvas}
 			{buffers}
