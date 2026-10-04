@@ -89,9 +89,12 @@
 				Built with <Heart size={13} class="fill-red-500 text-red-500" /> by
 				<a href="https://ayfri.com" target="_blank" rel="noopener noreferrer" class="font-semibold text-foreground transition-colors hover:text-white">Ayfri</a>
 			</p>
-			<a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener noreferrer" class="transition-colors hover:text-foreground">
-				Open source under GPL-3.0
-			</a>
+			<div class="flex items-center gap-4">
+				<a href="/legal" class="transition-colors hover:text-foreground">Legal notice</a>
+				<a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener noreferrer" class="transition-colors hover:text-foreground">
+					Open source under GPL-3.0
+				</a>
+			</div>
 		</div>
 	</div>
 </footer>

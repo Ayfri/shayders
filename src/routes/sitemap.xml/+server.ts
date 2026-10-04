@@ -2,7 +2,7 @@ import type { RequestHandler } from '@sveltejs/kit';
 import { listPublicShaders } from '#lib/server/public-shaders.js';
 import { buildSiteUrl, getShaderPath, getUserProfilePath, toIsoDate } from '#lib/site.js';
 
-const STATIC_PATHS = ['/', '/new', '/search'];
+const STATIC_PATHS = ['/', '/new', '/search', '/legal'];
 
 function escapeXml(text: string): string {
 	return text.replace(/[<>&'"]/g, (char) => `&#${char.charCodeAt(0)};`);
