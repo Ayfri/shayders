@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { getAvatarUrl, pb } from '#lib/pocketbase.js';
+	import { Camera, Check, Eye, EyeOff, KeyRound, RefreshCw } from '@lucide/svelte';
+	import UserAvatar from '#components/ui/UserAvatar.svelte';
 	import { auth } from '#features/auth/auth-client.svelte.js';
-	import { Camera, Check, Eye, EyeOff, KeyRound, RefreshCw, User } from '@lucide/svelte';
+	import { getAvatarUrl, pb } from '#lib/pocketbase.js';
 
 	interface Props {
 		initialName?: string;
@@ -9,9 +10,8 @@
 
 	let { initialName = '' }: Props = $props();
 
-	const initialDisplayName = $derived(auth.user?.name ?? initialName);
-
-	let name = $state('');
+	/** Follows the saved name, typing overrides it until the next save refreshes `auth.user`. */
+	let name = $derived(auth.user?.name ?? initialName);
 	let nameLoading = $state(false);
 	let nameError = $state('');
 	let nameSuccess = $state(false);
@@ -29,17 +29,8 @@
 	let showOld = $state(false);
 	let showNew = $state(false);
 
-	const avatarUrl = $derived(auth.user && getAvatarUrl(auth.user));
-
-	const inputCls = 'w-full bg-panel border border-border rounded px-3 py-1.5 text-sm text-foreground placeholder:text-subtle focus:outline-none focus:border-subtle';
-
-	$effect(() => {
-		if (!name && initialDisplayName) {
-			name = initialDisplayName;
-		}
-	});
-
-	async function saveName() {
+	async function saveName(event: SubmitEvent) {
+		event.preventDefault();
 		if (!name.trim() || !auth.user) return;
 		nameLoading = true;
 		nameError = '';
@@ -48,32 +39,33 @@
 			await pb.collection('users').update(auth.user.id, { name: name.trim() });
 			await pb.collection('users').authRefresh();
 			nameSuccess = true;
-			setTimeout(() => (nameSuccess = false), 2000);
-		} catch (e) {
-			nameError = e instanceof Error ? e.message : 'Failed to update name.';
+			window.setTimeout(() => (nameSuccess = false), 2000);
+		} catch (err) {
+			nameError = err instanceof Error ? err.message : 'Failed to update name.';
 		} finally {
 			nameLoading = false;
 		}
 	}
 
-	async function handleAvatarChange(e: Event) {
-		const file = (e.currentTarget as HTMLInputElement).files?.[0];
+	async function handleAvatarChange(event: Event) {
+		const file = (event.currentTarget as HTMLInputElement).files?.[0];
 		if (!file || !auth.user) return;
 		avatarLoading = true;
 		avatarError = '';
-		const fd = new FormData();
-		fd.append('avatar', file);
+		const formData = new FormData();
+		formData.append('avatar', file);
 		try {
-			await pb.collection('users').update(auth.user.id, fd);
+			await pb.collection('users').update(auth.user.id, formData);
 			await pb.collection('users').authRefresh();
-		} catch (e) {
-			avatarError = e instanceof Error ? e.message : 'Failed to upload avatar.';
+		} catch (err) {
+			avatarError = err instanceof Error ? err.message : 'Failed to upload avatar.';
 		} finally {
 			avatarLoading = false;
 		}
 	}
 
-	async function savePassword() {
+	async function savePassword(event: SubmitEvent) {
+		event.preventDefault();
 		passwordError = '';
 		if (newPassword !== newPasswordConfirm) {
 			passwordError = 'Passwords do not match.';
@@ -87,76 +79,73 @@
 		passwordLoading = true;
 		passwordSuccess = false;
 		try {
-			await pb.collection('users').update(auth.user.id, {
-				oldPassword,
-				password: newPassword,
-				passwordConfirm: newPasswordConfirm,
-			});
+			await pb.collection('users').update(auth.user.id, { oldPassword, password: newPassword, passwordConfirm: newPasswordConfirm });
 			oldPassword = '';
 			newPassword = '';
 			newPasswordConfirm = '';
 			passwordSuccess = true;
-			setTimeout(() => (passwordSuccess = false), 3000);
-		} catch (e) {
-			passwordError = e instanceof Error ? e.message : 'Failed to update password.';
+			window.setTimeout(() => (passwordSuccess = false), 3000);
+		} catch (err) {
+			passwordError = err instanceof Error ? err.message : 'Failed to update password.';
 		} finally {
 			passwordLoading = false;
 		}
 	}
 </script>
 
-<div class="mt-12 border-t border-border pt-8 space-y-8">
-	<h2 class="text-sm font-semibold text-foreground">Edit Profile</h2>
+{#snippet revealToggle(shown: boolean, toggle: () => void)}
+	<button
+		type="button"
+		onclick={toggle}
+		tabindex="-1"
+		aria-label={shown ? 'Hide password' : 'Show password'}
+		class="absolute right-2.5 top-1/2 -translate-y-1/2 text-subtle transition-colors hover:text-muted"
+	>
+		{#if shown}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
+	</button>
+{/snippet}
+
+<div class="mt-12 space-y-8 border-t border-border pt-8">
+	<h2 class="text-sm font-semibold text-foreground">Edit profile</h2>
 
 	<div class="flex items-start gap-6">
-		<div class="shrink-0 flex flex-col items-center gap-1">
+		<div class="flex shrink-0 flex-col items-center gap-1">
 			<button
 				onclick={() => avatarInput?.click()}
 				disabled={avatarLoading}
 				title="Change avatar"
-				class="relative w-16 h-16 rounded-full bg-panel border border-border flex items-center justify-center overflow-hidden hover:border-subtle transition-colors cursor-pointer group disabled:opacity-60 disabled:cursor-not-allowed"
+				aria-label="Change avatar"
+				class="group relative overflow-hidden rounded-full disabled:opacity-60"
 			>
-				{#if avatarUrl}
-					<img src={avatarUrl} alt="Avatar" class="w-full h-full object-cover" />
-				{:else}
-					<User size={26} class="text-muted" />
-				{/if}
-				<div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+				<UserAvatar src={auth.user && getAvatarUrl(auth.user)} alt="Avatar" class="size-16 transition-colors group-hover:border-subtle" />
+				<div class="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
 					{#if avatarLoading}
-						<RefreshCw size={16} class="text-white animate-spin" />
+						<RefreshCw size={16} class="animate-spin text-white" />
 					{:else}
 						<Camera size={16} class="text-white" />
 					{/if}
 				</div>
 			</button>
 			{#if avatarError}
-				<p class="text-xs text-red-300 text-center max-w-20">{avatarError}</p>
+				<p class="max-w-20 text-center text-xs text-red-300">{avatarError}</p>
 			{/if}
 		</div>
 
-		<input bind:this={avatarInput} type="file" accept="image/*" class="hidden" onchange={handleAvatarChange} />
+		<input bind:this={avatarInput} type="file" accept="image/*" class="sr-only" onchange={handleAvatarChange} />
 
-		<div class="flex-1 space-y-1.5">
+		<form onsubmit={saveName} class="flex-1 space-y-1.5">
 			<label for="profile-name" class="block text-xs text-muted">Display name</label>
 			<div class="flex gap-2">
-				<input
-					id="profile-name"
-					bind:value={name}
-					type="text"
-					placeholder="Display name"
-					class="flex-1 bg-panel border border-border rounded px-3 py-1.5 text-sm text-foreground placeholder:text-subtle focus:outline-none focus:border-subtle"
-					onkeydown={(e) => e.key === 'Enter' && saveName()}
-				/>
+				<input id="profile-name" bind:value={name} type="text" placeholder="Display name" class="field flex-1 px-3 py-1.5" />
 				<button
-					onclick={saveName}
+					type="submit"
 					disabled={nameLoading || !name.trim()}
-					class="min-w-16 px-3 py-1.5 rounded text-sm border transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1
-						{nameSuccess ? 'border-green-700/50 bg-green-950/30 text-green-400' : 'border-border bg-panel text-foreground hover:bg-surface'}"
+					class="btn-secondary min-w-16 px-3 py-1.5 text-sm"
 				>
 					{#if nameLoading}
 						<RefreshCw size={13} class="animate-spin" />
 					{:else if nameSuccess}
-						<Check size={13} />
+						<Check size={13} class="text-green-400" />
 					{:else}
 						Save
 					{/if}
@@ -165,51 +154,29 @@
 			{#if nameError}
 				<p class="text-xs text-red-300">{nameError}</p>
 			{/if}
-		</div>
+		</form>
 	</div>
 
-	<div class="space-y-3">
-		<h3 class="text-xs font-medium text-muted uppercase tracking-wide">Change Password</h3>
+	<form onsubmit={savePassword} class="space-y-3">
+		<h3 class="text-xs font-medium uppercase tracking-wide text-muted">Change password</h3>
 		<div class="max-w-xs space-y-2">
+			<input type="text" name="username" autocomplete="username" value={auth.user?.email ?? ''} hidden />
 			<div class="relative">
-				<input
-					bind:value={oldPassword}
-					type={showOld ? 'text' : 'password'}
-					placeholder="Current password"
-					class="{inputCls} pr-9"
-				/>
-				<button onclick={() => (showOld = !showOld)} tabindex="-1" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-subtle hover:text-muted transition-colors cursor-pointer">
-					{#if showOld}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
-				</button>
+				<input bind:value={oldPassword} type={showOld ? 'text' : 'password'} autocomplete="current-password" placeholder="Current password" aria-label="Current password" class="field px-3 py-1.5 pr-9" />
+				{@render revealToggle(showOld, () => (showOld = !showOld))}
 			</div>
 			<div class="relative">
-				<input
-					bind:value={newPassword}
-					type={showNew ? 'text' : 'password'}
-					placeholder="New password"
-					class="{inputCls} pr-9"
-				/>
-				<button onclick={() => (showNew = !showNew)} tabindex="-1" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-subtle hover:text-muted transition-colors cursor-pointer">
-					{#if showNew}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
-				</button>
+				<input bind:value={newPassword} type={showNew ? 'text' : 'password'} autocomplete="new-password" placeholder="New password" aria-label="New password" class="field px-3 py-1.5 pr-9" />
+				{@render revealToggle(showNew, () => (showNew = !showNew))}
 			</div>
-			<input
-				bind:value={newPasswordConfirm}
-				type="password"
-				placeholder="Confirm new password"
-				class={inputCls}
-			/>
+			<input bind:value={newPasswordConfirm} type="password" autocomplete="new-password" placeholder="Confirm new password" aria-label="Confirm new password" class="field px-3 py-1.5" />
 			{#if passwordError}
 				<p class="text-xs text-red-300">{passwordError}</p>
 			{/if}
 			{#if passwordSuccess}
-				<p class="text-xs text-green-400 flex items-center gap-1.5"><Check size={12} /> Password updated.</p>
+				<p class="flex items-center gap-1.5 text-xs text-green-400"><Check size={12} /> Password updated.</p>
 			{/if}
-			<button
-				onclick={savePassword}
-				disabled={passwordLoading || !oldPassword || !newPassword || !newPasswordConfirm}
-				class="flex items-center gap-2 px-3 py-1.5 rounded text-sm border border-border bg-panel text-foreground hover:bg-surface transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-			>
+			<button type="submit" disabled={passwordLoading || !oldPassword || !newPassword || !newPasswordConfirm} class="btn-secondary px-3 py-1.5 text-sm">
 				{#if passwordLoading}
 					<RefreshCw size={13} class="animate-spin" />
 					Updating…
@@ -219,6 +186,5 @@
 				{/if}
 			</button>
 		</div>
-	</div>
+	</form>
 </div>
-
