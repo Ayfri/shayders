@@ -35,8 +35,9 @@
 		type ChannelEntry,
 		type ShaderBuffer,
 	} from '#features/shaders/model/shader-content.js';
-	import { shaderState } from '#features/shaders/model/shader-state.svelte.js';
+	import { setShaderState, ShaderState } from '#features/shaders/model/shader-state.svelte.js';
 
+	/** The `initial*` props are read once, the route remounts the editor with `{#key}` to open another shader. */
 	interface Props {
 		authorId?: string;
 		authorName?: string;
@@ -50,18 +51,24 @@
 	}
 
 	let { authorId, authorName, initialBuffers, initialChannels, initialDescription, initialId, initialName, initialVisiblity, viewOnly = false }: Props = $props();
-	const initialResolvedBuffers = resolveInitialBuffers();
+	const start = untrack(() => ({
+		buffers: resolveInitialBuffers(initialBuffers),
+		channels: resolveInitialChannels(initialChannels),
+		state: new ShaderState({ description: initialDescription, id: initialId, name: initialName, visiblity: initialVisiblity }),
+	}));
+	const shaderState = setShaderState(start.state);
+	const startBuffer = start.buffers.find((buffer) => buffer.id === 'image') ?? start.buffers[0];
 
-	let activeBufferId = $state<string>('image');
+	let activeBufferId = $state(startBuffer?.id ?? 'image');
 	let assetCleanupKeys = $state.raw<string[]>([]);
-	let buffers = $state.raw<ShaderBuffer[]>(initialResolvedBuffers);
-	let channels = $state.raw<ChannelEntry[]>(resolveInitialChannels());
-	let editorValue = $state<string>(initialResolvedBuffers[0]?.code ?? '');
+	let buffers = $state.raw(start.buffers);
+	let channels = $state.raw(start.channels);
+	let editorValue = $state(startBuffer?.code ?? '');
 	let error = $state('');
 	/** Code, buffer and channel edits, name, description and visibility are compared against `savedMeta` instead. */
 	let isDirty = $state(false);
 	let panelOpen = $state(false);
-	let savedMeta = $state('');
+	let savedMeta = $state(shaderState.metaKey);
 	let shaderCanvas: ReturnType<typeof ShaderCanvas> | null = null;
 	let thumbnails = $state.raw<Record<string, string>>({});
 	let uniformValues = $state.raw<Record<string, string>>({});
@@ -69,28 +76,11 @@
 	/** The first compile after loading a shader isn't a user edit. */
 	let isFirstCompile = true;
 
-	const metaKey = () => `${shaderState.name}\n${shaderState.description}\n${shaderState.visiblity}`;
-	const hasUnsavedChanges = $derived(!viewOnly && (isDirty || metaKey() !== savedMeta));
-
-	$effect.pre(() => {
-		const nextBuffers = resolveInitialBuffers(initialBuffers);
-		const startBuffer = nextBuffers.find((buffer) => buffer.id === 'image') ?? nextBuffers[0];
-		buffers = nextBuffers;
-		channels = resolveInitialChannels(initialChannels);
-		assetCleanupKeys = [];
-		editorValue = startBuffer?.code ?? '';
-		activeBufferId = startBuffer?.id ?? 'image';
-		shaderState.currentShaderId = initialId ?? null;
-		shaderState.name = initialName ?? 'Untitled Shader';
-		shaderState.description = initialDescription ?? '';
-		shaderState.visiblity = initialVisiblity ?? 'public';
-		markSaved();
-		isFirstCompile = true;
-	});
+	const hasUnsavedChanges = $derived(!viewOnly && (isDirty || shaderState.metaKey !== savedMeta));
 
 	function markSaved() {
 		isDirty = false;
-		savedMeta = untrack(metaKey);
+		savedMeta = shaderState.metaKey;
 	}
 
 	function buffersWithLatestCode(): ShaderBuffer[] {

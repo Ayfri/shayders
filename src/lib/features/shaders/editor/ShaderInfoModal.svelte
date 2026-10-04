@@ -1,6 +1,7 @@
 <script lang="ts">
+	import Button from '#components/ui/Button.svelte';
 	import Modal from '#components/ui/Modal.svelte';
-	import { shaderState } from '#features/shaders/model/shader-state.svelte.js';
+	import { getShaderState } from '#features/shaders/model/shader-state.svelte.js';
 	import { getVisibilityOption, type ShaderVisibility, VISIBILITY_OPTIONS } from '#features/shaders/model/shader-visibility.js';
 
 	interface Props {
@@ -10,18 +11,14 @@
 
 	let { open = $bindable(false), readonly = false }: Props = $props();
 
-	let nameDraft = $state('');
-	let descriptionDraft = $state('');
-	let visibilityDraft = $state<ShaderVisibility>('public');
+	const shaderState = getShaderState();
+
+	/** Drafts restart from the saved values each time the modal opens, typing overrides them until then. */
+	let nameDraft = $derived(open ? shaderState.name : '');
+	let descriptionDraft = $derived(open ? shaderState.description : '');
+	let visibilityDraft = $derived<ShaderVisibility>(open ? shaderState.visiblity : 'public');
 
 	const visibility = $derived(getVisibilityOption(shaderState.visiblity));
-
-	$effect(() => {
-		if (!open) return;
-		nameDraft = shaderState.name;
-		descriptionDraft = shaderState.description;
-		visibilityDraft = shaderState.visiblity;
-	});
 
 	function apply() {
 		shaderState.name = nameDraft;
@@ -110,8 +107,8 @@
 			</div>
 
 			<div class="flex justify-end gap-2 pt-1">
-				<button onclick={() => (open = false)} class="btn-ghost px-4 py-1.5 text-xs">Cancel</button>
-				<button onclick={apply} class="btn-accent px-4 py-1.5 text-xs">Apply</button>
+				<Button onclick={() => (open = false)} variant="ghost" size="sm">Cancel</Button>
+				<Button onclick={apply} variant="accent" size="sm">Apply</Button>
 			</div>
 		{/if}
 	</div>

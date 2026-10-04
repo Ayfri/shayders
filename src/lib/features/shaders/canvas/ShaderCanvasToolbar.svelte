@@ -2,7 +2,7 @@
 	import { Camera, Circle, GitFork, Info, Square } from '@lucide/svelte';
 	import { auth } from '#features/auth/auth-client.svelte.js';
 	import { CanvasRecorder } from '#features/shaders/canvas/canvas-capture.svelte.js';
-	import { shaderState } from '#features/shaders/model/shader-state.svelte.js';
+	import { getShaderState } from '#features/shaders/model/shader-state.svelte.js';
 	import { getUserProfilePath } from '#lib/site.js';
 
 	interface Props {
@@ -32,6 +32,8 @@
 		toggleRecording,
 		viewOnly = false,
 	}: Props = $props();
+
+	const shaderState = getShaderState();
 
 	function formatDuration(milliseconds: number): string {
 		const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));

@@ -67,15 +67,17 @@
 			{/each}
 		</article>
 	</noscript>
-	<ShaderEditorPage
-		initialId={shader.id}
-		initialName={shader.name}
-		initialDescription={shader.description}
-		initialVisiblity={shader.visiblity}
-		initialBuffers={shader.buffers}
-		initialChannels={shader.channels}
-		viewOnly={!data.isOwner}
-		authorId={data.isOwner ? undefined : shader.authorId}
-		authorName={data.isOwner ? undefined : shader.authorName}
-	/>
+	{#key shader.id}
+		<ShaderEditorPage
+			initialId={shader.id}
+			initialName={shader.name}
+			initialDescription={shader.description}
+			initialVisiblity={shader.visiblity}
+			initialBuffers={shader.buffers}
+			initialChannels={shader.channels}
+			viewOnly={!data.isOwner}
+			authorId={data.isOwner ? undefined : shader.authorId}
+			authorName={data.isOwner ? undefined : shader.authorName}
+		/>
+	{/key}
 {/if}

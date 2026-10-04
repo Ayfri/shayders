@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
 	import { CircleAlert, Maximize2, Minimize2 } from '@lucide/svelte';
 	import ShaderCanvasToolbar from '#features/shaders/canvas/ShaderCanvasToolbar.svelte';
 	import { editorSettings } from '#features/shaders/editor/editor-settings.svelte.js';
@@ -7,7 +7,7 @@
 	import { FULLSCREEN_TOGGLE_KEY } from '#features/shaders/model/shader-domain.js';
 	import { CanvasRecorder, captureFileName, downloadBlob } from '#features/shaders/canvas/canvas-capture.svelte.js';
 	import { ShaderCanvasRuntime } from '#features/shaders/canvas/runtime.js';
-	import { shaderState } from '#features/shaders/model/shader-state.svelte.js';
+	import { getShaderState } from '#features/shaders/model/shader-state.svelte.js';
 	import type { ChannelEntry, ShaderBuffer } from '#features/shaders/model/shader-content.js';
 
 	interface Props {
@@ -45,6 +45,7 @@
 	let wrapper: HTMLDivElement | null = null;
 
 	const recorder = new CanvasRecorder();
+	const shaderState = getShaderState();
 
 	const runtime = new ShaderCanvasRuntime({
 		getBuffers: () => buffers,
@@ -106,15 +107,17 @@
 		runtime.syncChannels();
 	});
 
-	onMount(() => {
-		if (!canvas) return;
+	/** Mounting reads buffers, channels and settings, untracked so editing them never remounts the WebGL runtime. */
+	function attachRuntime(element: HTMLCanvasElement) {
+		canvas = element;
 		canRecordVideo = CanvasRecorder.mimeType !== undefined;
-		runtime.mount(canvas);
+		untrack(() => runtime.mount(element));
 		return () => {
 			recorder.stop(false);
 			runtime.destroy();
+			canvas = null;
 		};
-	});
+	}
 </script>
 
 <svelte:document onfullscreenchange={() => (isFullscreen = !!document.fullscreenElement)} onkeydown={handleDocumentKeydown} />
@@ -138,7 +141,7 @@
 
 	<div class="relative min-h-0 min-w-0 flex-1 overflow-hidden">
 		<canvas
-			bind:this={canvas}
+			{@attach attachRuntime}
 			class="block h-full w-full touch-none"
 			height={600}
 			width={800}
