@@ -63,8 +63,10 @@
 	let deleteAccountError = $state('');
 
 	const shaders = $derived(data.shaders.filter((shader) => !deletedIds.has(shader.id)));
-	const ownerQuota = $derived(createQuotaSummary(shaders.reduce((total, shader) => total + shader.assetBytes, 0)));
-	const uploadedMediaCount = $derived(shaders.reduce((total, shader) => total + shader.mediaCount, 0));
+	/** Shaders deleted on this page free their assets in the background, so their share is taken off the loaded R2 usage right away. */
+	const deletedShaders = $derived(data.shaders.filter((shader) => deletedIds.has(shader.id)));
+	const ownerQuota = $derived(createQuotaSummary((data.storage?.usedBytes ?? 0) - deletedShaders.reduce((total, shader) => total + shader.assetBytes, 0)));
+	const uploadedMediaCount = $derived(Math.max(0, (data.storage?.mediaCount ?? 0) - deletedShaders.reduce((total, shader) => total + shader.mediaCount, 0)));
 	const stats = $derived([
 		{ label: 'Shaders', value: shaders.length },
 		...(isOwner

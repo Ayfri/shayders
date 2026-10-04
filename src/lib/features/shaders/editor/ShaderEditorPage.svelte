@@ -208,17 +208,19 @@
 		}
 	}
 
+	/** Serialization drops channels whose asset isn't uploaded yet, so saves and forks stop here instead of losing them. */
+	function alertPendingChannels(): boolean {
+		const pendingChannelIds = listUnpersistedBinaryChannels(channels);
+		if (pendingChannelIds.length > 0) window.alert(`Upload channel assets before saving: ${pendingChannelIds.map((id) => `CH${id}`).join(', ')}.`);
+		return pendingChannelIds.length > 0;
+	}
+
 	async function saveProject() {
 		if (!auth.isLoggedIn) {
 			saveDraftLocally();
 			return;
 		}
-
-		const pendingChannelIds = listUnpersistedBinaryChannels(channels);
-		if (pendingChannelIds.length > 0) {
-			window.alert(`Upload channel assets before saving: ${pendingChannelIds.map((id) => `CH${id}`).join(', ')}.`);
-			return;
-		}
+		if (alertPendingChannels()) return;
 
 		await mutateRecord(
 			'Failed to save shader.',
@@ -246,9 +248,9 @@
 	}
 
 	async function forkProject() {
-		if (!auth.isLoggedIn) return;
+		if (!auth.isLoggedIn || alertPendingChannels()) return;
 		await mutateRecord('Failed to fork shader.', async () => {
-			const response = await forkShaderRecord({ ...shaderPayload(), channels, token: pb.authStore.token });
+			const response = await forkShaderRecord({ ...shaderPayload(), channels, forkOf: shaderState.currentShaderId, token: pb.authStore.token });
 			await throwIfAuthenticatedApiError(response, `Failed to fork shader (HTTP ${response.status}).`);
 			const recordId = await readShaderMutationId(response);
 			if (recordId) goto(getShaderPath(recordId));

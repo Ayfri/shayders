@@ -1,60 +1,70 @@
-import { env } from 'cloudflare:workers';
+import { error } from '@sveltejs/kit';
+import { env, waitUntil } from 'cloudflare:workers';
 import type { RequestHandler } from './$types';
-import { sumStoredAssetBytes } from '#features/shaders/model/shader-content.js';
+import { isRecord } from '#features/shaders/model/shader-content.js';
 import {
-	SHADER_USER_QUOTA_BYTES,
+	SHADER_VIDEO_MAX_BYTES,
 	createQuotaSummary,
 	type UploadUrlRequest,
 	type UploadUrlResponse,
-	formatBytes,
 	getBinaryChannelTypeFromMime,
 	validateBinaryAssetMetadata,
 } from '#features/shaders/assets/shader-asset-policy.js';
 import { authenticatePocketBaseRequest } from '#lib/server/pocketbase-auth.js';
-import { putR2Asset } from '#lib/server/r2.js';
+import { deleteR2Objects, putR2Asset } from '#lib/server/r2.js';
+import { assertWithinQuota, readAssetStorage } from '#lib/server/shader-assets.js';
 
-function errorResponse(message: string): Response {
-	return Response.json({ error: message }, { status: 400 });
+/** The biggest allowed file plus room for the multipart framing and metadata, checked before the body is buffered. */
+const MAX_REQUEST_BYTES = SHADER_VIDEO_MAX_BYTES + 64 * 1024;
+
+function asOptionalNumber(value: unknown): number | null {
+	return typeof value === 'number' ? value : null;
+}
+
+/** The declared size is replaced by the real one, quota checks must never trust client metadata. */
+function parseMetadata(value: FormDataEntryValue | null, file: File): UploadUrlRequest {
+	let metadata: unknown;
+	try {
+		metadata = JSON.parse(String(value));
+	} catch {
+		error(400, 'Invalid upload metadata.');
+	}
+	if (!isRecord(metadata) || typeof metadata.mime !== 'string') error(400, 'Invalid upload metadata.');
+
+	return {
+		durationSeconds: asOptionalNumber(metadata.durationSeconds),
+		filename: typeof metadata.filename === 'string' ? metadata.filename : file.name,
+		height: asOptionalNumber(metadata.height),
+		mime: metadata.mime,
+		replacingKey: typeof metadata.replacingKey === 'string' ? metadata.replacingKey : null,
+		size: file.size,
+		width: asOptionalNumber(metadata.width),
+	};
 }
 
 export const POST: RequestHandler = async ({ request }) => {
-	const { pb, user } = await authenticatePocketBaseRequest(request);
+	if (Number(request.headers.get('content-length')) > MAX_REQUEST_BYTES) error(413, 'Upload is too large.');
 
-	let formData: FormData;
-	try {
-		formData = await request.formData();
-	} catch {
-		return errorResponse('Invalid upload payload.');
-	}
+	const bucket = env.ASSETS_STORAGE;
+	const { pb, user } = await authenticatePocketBaseRequest(request);
+	const formData = await request.formData().catch(() => error(400, 'Invalid upload payload.'));
 
 	const file = formData.get('file');
-	if (!(file instanceof File)) return errorResponse('Missing file in upload payload.');
+	if (!(file instanceof File)) error(400, 'Missing file in upload payload.');
 
-	let body: UploadUrlRequest;
-	try {
-		/** The declared size is replaced by the real one, quota checks must never trust client metadata. */
-		body = { ...(JSON.parse(String(formData.get('metadata'))) as UploadUrlRequest), size: file.size };
-	} catch {
-		return errorResponse('Invalid upload metadata.');
-	}
-
+	const body = parseMetadata(formData.get('metadata'), file);
 	const validationError = validateBinaryAssetMetadata(body);
-	if (validationError) return errorResponse(validationError);
+	if (validationError) error(400, validationError);
 
 	const kind = getBinaryChannelTypeFromMime(body.mime);
-	if (!kind) return errorResponse('Unsupported asset type.');
+	if (!kind) error(400, 'Unsupported asset type.');
 
-	const ignoredKeys = new Set(body.replacingKey ? [body.replacingKey] : []);
-	const userShaders = await pb.collection('shaders').getFullList({
-		fields: 'content',
-		filter: pb.filter('user_id = {:userId}', { userId: user.id }),
-	});
-	const nextUsedBytes = userShaders.reduce((total, shader) => total + sumStoredAssetBytes(shader.content, ignoredKeys), body.size);
-	if (nextUsedBytes > SHADER_USER_QUOTA_BYTES) {
-		return errorResponse(`Storage quota exceeded. Free accounts are limited to ${formatBytes(SHADER_USER_QUOTA_BYTES)}.`);
-	}
+	const storage = await readAssetStorage(pb, bucket, user.id, body.replacingKey);
+	const usedBytes = storage.usedBytes + body.size;
+	assertWithinQuota(usedBytes);
 
-	const { key, publicUrl } = await putR2Asset(env.ASSETS_STORAGE, { userId: user.id, filename: body.filename, mime: body.mime }, file);
+	const { key, publicUrl } = await putR2Asset(bucket, { userId: user.id, filename: body.filename, mime: body.mime }, file);
+	if (storage.staleKeys.length > 0) waitUntil(deleteR2Objects(bucket, storage.staleKeys).catch((err) => console.error('Failed to delete stale assets:', err)));
 
 	return Response.json({
 		asset: {
@@ -68,6 +78,6 @@ export const POST: RequestHandler = async ({ request }) => {
 			height: body.height ?? null,
 			durationSeconds: body.durationSeconds ?? null,
 		},
-		quota: createQuotaSummary(nextUsedBytes),
+		quota: createQuotaSummary(usedBytes),
 	} satisfies UploadUrlResponse);
 };

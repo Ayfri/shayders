@@ -77,7 +77,7 @@ export interface StoredShaderAsset {
 
 export const CHANNEL_SLOT_IDS = [0, 1, 2, 3] as const;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
@@ -268,7 +268,8 @@ export function deserializeShaderContent(content: unknown): ShaderContentDocumen
 		? content.channels.map(toStoredChannel).filter((entry): entry is PersistedShaderChannel => entry !== null)
 		: [];
 
-	return buildShaderContentDocument(buffers, channels);
+	/** One channel per slot, the last entry wins like it does in `hydrateChannels`. */
+	return buildShaderContentDocument(buffers, [...new Map(channels.map((channel) => [channel.id, channel])).values()]);
 }
 
 export function hydrateChannels(content: unknown): ChannelEntry[] {

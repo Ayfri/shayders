@@ -1,4 +1,4 @@
-import type { ChannelEntry, ShaderBuffer } from '#features/shaders/model/shader-content.js';
+import { type ChannelEntry, type ShaderBuffer, serializeShaderContent } from '#features/shaders/model/shader-content.js';
 
 interface ShaderMutationPayload {
 	buffers: ShaderBuffer[];
@@ -7,6 +7,11 @@ interface ShaderMutationPayload {
 	name: string;
 	token: string;
 	visiblity: string;
+}
+
+interface ForkShaderMutationPayload extends ShaderMutationPayload {
+	/** Saved shader being forked, the server copies its assets instead of sharing them. */
+	forkOf: string | null;
 }
 
 interface SaveShaderMutationPayload extends ShaderMutationPayload {
@@ -27,13 +32,10 @@ interface ShaderDraftData {
 	visiblity: string;
 }
 
-export async function forkShaderRecord(payload: ShaderMutationPayload): Promise<Response> {
-	return postShaderMutation(payload.token, {
-		buffers: payload.buffers,
-		channels: payload.channels,
-		description: payload.description,
+export async function forkShaderRecord(payload: ForkShaderMutationPayload): Promise<Response> {
+	return postShaderMutation(payload, {
+		forkOf: payload.forkOf,
 		name: `Fork of ${payload.name}`,
-		visiblity: payload.visiblity,
 	});
 }
 
@@ -55,25 +57,25 @@ export function saveShaderDraft(data: ShaderDraftData): boolean {
 }
 
 export async function saveShaderRecord(payload: SaveShaderMutationPayload): Promise<Response> {
-	return postShaderMutation(payload.token, {
-		buffers: payload.buffers,
-		channels: payload.channels,
+	return postShaderMutation(payload, {
 		cleanupKeys: payload.cleanupKeys,
-		description: payload.description,
-		name: payload.name,
 		shaderId: payload.shaderId,
-		visiblity: payload.visiblity,
 	});
 }
 
-function postShaderMutation(token: string, body: Record<string, unknown>): Promise<Response> {
+function postShaderMutation(payload: ShaderMutationPayload, extra: Record<string, unknown>): Promise<Response> {
 	return fetch('/api/shaders', {
-		body: JSON.stringify(body),
+		body: JSON.stringify({
+			content: serializeShaderContent(payload.buffers, payload.channels),
+			description: payload.description,
+			name: payload.name,
+			visiblity: payload.visiblity,
+			...extra,
+		}),
 		headers: {
-			Authorization: `Bearer ${token}`,
+			Authorization: `Bearer ${payload.token}`,
 			'Content-Type': 'application/json',
 		},
 		method: 'POST',
 	});
 }
-

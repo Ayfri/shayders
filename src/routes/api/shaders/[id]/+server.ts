@@ -1,28 +1,20 @@
+import { error } from '@sveltejs/kit';
 import { env, waitUntil } from 'cloudflare:workers';
 import type { RequestHandler } from './$types';
 import { extractStoredAssetKeys } from '#features/shaders/model/shader-content.js';
-import type { ShadersResponse } from '#lib/pocketbase-types.js';
 import { authenticatePocketBaseRequest } from '#lib/server/pocketbase-auth.js';
-import { deleteR2Objects } from '#lib/server/r2.js';
+import { deleteUnreferencedAssets } from '#lib/server/shader-assets.js';
 
 export const DELETE: RequestHandler = async ({ request, params }) => {
 	const { pb, user } = await authenticatePocketBaseRequest(request);
 
-	let shader: ShadersResponse;
-	try {
-		shader = await pb.collection('shaders').getOne(params.id);
-	} catch {
-		return Response.json({ error: 'Shader not found.' }, { status: 404 });
-	}
+	const shader = await pb.collection('shaders')
+		.getOne(params.id, { fields: 'user_id,content' })
+		.catch(() => error(404, 'Shader not found.'));
+	if (shader.user_id !== user.id) error(403, 'Unauthorized.');
 
-	if (shader.user_id !== user.id) {
-		return Response.json({ error: 'Unauthorized.' }, { status: 403 });
-	}
-
-	/** Stored content can be written straight to PocketBase, so only keys under the owner's prefix are trusted for deletion. */
-	const assetKeys = extractStoredAssetKeys(shader.content).filter((key) => key.startsWith(`users/${user.id}/`));
 	await pb.collection('shaders').delete(params.id);
-	waitUntil(deleteR2Objects(env.ASSETS_STORAGE, assetKeys).catch((err) => console.error('Failed to delete shader assets from R2:', err)));
+	waitUntil(deleteUnreferencedAssets(pb, env.ASSETS_STORAGE, user.id, extractStoredAssetKeys(shader.content)).catch((err) => console.error('Failed to delete shader assets from R2:', err)));
 
 	return Response.json({ success: true });
 };

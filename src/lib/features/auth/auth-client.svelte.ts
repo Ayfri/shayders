@@ -64,11 +64,9 @@ export class SessionExpiredError extends Error {
 	}
 }
 
+/** API routes fail through SvelteKit's `error()`, whose JSON body is `{ message }`. */
 function readApiErrorMessage(payload: unknown, fallback: string): string {
-	if (typeof payload !== 'object' || payload === null) return fallback;
-	if ('error' in payload && typeof payload.error === 'string') return payload.error;
-	if ('message' in payload && typeof payload.message === 'string') return payload.message;
-	return fallback;
+	return typeof payload === 'object' && payload !== null && 'message' in payload && typeof payload.message === 'string' ? payload.message : fallback;
 }
 
 export async function requestVerification(email: string): Promise<void> {
