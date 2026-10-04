@@ -1,87 +1,57 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { LoaderCircle, Search, User } from '@lucide/svelte';
+	import { LoaderCircle, Search } from '@lucide/svelte';
+	import UserAvatar from '#components/ui/UserAvatar.svelte';
 	import ShaderPreview from '#features/shaders/preview/ShaderPreview.svelte';
 	import {
 		buildSearchHref,
-		SEARCH_PREVIEW_MIN_QUERY_LENGTH,
 		normalizeSearchQuery,
+		SEARCH_PREVIEW_MIN_QUERY_LENGTH,
 		type SiteSearchResults,
-	} from './search';
+	} from '#features/search/search.js';
+	import { formatUserHandle } from '#lib/format.js';
+	import { getShaderPath, SITE_SEARCH_PATH } from '#lib/site.js';
 
-	const routeQuery = $derived(page.url.pathname === '/search' ? (page.url.searchParams.get('q') ?? '') : '');
-
-	let query = $state(page.url.pathname === '/search' ? (page.url.searchParams.get('q') ?? '') : '');
+	/** Mirrors the `/search` query, typing overrides it until the next navigation. */
+	let query = $derived(page.url.pathname === SITE_SEARCH_PATH ? (page.url.searchParams.get('q') ?? '') : '');
 	let error = $state('');
 	let isFocused = $state(false);
 	let isLoading = $state(false);
 	let results = $state.raw<SiteSearchResults | null>(null);
 
 	let blurTimeout = 0;
-	let requestToken = 0;
 
 	const normalizedQuery = $derived(normalizeSearchQuery(query));
-	const showDropdown = $derived.by(() => (
-		isFocused
-		&& normalizedQuery.length >= SEARCH_PREVIEW_MIN_QUERY_LENGTH
-		&& (isLoading || error.length > 0 || results !== null)
-	));
+	const showDropdown = $derived(
+		isFocused && normalizedQuery.length >= SEARCH_PREVIEW_MIN_QUERY_LENGTH && (isLoading || error.length > 0 || results !== null),
+	);
 
+	/** Aborting the previous request on every rerun is what keeps a slow, stale response from overwriting a newer one. */
 	$effect(() => {
-		if (!isFocused && query !== routeQuery) {
-			query = routeQuery;
-		}
-	});
-
-	$effect(() => {
+		results = null;
+		error = '';
 		if (!isFocused || normalizedQuery.length < SEARCH_PREVIEW_MIN_QUERY_LENGTH) {
-			results = null;
-			error = '';
 			isLoading = false;
 			return;
 		}
 
-		const currentRequest = ++requestToken;
 		const controller = new AbortController();
 		isLoading = true;
-		results = null;
-		error = '';
 
 		const timer = window.setTimeout(async () => {
 			try {
 				const response = await fetch(`/api/search?q=${encodeURIComponent(normalizedQuery)}`, {
-					headers: {
-						accept: 'application/json',
-					},
+					headers: { accept: 'application/json' },
 					signal: controller.signal,
 				});
-				if (!response.ok) {
-					throw new Error(`Search preview failed with HTTP ${response.status}.`);
-				}
-
-				const payload = (await response.json()) as SiteSearchResults;
-				if (currentRequest !== requestToken) {
-					return;
-				}
-
-				results = payload;
+				if (!response.ok) throw new Error(`Search preview failed with HTTP ${response.status}.`);
+				results = (await response.json()) as SiteSearchResults;
 			} catch (err) {
-				if (err instanceof DOMException && err.name === 'AbortError') {
-					return;
-				}
-
-				if (currentRequest !== requestToken) {
-					return;
-				}
-
+				if (controller.signal.aborted) return;
 				error = err instanceof Error ? err.message : 'Search preview failed.';
-				results = null;
-			} finally {
-				if (currentRequest === requestToken) {
-					isLoading = false;
-				}
 			}
+			isLoading = false;
 		}, 180);
 
 		return () => {
@@ -90,31 +60,16 @@
 		};
 	});
 
-	function clearBlurTimeout() {
+	function setFocused(focused: boolean) {
 		window.clearTimeout(blurTimeout);
+		/** Blur waits a bit so a click on a result lands before the dropdown unmounts. */
+		if (focused) isFocused = true;
+		else blurTimeout = window.setTimeout(() => (isFocused = false), 120);
 	}
 
 	function closeDropdown() {
-		clearBlurTimeout();
+		window.clearTimeout(blurTimeout);
 		isFocused = false;
-	}
-
-	function handleBlur() {
-		clearBlurTimeout();
-		blurTimeout = window.setTimeout(() => {
-			isFocused = false;
-		}, 120);
-	}
-
-	function handleFocus() {
-		clearBlurTimeout();
-		isFocused = true;
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') {
-			closeDropdown();
-		}
 	}
 
 	function handleSubmit(event: SubmitEvent) {
@@ -122,11 +77,11 @@
 		closeDropdown();
 		goto(buildSearchHref(query));
 	}
-
-	function formatUserHandle(username: string, fallbackId: string) {
-		return username ? `@${username}` : fallbackId;
-	}
 </script>
+
+{#snippet groupTitle(label: string)}
+	<div class="border-y border-border px-3 py-2 font-mono text-10 font-medium uppercase tracking-[0.16em] text-subtle first:border-t-0">{label}</div>
+{/snippet}
 
 <div class="relative">
 	<form
@@ -140,9 +95,9 @@
 			placeholder="Search shaders or creators"
 			aria-label="Search shaders or creators"
 			class="min-w-0 flex-1 bg-transparent text-13 text-foreground outline-none placeholder:text-subtle"
-			onfocus={handleFocus}
-			onblur={handleBlur}
-			onkeydown={handleKeydown}
+			onfocus={() => setFocused(true)}
+			onblur={() => setFocused(false)}
+			onkeydown={(event) => event.key === 'Escape' && closeDropdown()}
 		/>
 
 		{#if isLoading}
@@ -153,30 +108,21 @@
 	{#if showDropdown}
 		<div class="absolute inset-x-0 top-[calc(100%+0.35rem)] z-40 overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
 			{#if error}
-				<div class="px-3 py-3 text-sm text-red-300">{error}</div>
+				<div class="p-3 text-sm text-red-300">{error}</div>
 			{:else if isLoading}
-				<div class="flex items-center gap-2 px-3 py-3 text-sm text-muted">
+				<div class="flex items-center gap-2 p-3 text-sm text-muted">
 					<LoaderCircle size={12} class="animate-spin" />
-					<span>Loading suggestions...</span>
+					<span>Loading suggestions…</span>
 				</div>
 			{:else if results && (results.shaders.length > 0 || results.users.length > 0)}
 				<div class="flex flex-col">
 					{#if results.shaders.length > 0}
-						<div class="border-b border-border px-3 py-2 text-10 font-medium uppercase tracking-[0.16em] text-subtle first:border-t-0">
-							Shaders
-						</div>
+						{@render groupTitle('Shaders')}
 						{#each results.shaders as shader (shader.id)}
-							<a
-								href="/shader/{shader.id}"
-								class="grid grid-cols-[60px_1fr] gap-2.5 px-3 py-2.5 transition-colors hover:bg-panel"
-							>
+							<a href={getShaderPath(shader.id)} class="grid grid-cols-[60px_1fr] gap-2.5 px-3 py-2.5 transition-colors hover:bg-panel">
 								<div class="h-12 overflow-hidden rounded-md border border-border bg-black">
 									{#if shader.buffers.length > 0}
-										<ShaderPreview
-											buffers={shader.buffers}
-											channels={shader.channels}
-											name={shader.name}
-										/>
+										<ShaderPreview buffers={shader.buffers} channels={shader.channels} name={shader.name} />
 									{:else}
 										<div class="flex h-full items-center justify-center bg-linear-to-br from-panel via-background to-panel">
 											<Search size={14} class="text-muted opacity-40" />
@@ -195,21 +141,10 @@
 					{/if}
 
 					{#if results.users.length > 0}
-						<div class="border-b border-t border-border px-3 py-2 text-10 font-medium uppercase tracking-[0.16em] text-subtle">
-							Creators
-						</div>
+						{@render groupTitle('Creators')}
 						{#each results.users as user (user.id)}
-							<a
-								href={user.profilePath}
-								class="flex items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-panel"
-							>
-								{#if user.avatarUrl}
-									<img src={user.avatarUrl} alt="" class="size-9 rounded-full border border-border object-cover" />
-								{:else}
-									<div class="flex size-9 items-center justify-center rounded-full border border-border bg-panel text-muted">
-										<User size={14} />
-									</div>
-								{/if}
+							<a href={user.profilePath} class="flex items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-panel">
+								<UserAvatar src={user.avatarUrl} class="size-9" />
 								<div class="min-w-0">
 									<p class="truncate text-13 font-medium text-foreground">{user.displayName}</p>
 									<p class="mt-1 truncate text-xs text-muted">{formatUserHandle(user.username, user.id)}</p>
@@ -227,11 +162,8 @@
 					</a>
 				</div>
 			{:else}
-				<div class="px-3 py-3 text-sm text-muted">
-					No live results for "{normalizedQuery}".
-				</div>
+				<div class="p-3 text-sm text-muted">No live results for "{normalizedQuery}".</div>
 			{/if}
 		</div>
 	{/if}
 </div>
-

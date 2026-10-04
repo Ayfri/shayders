@@ -1,9 +1,9 @@
 <script lang="ts" module>
-	import { BookOpen, Camera, GitFork, HardDrive, Import, Sparkles, TvMinimal, Wrench } from '@lucide/svelte';
+	import { BookOpen, Camera, GitFork, HardDrive, Import, type LucideIcon, Sparkles, TvMinimal, Wrench } from '@lucide/svelte';
 
 	interface Feature {
 		description: string;
-		icon: typeof BookOpen;
+		icon: LucideIcon;
 		title: string;
 		wide?: boolean;
 	}
@@ -57,24 +57,19 @@
 <script lang="ts">
 	import { ArrowDown, ArrowRight, CodeXml, Layers, Play, Zap } from '@lucide/svelte';
 	import HeroShader from '#features/home/HeroShader.svelte';
-	import ShaderPreview from '#features/shaders/preview/ShaderPreview.svelte';
+	import ShaderCard from '#features/shaders/preview/ShaderCard.svelte';
+	import ShaderSortNav from '#features/shaders/preview/ShaderSortNav.svelte';
 	import SeoHead from '#components/SeoHead.svelte';
-	import { buildSiteUrl, getShaderPath, SITE_URL } from '#lib/site.js';
-	import { SHADER_SORT_OPTIONS, sortShaders } from '#features/shaders/model/shader-list.js';
+	import EmptyState from '#components/ui/EmptyState.svelte';
+	import { plural } from '#lib/format.js';
+	import { buildSiteUrl, getShaderPath, getUserProfilePath, SITE_URL } from '#lib/site.js';
+	import { sortShaders } from '#features/shaders/model/shader-list.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
-	const shaders = $derived.by(() => sortShaders(data.shaders, data.selectedSort));
-	const visibleAuthors = $derived.by(() => new Set(shaders.map((shader) => shader.authorId)).size);
-
-	function formatDate(iso: string) {
-		return new Date(iso).toLocaleDateString('en-US', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric',
-		});
-	}
+	const shaders = $derived(sortShaders(data.shaders, data.selectedSort));
+	const visibleAuthors = $derived(new Set(shaders.map((shader) => shader.authorId)).size);
 </script>
 
 <SeoHead
@@ -102,7 +97,7 @@
 {#snippet primaryCta(label: string)}
 	<a
 		href="/new"
-		class="group inline-flex items-center gap-2 rounded-lg bg-cyan-400 px-5 py-2.5 text-sm font-semibold text-background shadow-[0_0_32px_-6px_var(--color-cyan-400)] transition-all hover:bg-cyan-300 hover:shadow-[0_0_44px_-4px_var(--color-cyan-300)]"
+		class="group inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-background shadow-[0_0_32px_-6px_var(--color-accent)] transition-all hover:bg-accent-light hover:shadow-[0_0_44px_-4px_var(--color-accent-light)]"
 	>
 		<Play size={15} class="fill-current" />
 		{label}
@@ -120,7 +115,7 @@
 		<div class="mx-auto flex min-h-[min(78svh,680px)] max-w-6xl flex-col justify-center px-6 py-20 lg:px-10">
 			<h1 class="max-w-3xl text-4xl font-bold leading-[1.05] tracking-tight text-white sm:text-6xl lg:text-7xl">
 				Write GLSL.
-				<span class="block bg-linear-to-r from-cyan-300 via-sky-400 to-fuchsia-400 bg-clip-text text-transparent">Watch it come alive.</span>
+				<span class="block bg-linear-to-r from-accent-light via-sky-400 to-fuchsia-400 bg-clip-text text-transparent">Watch it come alive.</span>
 			</h1>
 
 			<p class="mt-6 max-w-xl text-base leading-7 text-foreground/80 sm:text-lg">
@@ -139,7 +134,7 @@
 			</div>
 
 			<p class="mt-8 text-sm text-muted">
-				<span class="font-semibold text-foreground">{data.totalShaders}</span> public shader{data.totalShaders !== 1 ? 's' : ''} and counting, no account needed to start.
+				<span class="font-semibold text-foreground">{plural(data.totalShaders, 'public shader')}</span> and counting, no account needed to start.
 			</p>
 		</div>
 	</section>
@@ -192,12 +187,12 @@
 					<ArrowRight size={12} class="text-subtle" />
 					<span class="rounded border border-border bg-panel px-2 py-1 text-foreground">Buffer B</span>
 					<ArrowRight size={12} class="text-subtle" />
-					<span class="rounded border border-cyan-400/50 bg-cyan-400/10 px-2 py-1 text-cyan-300">Image</span>
+					<span class="rounded border border-accent/50 bg-accent/10 px-2 py-1 text-accent">Image</span>
 				</div>
 			</article>
 
 			{#each FEATURES as feature (feature.title)}
-				<article class="feature-card flex flex-col gap-3 {feature.wide ? 'lg:col-span-2' : ''}">
+				<article class={['feature-card flex flex-col gap-3', feature.wide && 'lg:col-span-2']}>
 					<span class="feature-icon"><feature.icon size={18} /></span>
 					<h3 class="font-semibold text-white">{feature.title}</h3>
 					<p class="text-sm leading-6 text-muted">{feature.description}</p>
@@ -212,69 +207,20 @@
 				<div>
 					<h2 class="text-3xl font-bold tracking-tight text-white sm:text-4xl">Explore shaders</h2>
 					<p class="mt-3 max-w-2xl text-sm leading-6 text-muted">
-						Hover a card to play it, open it to read the code and tweak it live. {data.totalShaders} public shader{data.totalShaders !== 1 ? 's' : ''},
-						{visibleAuthors} creator{visibleAuthors !== 1 ? 's' : ''} on this page.
+						Hover a card to play it, open it to read the code and tweak it live. {plural(data.totalShaders, 'public shader')},
+						{plural(visibleAuthors, 'creator')} on this page.
 					</p>
 				</div>
 
-				<nav aria-label="Sort public shaders" class="flex flex-wrap items-center gap-2">
-					{#each SHADER_SORT_OPTIONS as option (option.value)}
-						<a
-							href="?sort={option.value}#gallery"
-							data-sveltekit-noscroll
-							aria-current={data.selectedSort === option.value ? 'page' : undefined}
-							class="inline-flex items-center rounded-lg border px-3 py-1.5 text-sm transition-colors {data.selectedSort === option.value ? 'border-cyan-400/50 bg-cyan-400/10 text-cyan-300' : 'border-border text-muted hover:bg-panel hover:text-foreground'}"
-						>
-							{option.label}
-						</a>
-					{/each}
-				</nav>
+				<ShaderSortNav label="Sort public shaders" selected={data.selectedSort} hash="gallery" />
 			</div>
 
 			{#if shaders.length === 0}
-				<div class="flex flex-col items-center justify-center gap-3 py-24 text-center text-muted">
-					<CodeXml size={40} class="opacity-30" />
-					<p class="text-base text-foreground">No public shaders yet.</p>
-					<p class="max-w-md text-sm text-muted">Publish the first shader and start the gallery.</p>
-				</div>
+				<EmptyState icon={CodeXml} title="No public shaders yet.">Publish the first shader and start the gallery.</EmptyState>
 			{:else}
 				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 					{#each shaders as shader (shader.id)}
-						<div class="group flex flex-col overflow-hidden rounded-xl border border-border bg-surface transition-all duration-300 hover:-translate-y-1 hover:border-cyan-400/40 hover:shadow-[0_12px_40px_-12px_rgba(34,211,238,0.35)]">
-							<a href="/shader/{shader.id}" class="block aspect-video overflow-hidden bg-black">
-								{#if shader.buffers && shader.buffers.length > 0}
-									<ShaderPreview
-										buffers={shader.buffers}
-										channels={shader.channels}
-										name={shader.name}
-									/>
-								{:else}
-									<div class="flex h-full w-full items-center justify-center bg-linear-to-br from-panel via-background to-panel">
-										<CodeXml size={20} class="text-muted opacity-30" />
-									</div>
-								{/if}
-							</a>
-
-							<div class="flex flex-1 flex-col gap-2 p-3">
-								<div class="flex items-start justify-between gap-3">
-									<div class="min-w-0">
-										<a href="/shader/{shader.id}" class="block truncate text-sm font-medium text-foreground transition-colors hover:text-white">
-											{shader.name}
-										</a>
-										<a href="/users/{shader.authorId}" class="mt-1 inline-flex text-xs text-muted transition-colors hover:text-foreground">
-											by {shader.authorName}
-										</a>
-									</div>
-									<span class="shrink-0 whitespace-nowrap text-xs text-subtle">{formatDate(shader.created)}</span>
-								</div>
-
-								{#if shader.description}
-									<p class="line-clamp-2 text-xs leading-5 text-muted">{shader.description}</p>
-								{:else}
-									<p class="text-xs leading-5 text-subtle">No description yet.</p>
-								{/if}
-							</div>
-						</div>
+						<ShaderCard {shader} author={{ href: getUserProfilePath(shader.authorId), name: shader.authorName }} />
 					{/each}
 				</div>
 			{/if}
@@ -282,7 +228,7 @@
 	</section>
 
 	<section class="relative overflow-hidden border-t border-border">
-		<div class="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(34,211,238,0.12),transparent_65%)]"></div>
+		<div class="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,--alpha(var(--color-accent)/12%),transparent_65%)]"></div>
 		<div class="relative mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 py-20 text-center lg:px-10">
 			<h2 class="max-w-2xl text-3xl font-bold tracking-tight text-white sm:text-4xl">Got an idea?</h2>
 			<p class="max-w-xl text-muted">Start from a working gradient, or paste a Shadertoy shader you already have.</p>
@@ -292,7 +238,7 @@
 </div>
 
 <style>
-	.code { color: #eeffff; }
+	.code { color: var(--color-foreground); }
 	.code .ln { display: inline-block; width: 1.5rem; color: #424242; }
 	.code .ty { color: #ffcb6b; }
 	.code .fn { color: #82aaff; }
@@ -325,13 +271,13 @@
 		overflow: hidden;
 		border-radius: 0.75rem;
 		border: 1px solid var(--color-border);
-		background: radial-gradient(120% 80% at 0% 0%, rgb(34 211 238 / 0.06), transparent 60%), var(--color-surface);
+		background: radial-gradient(120% 80% at 0% 0%, color-mix(in oklab, var(--color-accent) 6%, transparent), transparent 60%), var(--color-surface);
 		padding: 1.25rem;
 		transition: border-color 0.3s, transform 0.3s;
 	}
 
 	.feature-card:hover {
-		border-color: rgb(34 211 238 / 0.35);
+		border-color: color-mix(in oklab, var(--color-accent) 35%, transparent);
 		transform: translateY(-2px);
 	}
 
@@ -339,9 +285,9 @@
 		display: inline-flex;
 		width: fit-content;
 		border-radius: 0.5rem;
-		border: 1px solid rgb(34 211 238 / 0.3);
-		background: rgb(34 211 238 / 0.1);
+		border: 1px solid color-mix(in oklab, var(--color-accent) 30%, transparent);
+		background: color-mix(in oklab, var(--color-accent) 10%, transparent);
 		padding: 0.5rem;
-		color: var(--color-cyan-300);
+		color: var(--color-accent);
 	}
 </style>

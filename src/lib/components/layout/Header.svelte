@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { LogOut, Plus, Search, User, X } from '@lucide/svelte';
+	import { LogOut, Plus, Search, X } from '@lucide/svelte';
 	import type { AuthUser } from '#features/auth/auth-shared.js';
 	import { auth, logout } from '#features/auth/auth-client.svelte.js';
 	import logo from '#lib/assets/logo.png';
+	import UserAvatar from '#components/ui/UserAvatar.svelte';
 	import SiteSearch from '#features/search/SiteSearch.svelte';
 	import { getAvatarUrl } from '#lib/pocketbase.js';
 	import { getUserProfilePath } from '#lib/site.js';
@@ -18,7 +19,6 @@
 	let searchOpen = $state(false);
 
 	const currentUser = $derived(auth.user ?? sessionUser);
-	const isLoggedIn = $derived(currentUser !== null);
 	const isEditor = $derived(page.url.pathname === '/new');
 
 	afterNavigate(() => (searchOpen = false));
@@ -26,10 +26,6 @@
 	function handleLogout() {
 		logout();
 		goto('/login');
-	}
-
-	function focusInput(element: HTMLElement) {
-		element.querySelector('input')?.focus();
 	}
 </script>
 
@@ -45,7 +41,10 @@
 			<a
 				href="/new"
 				aria-current={isEditor ? 'page' : undefined}
-				class="flex items-center gap-1.5 rounded-md border px-2.5 py-1 transition-colors {isEditor ? 'border-cyan-400/60 bg-cyan-400/15 text-cyan-300' : 'border-cyan-400/30 text-cyan-300 hover:bg-cyan-400/10'}"
+				class={[
+					'flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-accent transition-colors',
+					isEditor ? 'border-accent/60 bg-accent/15' : 'border-accent/30 hover:bg-accent/10',
+				]}
 			>
 				<Plus size={14} />
 				New<span class="hidden sm:inline">&nbsp;shader</span>
@@ -60,41 +59,37 @@
 			onclick={() => (searchOpen = !searchOpen)}
 			aria-label={searchOpen ? 'Close search' : 'Search'}
 			aria-expanded={searchOpen}
-			class="ml-auto flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted transition-colors hover:bg-panel hover:text-foreground md:hidden"
+			class="ml-auto flex size-8 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-panel hover:text-foreground md:hidden"
 		>
 			{#if searchOpen}<X size={16} />{:else}<Search size={16} />{/if}
 		</button>
 
 		<nav class="flex min-w-0 shrink-0 items-center gap-1 text-sm">
-			{#if isLoggedIn}
+			{#if currentUser}
 				<a
-					href={currentUser ? getUserProfilePath(currentUser.id) : '/'}
+					href={getUserProfilePath(currentUser.id)}
 					class="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-muted transition-colors hover:bg-panel hover:text-foreground"
 				>
-					{#if currentUser && currentUser.avatar}
-						<img src={getAvatarUrl(currentUser)} alt="" class="size-6 rounded-full object-cover" />
-					{:else}
-						<span class="flex size-6 items-center justify-center rounded-full bg-panel"><User size={14} /></span>
-					{/if}
-					<span class="hidden max-w-32 truncate sm:inline">{currentUser?.name || currentUser?.username}</span>
+					<UserAvatar src={getAvatarUrl(currentUser)} class="size-6" />
+					<span class="hidden max-w-32 truncate sm:inline">{currentUser.name || currentUser.username}</span>
 				</a>
 				<button
 					onclick={handleLogout}
 					aria-label="Logout"
 					title="Logout"
-					class="flex size-8 cursor-pointer items-center justify-center rounded-md text-muted transition-colors hover:bg-red-950/40 hover:text-red-400"
+					class="flex size-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-red-950/40 hover:text-red-400"
 				>
 					<LogOut size={15} />
 				</button>
 			{:else}
 				<a href="/login" class="rounded-md px-2.5 py-1 text-muted transition-colors hover:bg-panel hover:text-foreground">Login</a>
-				<a href="/signup" class="rounded-md bg-cyan-400 px-2.5 py-1 font-medium text-background transition-colors hover:bg-cyan-300">Sign up</a>
+				<a href="/signup" class="rounded-md bg-accent px-2.5 py-1 font-medium text-background transition-colors hover:bg-accent-light">Sign up</a>
 			{/if}
 		</nav>
 	</div>
 
 	{#if searchOpen}
-		<div {@attach focusInput} class="border-t border-border px-3 py-2 md:hidden">
+		<div {@attach (element) => element.querySelector('input')?.focus()} class="border-t border-border px-3 py-2 md:hidden">
 			<SiteSearch />
 		</div>
 	{/if}

@@ -1,47 +1,35 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import {
-		ArrowRight,
-		CodeXml,
-		Globe,
-		Link,
-		Lock,
-		MailCheck,
-		RefreshCw,
-		Trash2,
-		User,
-	} from '@lucide/svelte';
+	import { ArrowRight, CodeXml, MailCheck, RefreshCw, Trash2 } from '@lucide/svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { auth, logout, requestVerification, throwIfAuthenticatedApiError } from '#features/auth/auth-client.svelte.js';
 	import EditProfileSection from '#features/profile/EditProfileSection.svelte';
 	import SeoHead from '#components/SeoHead.svelte';
-	import ShaderPreview from '#features/shaders/preview/ShaderPreview.svelte';
+	import EmptyState from '#components/ui/EmptyState.svelte';
+	import UserAvatar from '#components/ui/UserAvatar.svelte';
+	import ShaderCard from '#features/shaders/preview/ShaderCard.svelte';
+	import ShaderSortNav from '#features/shaders/preview/ShaderSortNav.svelte';
+	import { getVisibilityOption } from '#features/shaders/model/shader-visibility.js';
 	import { getAvatarUrl, pb } from '#lib/pocketbase.js';
+	import { plural } from '#lib/format.js';
 	import { buildSiteUrl, getShaderPath, getUserProfilePath, type JsonLdNode, SITE_NAME, toIsoDate } from '#lib/site.js';
 	import {
-		SHADER_IMAGE_MAX_BYTES,
-		SHADER_VIDEO_MAX_BYTES,
 		createQuotaSummary,
 		formatBytes,
+		SHADER_IMAGE_MAX_BYTES,
+		SHADER_VIDEO_MAX_BYTES,
 	} from '#features/shaders/assets/shader-asset-policy.js';
-	import {
-		getShaderSortLabel,
-		SHADER_SORT_OPTIONS,
-		type ShaderSort,
-	} from '#features/shaders/model/shader-list.js';
+	import { getShaderSortLabel } from '#features/shaders/model/shader-list.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
-	type ShaderItem = PageProps['data']['shaders'][number];
 	const isOwner = $derived(data.isOwner);
-	const displayName = $derived(isOwner ? (auth.user?.name ?? data.profileUser.name) : data.profileUser.name);
-	const isVerified = $derived(auth.user?.verified ?? data.profileUser.verified);
+	const displayName = $derived((isOwner && auth.user?.name) || data.profileUser.name);
 	const avatarUrl = $derived((isOwner && auth.user && getAvatarUrl(auth.user)) || data.profileUser.avatarUrl);
 
 	const publicShaders = $derived(data.shaders.filter((shader) => shader.visiblity === 'public'));
 	const profileUrl = $derived(buildSiteUrl(getUserProfilePath(data.profileUser.id)));
-	const title = $derived(`${data.profileUser.name}'s Shaders - ${SITE_NAME}`);
-	const description = $derived(`Explore GLSL shader creations by ${data.profileUser.name}. ${publicShaders.length} public shader${publicShaders.length !== 1 ? 's' : ''} available.`);
 	const jsonLd = $derived<JsonLdNode>({
 		'@type': 'ProfilePage',
 		mainEntity: {
@@ -61,15 +49,22 @@
 		})),
 		url: profileUrl,
 	});
-	const currentSortLabel = $derived(getShaderSortLabel(data.selectedSort));
 
-	let deletedIds = $state(new Set<string>());
-	let deletingId = $state<string | null>(null);
+	const deletedIds = new SvelteSet<string>();
 	let confirmId = $state<string | null>(null);
+	let deletingId = $state<string | null>(null);
 	let deleteError = $state('');
 
 	let resendLoading = $state(false);
 	let resendError = $state('');
+
+	let confirmDeleteAccount = $state(false);
+	let deletingAccount = $state(false);
+	let deleteAccountError = $state('');
+
+	const shaders = $derived(data.shaders.filter((shader) => !deletedIds.has(shader.id)));
+	const ownerQuota = $derived(createQuotaSummary(shaders.reduce((total, shader) => total + shader.assetBytes, 0)));
+	const uploadedMediaCount = $derived(shaders.reduce((total, shader) => total + shader.mediaCount, 0));
 
 	async function resendVerificationCode() {
 		if (!auth.user?.email) return;
@@ -77,86 +72,44 @@
 		resendError = '';
 		try {
 			await requestVerification(auth.user.email);
-			const params = new URLSearchParams({ email: auth.user.email });
-			goto(`/verify-email?${params}`);
+			goto(`/verify-email?${new URLSearchParams({ email: auth.user.email })}`);
 		} catch (err) {
 			resendError = err instanceof Error ? err.message : 'Failed to send verification email.';
 			resendLoading = false;
 		}
 	}
 
-	const ownerQuota = $derived.by(() => {
-		if (!isOwner) {
-			return null;
-		}
-
-		const usedBytes = data.shaders
-			.filter((shader) => !deletedIds.has(shader.id))
-			.reduce((total, shader) => total + shader.assetBytes, 0);
-
-		return createQuotaSummary(usedBytes);
-	});
-
-	const shaders = $derived.by<ShaderItem[]>(() => {
-		return data.shaders.filter((shader) => !deletedIds.has(shader.id));
-	});
-
-	const uploadedMediaCount = $derived.by(() => (
-		shaders.reduce((total, shader) => total + shader.mediaCount, 0)
-	));
-
-	function formatDate(iso: string) {
-		return new Date(iso).toLocaleDateString('en-US', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric',
-		});
-	}
-
-	function sortHref(sort: ShaderSort) {
-		return `?sort=${sort}`;
-	}
-
 	async function deleteShader(id: string) {
 		deletingId = id;
 		deleteError = '';
 		try {
-			const res = await fetch(`/api/shaders/${id}`, {
+			const response = await fetch(`/api/shaders/${id}`, {
 				method: 'DELETE',
-				headers: {
-					Authorization: `Bearer ${pb.authStore.token}`,
-				},
+				headers: { Authorization: `Bearer ${pb.authStore.token}` },
 			});
-			await throwIfAuthenticatedApiError(res, `Delete shader failed with HTTP ${res.status}.`);
-			deletedIds = new Set([...deletedIds, id]);
-		} catch (e) {
-			deleteError = e instanceof Error ? e.message : 'Failed to delete shader.';
-			console.error('Failed to delete shader', e);
+			await throwIfAuthenticatedApiError(response, `Delete shader failed with HTTP ${response.status}.`);
+			deletedIds.add(id);
+		} catch (err) {
+			deleteError = err instanceof Error ? err.message : 'Failed to delete shader.';
 		} finally {
 			deletingId = null;
 			confirmId = null;
 		}
 	}
 
-	const visibilityConfig = {
-		private: { icon: Lock, label: 'Private', cls: 'text-red-400 border-red-900/50 bg-red-950/30' },
-		public: { icon: Globe, label: 'Public', cls: 'text-green-400 border-green-900/50 bg-green-950/30' },
-		unlisted: { icon: Link, label: 'Unlisted', cls: 'text-yellow-400 border-yellow-900/50 bg-yellow-950/30' },
-	} as const;
-
-	let confirmDeleteAccount = $state(false);
-	let deletingAccount = $state(false);
-	let deleteAccountError = $state('');
-
 	async function deleteAccount() {
 		deletingAccount = true;
 		deleteAccountError = '';
 		try {
-			await pb.collection('users').delete(data.profileUser.id);
+			const response = await fetch('/api/account', {
+				method: 'DELETE',
+				headers: { Authorization: `Bearer ${pb.authStore.token}` },
+			});
+			await throwIfAuthenticatedApiError(response, `Delete account failed with HTTP ${response.status}.`);
 			logout();
 			goto('/');
-		} catch (e) {
-			deleteAccountError = e instanceof Error ? e.message : 'Failed to delete account.';
+		} catch (err) {
+			deleteAccountError = err instanceof Error ? err.message : 'Failed to delete account.';
 			deletingAccount = false;
 			confirmDeleteAccount = false;
 		}
@@ -164,8 +117,8 @@
 </script>
 
 <SeoHead
-	{title}
-	{description}
+	title="{data.profileUser.name}'s Shaders - {SITE_NAME}"
+	description="Explore GLSL shader creations by {data.profileUser.name}. {plural(publicShaders.length, 'public shader')} available."
 	ogType="profile"
 	ogImage={data.profileUser.avatarUrl ?? undefined}
 	ogImageAlt={data.profileUser.avatarUrl ? `${data.profileUser.name}'s avatar` : undefined}
@@ -173,217 +126,120 @@
 	{jsonLd}
 />
 
-<div class="min-h-full bg-background text-foreground p-6 lg:p-10">
+{#snippet createShaderLink()}
+	<a href="/new" class="btn-secondary self-start px-4 py-2 text-sm">
+		Create a shader
+		<ArrowRight size={14} />
+	</a>
+{/snippet}
+
+<div class="min-h-full bg-background p-6 text-foreground lg:p-10">
 	<div class="mx-auto max-w-5xl">
 		<div class="mb-8 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
 			<div class="flex items-start gap-4">
-				<div class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-panel">
-					{#if avatarUrl}
-						<img src={avatarUrl} alt="{displayName}'s avatar" class="h-full w-full object-cover" />
-					{:else}
-						<User size={26} class="text-muted" />
-					{/if}
-				</div>
-
+				<UserAvatar src={avatarUrl} alt="{displayName}'s avatar" class="size-14" />
 				<div>
 					<h1 class="text-2xl font-semibold text-foreground">{displayName}</h1>
-					<p class="mt-1 text-sm text-muted">
-						{#if isOwner}
-							Manage your shaders and uploads.
-						{:else}
-							Public shaders by {displayName}.
-						{/if}
-					</p>
+					<p class="mt-1 text-sm text-muted">{isOwner ? 'Manage your shaders and uploads.' : `Public shaders by ${displayName}.`}</p>
 					<div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
-						<span>{shaders.length} shader{shaders.length !== 1 ? 's' : ''}</span>
-						<span>Sorted by {currentSortLabel.toLowerCase()}</span>
+						<span>{plural(shaders.length, 'shader')}</span>
+						<span>Sorted by {getShaderSortLabel(data.selectedSort).toLowerCase()}</span>
 					</div>
 				</div>
 			</div>
 
-			{#if isOwner}
-				<a
-					href="/new"
-					class="inline-flex items-center gap-2 self-start rounded-lg border border-border bg-surface px-4 py-2 text-sm text-foreground transition-colors hover:bg-panel"
-				>
-					Create a shader
-					<ArrowRight size={14} />
-				</a>
-			{/if}
+			{#if isOwner}{@render createShaderLink()}{/if}
 		</div>
 
 		{#if deleteError}
-			<div class="mb-6 rounded-lg border border-red-900/50 bg-red-950/30 px-4 py-3 text-sm text-red-200">
-				{deleteError}
-			</div>
+			<div class="alert-error mb-6 px-4 py-3">{deleteError}</div>
 		{/if}
 
-		<div class="mb-8 flex flex-col gap-4 rounded-xl border border-border bg-surface px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
+		<div class="mb-8 flex flex-col gap-4 rounded-xl border border-border bg-surface p-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
 			<div>
 				<p class="text-sm font-medium text-foreground">{isOwner ? 'Your shader library' : 'Public shaders'}</p>
 				<p class="text-xs text-muted">
-					{#if isOwner}
-						Sort your full library, including private and unlisted work.
-					{:else}
-						Browse the public work published by {displayName}.
-					{/if}
+					{isOwner ? 'Sort your full library, including private and unlisted work.' : `Browse the public work published by ${displayName}.`}
 				</p>
 			</div>
-
-			<nav aria-label="Sort profile shaders" class="flex flex-wrap gap-2">
-				{#each SHADER_SORT_OPTIONS as option (option.value)}
-					<a
-						href={sortHref(option.value)}
-						aria-current={data.selectedSort === option.value ? 'page' : undefined}
-						class={`inline-flex items-center rounded-lg border px-3 py-1.5 text-sm transition-colors ${data.selectedSort === option.value ? 'border-subtle bg-panel text-foreground' : 'border-border text-muted hover:bg-panel hover:text-foreground'}`}
-					>
-						{option.label}
-					</a>
-				{/each}
-			</nav>
+			<ShaderSortNav label="Sort profile shaders" selected={data.selectedSort} />
 		</div>
 
 		{#if shaders.length === 0}
-			<div class="flex flex-col items-center justify-center gap-3 py-24 text-center text-muted">
-				<CodeXml size={40} class="opacity-30" />
-				<p class="text-base text-foreground">No shaders yet.</p>
-				<p class="max-w-md text-sm text-muted">
-					{#if isOwner}
-						Start with a new shader and build out your library from here.
-					{:else}
-						This profile has not published any public shaders yet.
-					{/if}
-				</p>
+			<EmptyState icon={CodeXml} title="No shaders yet.">
 				{#if isOwner}
-					<a
-						href="/new"
-						class="mt-2 inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm text-foreground transition-colors hover:bg-panel"
-					>
-						Create a shader
-						<ArrowRight size={14} />
-					</a>
+					Start with a new shader and build out your library from here.
+					{@render createShaderLink()}
+				{:else}
+					This profile has not published any public shaders yet.
 				{/if}
-			</div>
+			</EmptyState>
 		{:else}
 			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
 				{#each shaders as shader (shader.id)}
-					{@const vis = visibilityConfig[shader.visiblity] ?? visibilityConfig.public}
-					{@const VisIcon = vis.icon}
-					<div class="group flex flex-col overflow-hidden rounded-lg border border-border bg-surface transition-colors hover:border-subtle">
-						<a href="/shader/{shader.id}" class="relative block h-36 overflow-hidden bg-black">
-							{#if shader.buffers && shader.buffers.length > 0}
-								<ShaderPreview
-									buffers={shader.buffers}
-									channels={shader.channels}
-									name={shader.name}
-								/>
-							{:else}
-								<div class="flex h-full w-full items-center justify-center bg-linear-to-br from-panel via-background to-panel">
-									<CodeXml size={20} class="text-muted opacity-30" />
-								</div>
-							{/if}
-
+					{@const visibility = getVisibilityOption(shader.visiblity)}
+					<ShaderCard {shader}>
+						{#snippet overlay()}
 							{#if isOwner && confirmId !== shader.id}
-								<div class="absolute right-3 top-3">
-									<button
-										onclick={(event) => {
-											event.preventDefault();
-											confirmId = shader.id;
-										}}
-										class="rounded-md bg-black/60 p-1.5 text-muted opacity-0 transition-all hover:text-red-300 group-hover:opacity-100 cursor-pointer"
-										title="Delete shader"
-									>
-										<Trash2 size={14} />
-									</button>
-								</div>
+								<button
+									onclick={() => (confirmId = shader.id)}
+									aria-label="Delete shader"
+									title="Delete shader"
+									class="absolute right-3 top-3 rounded-md bg-black/60 p-1.5 text-muted opacity-0 transition-all hover:text-red-300 group-hover:opacity-100 pointer-coarse:opacity-100"
+								>
+									<Trash2 size={14} />
+								</button>
 							{/if}
-						</a>
+						{/snippet}
 
-						<div class="flex flex-1 flex-col gap-2 p-3">
-							<div class="flex items-start justify-between gap-3">
-								<a href="/shader/{shader.id}" class="min-w-0 truncate text-sm font-medium text-foreground transition-colors hover:text-white">
-									{shader.name}
-								</a>
-								<span class="shrink-0 whitespace-nowrap text-xs text-subtle">{formatDate(shader.created)}</span>
+						{#if isOwner && confirmId === shader.id}
+							<div class="alert-error flex items-center gap-2 px-3 py-2 text-xs">
+								<span class="flex-1">Delete this shader?</span>
+								<button onclick={() => deleteShader(shader.id)} disabled={deletingId === shader.id} class="btn-danger px-2 py-1">
+									{deletingId === shader.id ? 'Deleting…' : 'Confirm'}
+								</button>
+								<button onclick={() => (confirmId = null)} class="btn-ghost px-2 py-1">Cancel</button>
 							</div>
+						{/if}
 
-							{#if isOwner && confirmId === shader.id}
-								<div class="flex items-center gap-2 rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2 text-xs text-red-100">
-									<span class="flex-1">Delete this shader?</span>
-									<button
-										onclick={() => deleteShader(shader.id)}
-										disabled={deletingId === shader.id}
-										class="rounded-md border border-red-900/50 bg-red-950/60 px-2 py-1 text-red-300 transition-colors hover:bg-red-900/60 disabled:opacity-50 cursor-pointer"
-									>
-										{deletingId === shader.id ? 'Deleting…' : 'Confirm'}
-									</button>
-									<button
-										onclick={() => (confirmId = null)}
-										class="rounded-md bg-panel px-2 py-1 text-muted transition-colors hover:text-foreground cursor-pointer"
-									>
-										Cancel
-									</button>
-								</div>
+						<div class="mt-auto flex items-center justify-between gap-3 pt-1">
+							<span class="text-xs text-subtle">{plural(shader.mediaCount, 'media item')}</span>
+							{#if isOwner}
+								<span class={['inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs', visibility.badgeClass]}>
+									<visibility.icon size={10} />
+									{visibility.label}
+								</span>
 							{/if}
-
-							{#if shader.description}
-								<p class="line-clamp-2 text-xs leading-5 text-muted">{shader.description}</p>
-							{:else}
-								<p class="text-xs leading-5 text-subtle">No description yet.</p>
-							{/if}
-
-							<div class="mt-auto flex items-center justify-between gap-3 pt-1">
-								<span class="text-xs text-subtle">{shader.mediaCount} media item{shader.mediaCount !== 1 ? 's' : ''}</span>
-								{#if isOwner}
-									<span class={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${vis.cls}`}>
-										<VisIcon size={10} />
-										{vis.label}
-									</span>
-								{/if}
-							</div>
 						</div>
-					</div>
+					</ShaderCard>
 				{/each}
 			</div>
-
-			{#if isOwner}
-				<div class="mt-8 rounded-xl border border-border bg-surface px-4 py-4 sm:px-5">
-					<div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-						<div>
-							<p class="text-11 font-mono uppercase tracking-[0.18em] text-cyan-300/80">Storage quota</p>
-							{#if ownerQuota}
-								<p class="mt-1 text-lg font-semibold text-foreground">
-									{formatBytes(ownerQuota.usedBytes)} / {formatBytes(ownerQuota.totalBytes)}
-								</p>
-								<p class="text-xs text-muted">
-									{formatBytes(ownerQuota.remainingBytes)} remaining. Images up to {formatBytes(SHADER_IMAGE_MAX_BYTES)}, videos up to {formatBytes(SHADER_VIDEO_MAX_BYTES)}.
-								</p>
-							{:else}
-								<p class="mt-1 text-sm text-muted">Calculating your storage usage…</p>
-							{/if}
-						</div>
-
-						<div class="text-sm text-muted sm:text-right">
-							{#if ownerQuota}
-								<p>{Math.round(ownerQuota.usedPercent)}% used</p>
-							{/if}
-							<p>{uploadedMediaCount} media item{uploadedMediaCount !== 1 ? 's' : ''} uploaded</p>
-						</div>
-					</div>
-
-					<div class="mt-3 h-2 overflow-hidden rounded-full bg-panel">
-						<div
-							class="h-full rounded-full bg-linear-to-r from-cyan-400 to-sky-400 transition-[width] duration-300"
-							style={`width: ${ownerQuota?.usedPercent ?? 0}%`}
-						></div>
-					</div>
-				</div>
-			{/if}
 		{/if}
 
-		{#if isOwner && !isVerified}
-			<div class="mt-12 border-t border-border pt-8">
-				<div class="flex items-start gap-3">
+		{#if isOwner}
+			<div class="mt-8 rounded-xl border border-border bg-surface p-4 sm:px-5">
+				<div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+					<div>
+						<p class="font-mono text-11 uppercase tracking-[0.2em] text-subtle">Storage quota</p>
+						<p class="mt-1 text-lg font-semibold text-foreground">
+							{formatBytes(ownerQuota.usedBytes)} / {formatBytes(ownerQuota.totalBytes)}
+						</p>
+						<p class="text-xs text-muted">
+							{formatBytes(ownerQuota.remainingBytes)} remaining. Images up to {formatBytes(SHADER_IMAGE_MAX_BYTES)}, videos up to {formatBytes(SHADER_VIDEO_MAX_BYTES)}.
+						</p>
+					</div>
+					<div class="text-sm text-muted sm:text-right">
+						<p>{Math.round(ownerQuota.usedPercent)}% used</p>
+						<p>{plural(uploadedMediaCount, 'media item')} uploaded</p>
+					</div>
+				</div>
+				<div class="mt-3 h-2 overflow-hidden rounded-full bg-panel">
+					<div class="h-full rounded-full bg-linear-to-r from-accent to-sky-400 transition-[width] duration-300" style:width="{ownerQuota.usedPercent}%"></div>
+				</div>
+			</div>
+
+			{#if !(auth.user?.verified ?? data.profileUser.verified)}
+				<div class="mt-12 flex items-start gap-3 border-t border-border pt-8">
 					<MailCheck size={16} class="mt-1 shrink-0 text-yellow-400" />
 					<div class="flex-1">
 						<p class="text-sm font-medium text-foreground">Email not verified</p>
@@ -391,51 +247,33 @@
 						{#if resendError}
 							<p class="mt-2 text-xs text-red-300">{resendError}</p>
 						{/if}
-						<button
-							onclick={resendVerificationCode}
-							disabled={resendLoading}
-							class="mt-3 flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-						>
+						<button onclick={resendVerificationCode} disabled={resendLoading} class="btn-secondary mt-3 px-3 py-1.5 text-xs">
 							<RefreshCw size={12} class={resendLoading ? 'animate-spin' : ''} />
-							{resendLoading ? 'Sending…' : 'Resend code'}
+							{resendLoading ? 'Sending…' : 'Resend verification email'}
 						</button>
 					</div>
 				</div>
-			</div>
-		{/if}
+			{/if}
 
-		{#if isOwner}
 			<EditProfileSection initialName={data.profileUser.name} />
-		{/if}
 
-		{#if isOwner}
 			<div class="mt-16 border-t border-border pt-8">
 				<h2 class="mb-3 text-sm font-semibold text-red-400">Danger zone</h2>
 				{#if deleteAccountError}
-					<div class="mb-3 rounded bg-red-950/30 px-3 py-2 text-sm text-red-300">{deleteAccountError}</div>
+					<div class="alert-error mb-3 px-3 py-2">{deleteAccountError}</div>
 				{/if}
 				{#if confirmDeleteAccount}
 					<div class="flex flex-wrap items-center gap-3">
-						<span class="text-sm text-muted">Are you sure? This cannot be undone.</span>
-						<button
-							onclick={deleteAccount}
-							disabled={deletingAccount}
-							class="rounded border border-red-700/50 bg-red-950/60 px-3 py-1.5 text-sm font-medium text-red-300 transition-colors hover:bg-red-900/60 disabled:opacity-50 cursor-pointer"
-						>
+						<span class="text-sm text-muted">This deletes your account, every shader and every upload. It can't be undone.</span>
+						<button onclick={deleteAccount} disabled={deletingAccount} class="btn-danger px-3 py-1.5 text-sm font-medium">
 							{deletingAccount ? 'Deleting…' : 'Yes, delete my account'}
 						</button>
-						<button
-							onclick={() => (confirmDeleteAccount = false)}
-							class="px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground cursor-pointer"
-						>
+						<button onclick={() => (confirmDeleteAccount = false)} class="px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground">
 							Cancel
 						</button>
 					</div>
 				{:else}
-					<button
-						onclick={() => (confirmDeleteAccount = true)}
-						class="flex items-center gap-2 rounded border border-red-900/50 bg-red-950/20 px-3 py-1.5 text-sm text-red-300 transition-colors hover:bg-red-950/50 cursor-pointer"
-					>
+					<button onclick={() => (confirmDeleteAccount = true)} class="btn-danger px-3 py-1.5 text-sm">
 						<Trash2 size={14} />
 						Delete my account
 					</button>

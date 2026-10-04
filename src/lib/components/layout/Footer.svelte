@@ -74,7 +74,7 @@
 						href={link.href}
 						target={link.external ? '_blank' : undefined}
 						rel={link.external ? 'noopener noreferrer' : undefined}
-						class="w-fit transition-colors hover:text-cyan-300"
+						class="w-fit transition-colors hover:text-accent"
 					>
 						{link.label}
 					</a>
