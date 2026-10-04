@@ -1,6 +1,15 @@
-import { stripComments } from '#lib/glsl/analyze.js';
 import { BUILTIN_DOCS, UNIFORM_DOCS } from '#lib/glsl/builtins.js';
-import { GLSL_TYPES } from '#lib/glsl/types.js';
+import {
+	ASSIGN_OPS,
+	BINARY_PRECEDENCE,
+	BUILTIN_TYPES,
+	type Declaration,
+	GlslUnit,
+	PARAM_QUALIFIERS,
+	type Range,
+	STATEMENT_KEYWORDS,
+	SWIZZLE_SETS,
+} from '#lib/glsl/unit.js';
 
 export type GlslSeverity = 'error' | 'warning' | 'info' | 'hint';
 
@@ -29,72 +38,25 @@ export interface GlslDiagnostic {
 	fixes: GlslFix[];
 }
 
-type TokenKind = 'ident' | 'int' | 'float' | 'punct' | 'directive';
-
-interface Token {
-	kind: TokenKind;
-	text: string;
-	start: number;
-	end: number;
-}
-
-interface FunctionInfo {
-	name: string;
-	returnType: string;
-	/** Token indices: first header token (qualifiers included), name, `{` and `}` of the body. */
-	start: number;
-	nameIndex: number;
-	bodyOpen: number;
-	bodyClose: number;
-	params: Declaration[];
-}
-
-interface Declaration {
-	name: string;
-	type: string;
-	kind: 'local' | 'global' | 'uniform' | 'param';
-	qualifier: string | null;
-	isArray: boolean;
-	nameIndex: number;
-	fn: FunctionInfo | null;
-	/** Token index closing the enclosing block, the token count for globals. */
-	scopeEnd: number;
-	/** Token indices of the whole statement (`;` included) and of this declarator alone (`end` exclusive). */
-	statementStart: number;
-	statementEnd: number;
-	declaratorStart: number;
-	declaratorEnd: number;
-	initStart: number;
-	initEnd: number;
-	siblings: Declaration[];
-}
-
-interface Range {
-	start: number;
-	end: number;
-}
-
-/** One GLSL ES 1.00 lexical token per match, whitespace is skipped by the global flag. */
-const TOKEN_RE = /(#(?:[^\n\\]|\\[^])*)|([A-Za-z_]\w*)|((?:\d+\.\d*|\.\d+)(?:[eE][+-]?\d+)?[fF]?|\d+(?:[eE][+-]?\d+)?[fF]|\d+[eE][+-]?\d+)|(0[xX][\dA-Fa-f]+[uU]?|\d+[uU]?)|(<<=|>>=|\+\+|--|<<|>>|<=|>=|==|!=|&&|\|\||\^\^|[-+*/%&|^]=|\S)/g;
-
-const BUILTIN_TYPES = new Set(GLSL_TYPES);
-const DECLARATION_QUALIFIERS = new Set(['const', 'uniform', 'varying', 'attribute', 'highp', 'mediump', 'lowp', 'invariant']);
-const STORAGE_QUALIFIERS = new Set(['const', 'uniform', 'varying', 'attribute']);
-const PARAM_QUALIFIERS = new Set(['in', 'out', 'inout', 'const', 'highp', 'mediump', 'lowp']);
-const STATEMENT_KEYWORDS = new Set([
-	'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default', 'break', 'continue', 'discard', 'struct', 'precision',
-	...DECLARATION_QUALIFIERS,
-]);
-const ASSIGN_OPS = new Set(['=', '+=', '-=', '*=', '/=', '%=', '<<=', '>>=', '&=', '|=', '^=']);
-const BINARY_PRECEDENCE: Readonly<Record<string, number>> = {
-	'*': 5, '/': 5, '%': 5, '+': 4, '-': 4, '<': 3, '>': 3, '<=': 3, '>=': 3, '==': 2, '!=': 2, '&&': 1, '^^': 1, '||': 1,
-};
-/** Tokens after which an expression starts fresh, any replacement fits without parentheses. */
-const OPEN_CONTEXT = new Set(['(', '[', ',', ';', '{', '}', '?', ':', 'return', ...ASSIGN_OPS]);
-const CLOSE_CONTEXT = new Set([')', ']', ',', ';', '?', ':']);
 const IDEMPOTENT_FUNCTIONS = new Set(['abs', 'sign', 'floor', 'ceil', 'fract', 'normalize']);
-const SWIZZLE_SETS = ['xyzw', 'rgba', 'stpq'] as const;
 const FLOAT_PARAM_TYPE_RE = /^(?:genType|float|vecN|vec[234]|matN|mat[234])$/;
+
+/** WebGL 1 rewrites of GLSL ES 3.00 builtins, `x` is the only argument and must be cheap to repeat when it appears twice. */
+const ES1_FALLBACKS: Readonly<Partial<Record<string, (x: string) => string>>> = {
+	cosh: (x) => `(exp(${x}) + exp(-${x})) * 0.5`,
+	round: (x) => `floor(${x} + 0.5)`,
+	sinh: (x) => `(exp(${x}) - exp(-${x})) * 0.5`,
+	trunc: (x) => `sign(${x}) * floor(abs(${x}))`,
+};
+
+/** WebGL 1 names of texture functions missing from GLSL ES 1.00 fragment shaders, for a `sampler2D` and a `samplerCube` first argument. */
+const TEXTURE_RENAMES: Readonly<Record<string, readonly [string, string]>> = {
+	texture: ['texture2D', 'textureCube'],
+	texture2DLod: ['texture2DLodEXT', 'textureCubeLodEXT'],
+	texture2DProjLod: ['texture2DProjLodEXT', 'texture2DProjLodEXT'],
+	textureCubeLod: ['texture2DLodEXT', 'textureCubeLodEXT'],
+	textureLod: ['texture2DLodEXT', 'textureCubeLodEXT'],
+};
 
 function isFloatFamily(type: string | null): boolean {
 	return type !== null && (type === 'float' || type === 'genType' || /^vec[234]$/.test(type) || /^mat[234]/.test(type));
@@ -132,495 +94,6 @@ function builtinParamIsFloat(name: string, index: number): boolean {
 	const result = types.length > 0 && types.every((type) => FLOAT_PARAM_TYPE_RE.test(type));
 	builtinParamFloatCache.set(key, result);
 	return result;
-}
-
-/**
- * Token-level model of one GLSL buffer: functions, scoped declarations, structs and macros.
- * `shared` units are compiled in the same scope (the Common buffer is prepended to every pass, every pass uses Common).
- */
-class GlslUnit {
-	readonly clean: string;
-	readonly tokens: Token[] = [];
-	/** Index of the matching bracket for every `(`, `)`, `[`, `]`, `{`, `}`, -1 otherwise. */
-	readonly match: Int32Array;
-	readonly functions: FunctionInfo[] = [];
-	readonly declarations: Declaration[] = [];
-	readonly structs = new Map<string, Map<string, string>>();
-	readonly defines = new Set<string>();
-	readonly declarationStarts = new Set<number>();
-	private purityCache: Map<string, boolean> | null = null;
-
-	constructor(readonly source: string, readonly shared: readonly GlslUnit[] = []) {
-		this.clean = stripComments(source);
-		for (const match of this.clean.matchAll(TOKEN_RE)) {
-			const kind: TokenKind = match[1] ? 'directive' : match[2] ? 'ident' : match[3] ? 'float' : match[4] ? 'int' : 'punct';
-			this.tokens.push({ end: match.index + match[0].length, kind, start: match.index, text: match[0] });
-			if (kind === 'directive') {
-				const name = /^#\s*define\s+(\w+)/.exec(match[0])?.[1];
-				if (name) this.defines.add(name);
-			}
-		}
-		this.match = new Int32Array(this.tokens.length).fill(-1);
-		const stack: number[] = [];
-		for (let i = 0; i < this.tokens.length; i++) {
-			const text = this.tokens[i].text;
-			if (text === '(' || text === '[' || text === '{') stack.push(i);
-			else if ((text === ')' || text === ']' || text === '}') && stack.length > 0) {
-				const open = stack.pop()!;
-				this.match[open] = i;
-				this.match[i] = open;
-			}
-		}
-		this.scan();
-	}
-
-	text(index: number): string {
-		return this.tokens[index]?.text ?? '';
-	}
-
-	/** Source text of the token range, comments and spacing kept. */
-	slice(start: number, end: number): string {
-		return this.source.slice(this.tokens[start].start, this.tokens[end - 1].end);
-	}
-
-	/** Whitespace-insensitive text of the token range, used to compare expressions. */
-	shape(start: number, end: number): string {
-		return this.tokens.slice(start, end).map((token) => token.text).join(' ');
-	}
-
-	isType(name: string): boolean {
-		return BUILTIN_TYPES.has(name) || this.findStruct(name) !== null;
-	}
-
-	findStruct(name: string): Map<string, string> | null {
-		return this.structs.get(name) ?? this.shared.find((unit) => unit.structs.has(name))?.structs.get(name) ?? null;
-	}
-
-	/** User functions with that name across this unit and the shared ones, overloads included. */
-	findFunctions(name: string): { fn: FunctionInfo; unit: GlslUnit }[] {
-		return [this, ...this.shared].flatMap((unit) => unit.functions.filter((fn) => fn.name === name).map((fn) => ({ fn, unit })));
-	}
-
-	isStatementStart(index: number): boolean {
-		const previous = this.tokens[index - 1];
-		if (!previous || previous.kind === 'directive' || previous.text === ';' || previous.text === '{' || previous.text === '}' || previous.text === 'else') return true;
-		if (previous.text === ')') {
-			const keyword = this.text(this.match[index - 1] - 1);
-			return keyword === 'if' || keyword === 'while' || keyword === 'for';
-		}
-		return previous.text === '(' && this.text(index - 2) === 'for';
-	}
-
-	/** True when the statement starting at `index` is the unbraced body of `if`, `else`, `for` or `while`, removing it would leave the keyword dangling. */
-	isControlBody(index: number): boolean {
-		const previous = this.tokens[index - 1];
-		return previous?.text === 'else' || (previous?.text === ')' && this.isStatementStart(index));
-	}
-
-	isUnary(index: number): boolean {
-		const text = this.text(index);
-		if (text !== '-' && text !== '+') return false;
-		const previous = this.tokens[index - 1];
-		return !previous || previous.text === 'return' || (previous.kind === 'punct' && previous.text !== ')' && previous.text !== ']');
-	}
-
-	/** Index after the expression starting at `index`, stopping at a top-level `,`, `;` or closing bracket. */
-	expressionEnd(index: number): number {
-		let i = index;
-		while (i < this.tokens.length) {
-			const text = this.text(i);
-			if ((text === '(' || text === '[') && this.match[i] > i) i = this.match[i] + 1;
-			else if (text === ',' || text === ';' || text === ')' || text === ']' || text === '{' || text === '}') return i;
-			else i++;
-		}
-		return i;
-	}
-
-	/** Index of the `;` ending the statement starting at `index`, -1 when it is not a plain statement. */
-	statementEnd(index: number): number {
-		let i = index;
-		while (i < this.tokens.length) {
-			const text = this.text(i);
-			if ((text === '(' || text === '[') && this.match[i] > i) i = this.match[i] + 1;
-			else if (text === ';') return i;
-			else if (text === '{' || text === '}' || text === ')' || text === ']' || this.tokens[i].kind === 'directive') return -1;
-			else i++;
-		}
-		return -1;
-	}
-
-	/** Splits the argument list of the call whose `(` is at `open` into token ranges. */
-	callArgs(open: number): Range[] {
-		const close = this.match[open];
-		if (close < 0 || close === open + 1) return [];
-		const args: Range[] = [];
-		let start = open + 1;
-		for (let i = start; i < close; i++) {
-			const text = this.text(i);
-			if ((text === '(' || text === '[') && this.match[i] > i) i = this.match[i];
-			else if (text === ',') {
-				args.push({ end: i, start });
-				start = i + 1;
-			}
-		}
-		args.push({ end: close, start });
-		return args;
-	}
-
-	/** Identifier or member chain (`p`, `light.color.rgb`), cheap and side-effect free to repeat. */
-	isSimple({ end, start }: Range): boolean {
-		if (end - start === 1) return this.tokens[start].kind !== 'punct';
-		if (this.tokens[start].kind !== 'ident') return false;
-		for (let i = start + 1; i < end; i += 2) {
-			if (this.text(i) !== '.' || this.tokens[i + 1]?.kind !== 'ident' || i + 1 >= end) return false;
-		}
-		return true;
-	}
-
-	/** Expression that never needs parentheses: a simple chain, a call or a parenthesized group, members included. */
-	isAtomic(range: Range): boolean {
-		if (this.isSimple(range)) return true;
-		let i = range.start;
-		if (this.tokens[i].kind === 'ident' && this.text(i + 1) === '(') i++;
-		if (this.text(i) !== '(' || this.match[i] < 0) return false;
-		for (let j = this.match[i] + 1; j < range.end; j += 2) {
-			if (this.text(j) !== '.' || this.tokens[j + 1]?.kind !== 'ident') return false;
-		}
-		return true;
-	}
-
-	/** Numeric value of a literal argument, a leading unary minus included. */
-	literalValue({ end, start }: Range): number | null {
-		const negative = this.text(start) === '-' && end - start === 2;
-		const token = this.tokens[negative ? start + 1 : start];
-		if ((!negative && end - start !== 1) || (token.kind !== 'int' && token.kind !== 'float') || /^0[xX]/.test(token.text)) return null;
-		const value = Number.parseFloat(token.text);
-		return negative ? -value : value;
-	}
-
-	/** Whether a replacement whose top operator has precedence `precedence` can take the place of tokens [start, end) without parentheses. */
-	fitsWithoutParens(start: number, end: number, precedence: number): boolean {
-		const previous = this.tokens[start - 1];
-		const next = this.tokens[end];
-		const previousOk = !previous || OPEN_CONTEXT.has(previous.text) || previous.kind === 'directive'
-			|| (!this.isUnary(start - 1) && BINARY_PRECEDENCE[previous.text] !== undefined
-				&& (BINARY_PRECEDENCE[previous.text] < precedence || (BINARY_PRECEDENCE[previous.text] === precedence && (previous.text === '+' || previous.text === '*'))));
-		const nextOk = !next || CLOSE_CONTEXT.has(next.text) || ASSIGN_OPS.has(next.text) || (BINARY_PRECEDENCE[next.text] ?? 99) <= precedence;
-		return previousOk && nextOk;
-	}
-
-	private scan(): void {
-		let blockEnds: number[] = [];
-		let fn: FunctionInfo | null = null;
-		for (let i = 0; i < this.tokens.length; i++) {
-			const text = this.text(i);
-			if (text === '{') {
-				blockEnds.push(this.match[i] < 0 ? this.tokens.length : this.match[i]);
-				continue;
-			}
-			if (text === '}') {
-				blockEnds.pop();
-				if (fn && i === fn.bodyClose) fn = null;
-				continue;
-			}
-			if (text === 'struct') {
-				i = this.scanStruct(i);
-				continue;
-			}
-			if (!this.isStatementStart(i) || this.tokens[i].kind !== 'ident') continue;
-			if (blockEnds.length === 0) {
-				const parsed = this.parseFunction(i);
-				if (parsed) {
-					this.functions.push(parsed);
-					this.declarations.push(...parsed.params);
-					fn = parsed;
-					blockEnds = [parsed.bodyClose];
-					i = parsed.bodyOpen;
-					continue;
-				}
-			}
-			const end = this.parseDeclaration(i, fn, blockEnds.at(-1) ?? this.tokens.length);
-			if (end > i) i = end;
-		}
-	}
-
-	/** Registers `struct Name { fields }` and returns the index of its closing brace. */
-	private scanStruct(index: number): number {
-		const name = this.tokens[index + 1]?.kind === 'ident' ? this.text(index + 1) : null;
-		const open = name ? index + 2 : index + 1;
-		if (this.text(open) !== '{' || this.match[open] < 0) return index;
-		const fields = new Map<string, string>();
-		let type: string | null = null;
-		for (let i = open + 1; i < this.match[open]; i++) {
-			const token = this.tokens[i];
-			if (token.text === ';') type = null;
-			else if (token.kind === 'ident' && !DECLARATION_QUALIFIERS.has(token.text)) {
-				if (type === null) type = token.text;
-				else fields.set(token.text, type);
-			} else if (token.text === '[' && this.match[i] > i) i = this.match[i];
-		}
-		if (name) this.structs.set(name, fields);
-		return this.match[open];
-	}
-
-	private parseFunction(index: number): FunctionInfo | null {
-		let i = index;
-		while (DECLARATION_QUALIFIERS.has(this.text(i))) i++;
-		const returnType = this.tokens[i];
-		const name = this.tokens[i + 1];
-		if (returnType?.kind !== 'ident' || name?.kind !== 'ident' || this.text(i + 2) !== '(') return null;
-		if (!this.isType(returnType.text) && returnType.text !== 'void') return null;
-		const close = this.match[i + 2];
-		if (close < 0 || this.text(close + 1) !== '{' || this.match[close + 1] < 0) return null;
-		const fn: FunctionInfo = {
-			bodyClose: this.match[close + 1],
-			bodyOpen: close + 1,
-			name: name.text,
-			nameIndex: i + 1,
-			params: [],
-			returnType: returnType.text,
-			start: index,
-		};
-		for (const arg of this.callArgs(i + 2)) {
-			let j = arg.start;
-			let qualifier: string | null = null;
-			while (j < arg.end && PARAM_QUALIFIERS.has(this.text(j))) {
-				if (this.text(j) === 'out' || this.text(j) === 'inout') qualifier = this.text(j);
-				j++;
-			}
-			if (j + 1 >= arg.end || this.tokens[j + 1].kind !== 'ident') continue;
-			fn.params.push({
-				declaratorEnd: arg.end,
-				declaratorStart: arg.start,
-				fn,
-				initEnd: -1,
-				initStart: -1,
-				isArray: this.text(j + 2) === '[',
-				kind: 'param',
-				name: this.text(j + 1),
-				nameIndex: j + 1,
-				qualifier,
-				scopeEnd: fn.bodyClose,
-				siblings: [],
-				statementEnd: arg.end,
-				statementStart: arg.start,
-				type: this.text(j),
-			});
-		}
-		return fn;
-	}
-
-	/** Parses `[qualifiers] type name [= init] (, name [= init])* ;` and returns the index of its `;`, or `index` when it is not a declaration. */
-	private parseDeclaration(index: number, fn: FunctionInfo | null, scopeEnd: number): number {
-		let i = index;
-		let qualifier: string | null = null;
-		while (DECLARATION_QUALIFIERS.has(this.text(i))) {
-			if (STORAGE_QUALIFIERS.has(this.text(i))) qualifier = this.text(i);
-			i++;
-		}
-		const type = this.tokens[i];
-		if (type?.kind !== 'ident' || !this.isType(type.text) || this.tokens[i + 1]?.kind !== 'ident' || this.text(i + 2) === '(') return index;
-		const group: Declaration[] = [];
-		let j = i + 1;
-		while (true) {
-			if (this.tokens[j]?.kind !== 'ident') return index;
-			const declaratorStart = j;
-			let k = j + 1;
-			const isArray = this.text(k) === '[' && this.match[k] > k;
-			if (isArray) k = this.match[k] + 1;
-			let initStart = -1;
-			let initEnd = -1;
-			if (this.text(k) === '=') {
-				initStart = k + 1;
-				k = initEnd = this.expressionEnd(k + 1);
-			}
-			const kind = fn ? 'local' : qualifier === 'uniform' ? 'uniform' : 'global';
-			if (qualifier !== 'varying' && qualifier !== 'attribute') {
-				group.push({
-					declaratorEnd: k,
-					declaratorStart,
-					fn,
-					initEnd,
-					initStart,
-					isArray,
-					kind,
-					name: this.text(j),
-					nameIndex: j,
-					qualifier,
-					scopeEnd,
-					siblings: group,
-					statementEnd: -1,
-					statementStart: index,
-					type: type.text,
-				});
-			}
-			if (this.text(k) === ',') {
-				j = k + 1;
-				continue;
-			}
-			if (this.text(k) !== ';') return index;
-			for (const declaration of group) declaration.statementEnd = k;
-			this.declarations.push(...group);
-			this.declarationStarts.add(index);
-			return k;
-		}
-	}
-
-	enclosingFunction(index: number): FunctionInfo | null {
-		return this.functions.find((fn) => index > fn.bodyOpen && index < fn.bodyClose) ?? null;
-	}
-
-	/** Innermost declaration of `name` visible at token `index`, shared globals last. */
-	resolveDeclaration(name: string, index: number): Declaration | null {
-		let best: Declaration | null = null;
-		for (const declaration of this.declarations) {
-			if (declaration.name !== name) continue;
-			const visible = declaration.kind === 'param'
-				? index > declaration.fn!.bodyOpen && index < declaration.scopeEnd
-				: declaration.nameIndex <= index && index <= declaration.scopeEnd;
-			if (visible && (!best || declaration.nameIndex > best.nameIndex)) best = declaration;
-		}
-		if (best) return best;
-		for (const unit of this.shared) {
-			const global = unit.declarations.find((declaration) => declaration.name === name && (declaration.kind === 'global' || declaration.kind === 'uniform'));
-			if (global) return global;
-		}
-		return null;
-	}
-
-	identifierType(name: string, index: number): string | null {
-		const declaration = this.resolveDeclaration(name, index);
-		if (declaration) return declaration.isArray ? null : declaration.type;
-		const signature = BUILTIN_DOCS[name]?.signature;
-		return signature && !signature.includes('(') ? signature.split(/\s+/)[0] : null;
-	}
-
-	callType(name: string): string | null {
-		if (this.isType(name)) return name;
-		const user = this.findFunctions(name);
-		if (user.length > 0) return user.every(({ fn }) => fn.returnType === user[0].fn.returnType) ? user[0].fn.returnType : null;
-		return BUILTIN_DOCS[name]?.signature.match(/^(\w+)/)?.[1] ?? null;
-	}
-
-	memberType(type: string | null, member: string): string | null {
-		if (!type) return null;
-		const struct = this.findStruct(type);
-		if (struct) return struct.get(member) ?? null;
-		const vector = /^([ib]?)vec([234])$/.exec(type) ?? (type === 'genType' ? ['', '', '4'] : null);
-		if (!vector || member.length > 4 || !SWIZZLE_SETS.some((set) => [...member].every((char) => set.slice(0, Number(vector[2])).includes(char)))) return null;
-		const scalar = vector[1] === 'i' ? 'int' : vector[1] === 'b' ? 'bool' : 'float';
-		return member.length === 1 ? scalar : `${vector[1]}vec${member.length}`;
-	}
-
-	/** Type of the operand ending at token `index`. */
-	typeBefore(index: number): string | null {
-		const token = this.tokens[index];
-		if (!token) return null;
-		if (token.kind === 'float') return 'float';
-		if (token.kind === 'int') return 'int';
-		if (token.text === ')') {
-			const callee = this.tokens[this.match[index] - 1];
-			return callee?.kind === 'ident' && !STATEMENT_KEYWORDS.has(callee.text) ? this.callType(callee.text) : null;
-		}
-		if (token.kind !== 'ident') return null;
-		if (this.text(index - 1) === '.') return this.memberType(this.typeBefore(index - 2), token.text);
-		return this.identifierType(token.text, index);
-	}
-
-	/** Type and end of the operand starting at token `index`. */
-	typeAfter(index: number): { type: string | null; end: number } {
-		const token = this.tokens[index];
-		if (!token) return { end: index, type: null };
-		if (this.isUnary(index)) return this.typeAfter(index + 1);
-		if (token.kind === 'float') return { end: index + 1, type: 'float' };
-		if (token.kind === 'int') return { end: index + 1, type: /[uU]$/.test(token.text) ? 'uint' : 'int' };
-		if (token.kind !== 'ident') return { end: index, type: null };
-		const isCall = this.text(index + 1) === '(' && this.match[index + 1] > index;
-		let type = isCall ? this.callType(token.text) : this.identifierType(token.text, index);
-		let end = isCall ? this.match[index + 1] + 1 : index + 1;
-		while (this.text(end) === '.' && this.tokens[end + 1]?.kind === 'ident') {
-			type = this.memberType(type, this.text(end + 1));
-			end += 2;
-		}
-		return this.text(end) === '[' ? { end, type: null } : { end, type };
-	}
-
-	/** Type of the expression spanning exactly `range`, null unless it is a single operand. */
-	rangeType(range: Range): string | null {
-		if (this.isSimple(range) && this.tokens[range.start].kind === 'ident') {
-			let type = this.identifierType(this.text(range.start), range.start);
-			for (let i = range.start + 2; i < range.end; i += 2) type = this.memberType(type, this.text(i));
-			return type;
-		}
-		const { end, type } = this.typeAfter(range.start);
-		return end === range.end ? type : null;
-	}
-
-	/** Pure functions have no out parameters, never discard and only write their own locals, so a discarded call does nothing. */
-	isPureFunction(name: string): boolean {
-		const user = this.findFunctions(name);
-		return user.length > 0 && user.every(({ fn, unit }) => unit.purity().get(fn.name) !== false);
-	}
-
-	private purity(): Map<string, boolean> {
-		if (this.purityCache) return this.purityCache;
-		const purity = new Map<string, boolean>();
-		const calls = new Map<string, Set<string>>();
-		for (const fn of this.functions) {
-			let pure = purity.get(fn.name) !== false && !fn.params.some((param) => param.qualifier !== null);
-			const callees = calls.get(fn.name) ?? new Set<string>();
-			for (let i = fn.bodyOpen + 1; pure && i < fn.bodyClose; i++) {
-				const token = this.tokens[i];
-				if (token.text === 'discard') pure = false;
-				else if (ASSIGN_OPS.has(token.text) || token.text === '++' || token.text === '--') {
-					const target = this.assignmentTarget(i);
-					const declaration = target === null ? null : this.resolveDeclaration(this.text(target), target);
-					pure = declaration?.fn === fn;
-				} else if (token.kind === 'ident' && this.text(i + 1) === '(') {
-					if (this.findFunctions(token.text).length > 0) callees.add(token.text);
-					else if (!this.isType(token.text) && !BUILTIN_DOCS[token.text]) pure = false;
-				}
-			}
-			purity.set(fn.name, pure);
-			calls.set(fn.name, callees);
-		}
-		this.purityCache = purity;
-		for (let changed = true; changed;) {
-			changed = false;
-			for (const [name, callees] of calls) {
-				if (purity.get(name) && [...callees].some((callee) => (purity.has(callee) ? !purity.get(callee) : !this.isPureFunction(callee)))) {
-					purity.set(name, false);
-					changed = true;
-				}
-			}
-		}
-		return purity;
-	}
-
-	/** Root identifier written by the assignment or increment operator at `index`. */
-	assignmentTarget(index: number): number | null {
-		if ((this.text(index) === '++' || this.text(index) === '--') && this.tokens[index + 1]?.kind === 'ident') return index + 1;
-		let i = index - 1;
-		while (i >= 0) {
-			const text = this.text(i);
-			if (text === ']' && this.match[i] >= 0) i = this.match[i] - 1;
-			else if (this.tokens[i].kind === 'ident' && this.text(i - 1) === '.') i -= 2;
-			else return this.tokens[i].kind === 'ident' ? i : null;
-		}
-		return null;
-	}
-
-	/** No assignment, increment, discard or impure/unknown call in [start, end). */
-	isPure(start: number, end: number): boolean {
-		for (let i = start; i < end; i++) {
-			const token = this.tokens[i];
-			if (ASSIGN_OPS.has(token.text) || token.text === '++' || token.text === '--' || token.text === 'discard') return false;
-			if (token.kind !== 'ident') continue;
-			if (this.defines.has(token.text) || this.shared.some((unit) => unit.defines.has(token.text))) return false;
-			if (this.text(i + 1) === '(' && !this.isType(token.text) && !(BUILTIN_DOCS[token.text] && this.findFunctions(token.text).length === 0) && !this.isPureFunction(token.text)) return false;
-		}
-		return true;
-	}
 }
 
 /** Collects diagnostics with their quick fixes for one buffer. */
@@ -855,7 +328,7 @@ class GlslLinter {
 				code: 'float-suffix',
 				fixes: [{ edits: [this.replace(index, index + 1, /[.eE]/.test(fixed) ? fixed : `${fixed}.0`)], preferred: true, title: `Remove the 'f' suffix` }],
 				from: index,
-				message: `GLSL ES 1.00 (WebGL 1) doesn't accept the 'f' suffix on float literals.`,
+				message: `WebGL 1 shaders don't accept the 'f' after a number.`,
 				severity: 'error',
 			});
 			return;
@@ -865,7 +338,7 @@ class GlslLinter {
 				code: 'uint-literal',
 				fixes: [{ edits: [this.replace(index, index + 1, text.slice(0, -1))], preferred: true, title: `Remove the 'u' suffix` }],
 				from: index,
-				message: `GLSL ES 1.00 (WebGL 1) has no unsigned integers.`,
+				message: `WebGL 1 shaders have no unsigned integers ('u' numbers).`,
 				severity: 'error',
 			});
 			return;
@@ -875,7 +348,7 @@ class GlslLinter {
 				code: 'int-to-float',
 				fixes: [{ edits: [this.replace(index, index + 1, `${text}.0`)], preferred: true, title: `Change to '${text}.0'` }],
 				from: index,
-				message: `GLSL ES 1.00 never converts int to float implicitly, write '${text}.0'.`,
+				message: `WebGL 1 never turns an int into a float on its own, write '${text}.0'.`,
 				severity: 'error',
 			});
 			return;
@@ -951,6 +424,58 @@ class GlslLinter {
 		}
 	}
 
+	/** Builtins missing from WebGL 1 (GLSL ES 3.00 only) or behind an extension the buffer doesn't enable. */
+	private checkAvailability(index: number, name: string, args: Range[], call: Range): boolean {
+		const { unit } = this;
+		const doc = BUILTIN_DOCS[name];
+		const cube = args.length > 0 && unit.rangeType(args[0]) === 'samplerCube';
+		const renamed = TEXTURE_RENAMES[name]?.[cube ? 1 : 0];
+		if (renamed) {
+			const extension = BUILTIN_DOCS[renamed]?.extension;
+			this.report({
+				code: 'es3-builtin',
+				fixes: [{ edits: [this.replace(index, index + 1, renamed), ...(extension ? this.enableExtension(extension) : [])], preferred: true, title: `Change to '${renamed}'` }],
+				from: index,
+				message: doc?.unavailable ? `${name}(): ${doc.unavailable}` : `${name}() only exists in WebGL 2 shaders, WebGL 1 uses ${renamed}().`,
+				severity: 'error',
+			});
+			return true;
+		}
+		if (doc?.unavailable) {
+			const fallback = ES1_FALLBACKS[name];
+			const text = fallback && args.length === 1 && unit.isSimple(args[0]) ? fallback(unit.slice(args[0].start, args[0].end)) : null;
+			const wrapped = text && name !== 'round' && !unit.fitsWithoutParens(call.start, call.end, 5) ? `(${text})` : text;
+			this.report({
+				code: 'es3-builtin',
+				fixes: wrapped ? [{ edits: [this.replace(call.start, call.end, wrapped)], preferred: true, title: `Change to '${wrapped}'` }] : [],
+				from: index,
+				message: `${name}(): ${doc.unavailable}`,
+				severity: 'error',
+			});
+			return true;
+		}
+		if (doc?.extension && !this.hasExtension(doc.extension)) {
+			this.report({
+				code: 'missing-extension',
+				fixes: [{ edits: this.enableExtension(doc.extension), preferred: true, title: `Add '#extension ${doc.extension} : enable'` }],
+				from: index,
+				message: `${name}() needs '#extension ${doc.extension} : enable' at the top of the shader.`,
+				severity: 'error',
+			});
+			return true;
+		}
+		return false;
+	}
+
+	private hasExtension(extension: string): boolean {
+		return [this.unit, ...this.unit.shared].some((unit) => unit.tokens.some((token) => token.kind === 'directive' && new RegExp(`^#\\s*extension\\s+${extension}\\b`).test(token.text)));
+	}
+
+	/** Inserts the directive once, at the top of the buffer, a later "fix all" may repeat the edit so it is idempotent through `hasExtension`. */
+	private enableExtension(extension: string): GlslTextEdit[] {
+		return this.hasExtension(extension) ? [] : [{ end: 0, start: 0, text: `#extension ${extension} : enable\n` }];
+	}
+
 	private checkCall(index: number): void {
 		const { unit } = this;
 		const name = unit.text(index);
@@ -958,7 +483,8 @@ class GlslLinter {
 		const close = unit.match[open];
 		const args = unit.callArgs(open);
 		const call = { end: close + 1, start: index };
-		if (unit.findFunctions(name).length > 0) return;
+		if (unit.findFunctions(name).length > 0 || unit.isMacro(name)) return;
+		if (this.checkAvailability(index, name, args, call)) return;
 		/** The title shows the replacement itself when it is short enough to read in the quick fix menu. */
 		const suggest = (code: string, message: string, text: string, title: string, severity: GlslSeverity = 'info', range: Range = call) => {
 			const label = text.length <= 40 ? `Change to '${text}'` : title;
@@ -972,16 +498,6 @@ class GlslLinter {
 		};
 
 		switch (name) {
-			case 'texture':
-			case 'round': {
-				if (name === 'texture' && args.length >= 2) {
-					const replacement = unit.rangeType(args[0]) === 'samplerCube' ? 'textureCube' : 'texture2D';
-					suggest('es3-builtin', `texture() needs GLSL ES 3.00, WebGL 1 uses ${replacement}().`, replacement, `Change to '${replacement}'`, 'error', { end: index + 1, start: index });
-				} else if (name === 'round' && args.length === 1) {
-					suggest('es3-builtin', 'round() needs GLSL ES 3.00, WebGL 1 has floor(x + 0.5).', `floor(${argText(0)} + 0.5)`, 'Change to floor(x + 0.5)', 'error');
-				}
-				return;
-			}
 			case 'pow': {
 				if (args.length !== 2) return;
 				const base = args[0];
@@ -1064,7 +580,7 @@ class GlslLinter {
 					code: 'smoothstep-edges',
 					fixes: edge0 > edge1 ? [{ edits: [this.replace(call.start, call.end, unit.fitsWithoutParens(call.start, call.end, 4) ? flipped : `(${flipped})`)], preferred: true, title: 'Change to 1.0 - smoothstep() with ordered edges' }] : [],
 					from: args[0].start,
-					message: 'smoothstep() is undefined when edge0 >= edge1, some GPUs return garbage.',
+					message: 'smoothstep() needs edge0 smaller than edge1, otherwise some GPUs return garbage.',
 					severity: 'warning',
 					to: args[1].end,
 				});
@@ -1102,7 +618,7 @@ class GlslLinter {
 
 		if (args.length === 1) {
 			const literal = name === 'float' ? unit.literalValue(args[0]) : null;
-			if (literal !== null && unit.tokens[args[0].end - 1].kind === 'int' && unit.tokens[args[0].end - 1].text.match(/^\d+$/)) {
+			if (literal !== null && /^\d+$/.test(unit.text(args[0].end - 1))) {
 				this.report({ code: 'redundant-constructor', fixes: [{ edits: [this.replace(call.start, call.end, formatFloat(literal))], preferred: true, title: `Change to '${formatFloat(literal)}'` }], from: call.start, message: `float(${unit.slice(args[0].start, args[0].end)}) is the literal ${formatFloat(literal)}.`, severity: 'hint', to: call.end });
 				return;
 			}
@@ -1186,11 +702,11 @@ export function compilerDiagnostic(source: string, sharedSources: readonly strin
 	}
 
 	const isCall = unit.text(index + 1) === '(';
-	const candidates = new Set<string>(isCall ? Object.keys(BUILTIN_DOCS).filter((name) => BUILTIN_DOCS[name].signature.includes('(')) : [...Object.keys(UNIFORM_DOCS), ...Object.keys(BUILTIN_DOCS)]);
+	const candidates = new Set<string>(isCall ? Object.keys(BUILTIN_DOCS).filter((name) => BUILTIN_DOCS[name].signature.includes('(') && !BUILTIN_DOCS[name].unavailable) : [...Object.keys(UNIFORM_DOCS), ...Object.keys(BUILTIN_DOCS)]);
 	for (const shared of [unit, ...unit.shared]) {
 		for (const fn of shared.functions) if (isCall) candidates.add(fn.name);
 		for (const name of shared.structs.keys()) if (isCall) candidates.add(name);
-		for (const name of shared.defines) candidates.add(name);
+		for (const name of shared.defines.keys()) candidates.add(name);
 	}
 	if (isCall) for (const type of BUILTIN_TYPES) candidates.add(type);
 	else for (const declaration of unit.declarations) if (unit.resolveDeclaration(declaration.name, index) === declaration) candidates.add(declaration.name);

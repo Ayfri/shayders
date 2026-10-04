@@ -4,7 +4,7 @@
 	import type { ShaderBuffer } from '#features/shaders/model/shader-content.js';
 	import { conf, language } from '#lib/glsl/language.js';
 	import { applyErrors, applyLint } from '#lib/glsl/markers.js';
-	import { registerGlslProviders } from '#lib/glsl/providers.js';
+	import { modelLabels, registerGlslProviders } from '#lib/glsl/providers.js';
 	import { registerMaterialDarkerTheme } from '#lib/themes/material-darker.js';
 
 	interface Props {
@@ -46,7 +46,9 @@
 
 	function ensureWorkspaceModel(monaco: typeof Monaco, buffer: ShaderBuffer): Monaco.editor.ITextModel {
 		const uri = monaco.Uri.from({ authority: workspaceId, path: `/${buffer.id}`, scheme: WORKSPACE_SCHEME });
-		return monaco.editor.getModel(uri) ?? monaco.editor.createModel(buffer.code, 'glsl', uri);
+		const model = monaco.editor.getModel(uri) ?? monaco.editor.createModel(buffer.code, 'glsl', uri);
+		modelLabels.set(model, buffer.label);
+		return model;
 	}
 
 	/** Lints every buffer, Common shares its scope with every pass and each pass only with Common. */
@@ -172,7 +174,13 @@
 					(_accessor, target?: { lineNumber?: number; column?: number; uri?: string }) => {
 						if (globals[ACTIVE_EDITOR_KEY] !== instance) return;
 						const model = instance.getModel();
-						if (target?.uri && model && model.uri.toString() !== target.uri) return;
+						if (target?.uri && model && model.uri.toString() !== target.uri) {
+							/** Hover links to a symbol of another buffer switch tabs first. */
+							const targetModel = getWorkspaceModels(monaco).find((candidate) => candidate.uri.toString() === target.uri);
+							if (!targetModel) return;
+							onBufferFocus?.(bufferIdFromPath(targetModel.uri.path));
+							instance.setModel(targetModel);
+						}
 						const position = {
 							column: target?.column && target.column > 0 ? target.column : 1,
 							lineNumber: target?.lineNumber && target.lineNumber > 0 ? target.lineNumber : 1,

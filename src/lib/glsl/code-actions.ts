@@ -54,7 +54,9 @@ export function registerCodeActions(monaco: typeof Monaco): Monaco.IDisposable {
 				/** Overlapping edits (two declarators of one statement) are dropped, the next lint pass reports what is left. */
 				const disjoint: GlslTextEdit[] = [];
 				for (const edit of siblings.flatMap((diagnostic) => diagnostic.fixes[0].edits).sort((a, b) => a.start - b.start)) {
-					if (disjoint.length === 0 || edit.start >= disjoint.at(-1)!.end) disjoint.push(edit);
+					const last = disjoint.at(-1);
+					if (last && last.start === edit.start && last.end === edit.end && last.text === edit.text) continue;
+					if (!last || edit.start >= last.end) disjoint.push(edit);
 				}
 				actions.push({ edit: toWorkspaceEdit(disjoint), kind: 'quickfix', title: `${FIX_ALL_TITLES[code] ?? `Fix all '${code}' problems`} (${siblings.length})` });
 			}

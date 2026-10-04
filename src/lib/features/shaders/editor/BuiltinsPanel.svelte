@@ -220,7 +220,7 @@
 					<button onclick={() => (expanded = expanded === entry.name ? null : entry.name)} class="flex w-full items-baseline gap-1 px-4 py-1 text-left hover:bg-panel group cursor-pointer">
 						<span class="{getTypeColor(entry.type)} font-mono shrink-0 text-11 whitespace-nowrap">{entry.type}</span>
 						<span class="text-foreground font-mono shrink-0 font-semibold text-11 whitespace-nowrap">{entry.name}</span>
-						<span class="text-muted flex-1 leading-snug text-11 {expanded === entry.name ? '' : 'truncate'}">{@render markdown(entry.doc.description)}</span>
+						<span class="text-muted ml-1 flex-1 leading-snug text-11 {expanded === entry.name ? '' : 'truncate'}">{@render markdown(entry.doc.description)}</span>
 					</button>
 					{#if expanded === entry.name}{@render details(entry)}{/if}
 				{/each}
@@ -236,7 +236,7 @@
 						{#if entry.doc.extension}
 							<span title="Needs #extension {entry.doc.extension}" class="shrink-0 rounded bg-amber-400/15 px-1 text-10 text-amber-300">ext</span>
 						{/if}
-						<span class="text-muted flex-1 leading-snug text-11 {expanded === entry.name ? '' : 'truncate'}">{@render markdown(entry.doc.description)}</span>
+						<span class="text-muted ml-1 flex-1 leading-snug text-11 {expanded === entry.name ? '' : 'truncate'}">{@render markdown(entry.doc.description)}</span>
 					</button>
 					{#if expanded === entry.name}{@render details(entry)}{/if}
 				{/each}

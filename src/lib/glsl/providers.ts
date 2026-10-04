@@ -1,11 +1,12 @@
 import type * as Monaco from 'monaco-editor/editor';
-import { BUILTIN_DOCS, UNIFORM_DOCS } from '#lib/glsl/builtins.js';
+import { BUILTIN_DOCS, type GlslDoc, UNIFORM_DOCS } from '#lib/glsl/builtins.js';
 import { TYPE_DOCS, GLSL_TYPES, getSwizzles } from '#lib/glsl/types.js';
-import { GLSL_KEYWORDS, GLSL_PREPROCESSOR } from '#lib/glsl/keywords.js';
-import { analyzeModel, resolveType, resolveScopedType, type GlslDocument } from '#lib/glsl/analyze.js';
+import { GLSL_KEYWORDS, GLSL_PREPROCESSOR, KEYWORD_DOCS, PREDEFINED_MACRO_DOCS, PREPROCESSOR_DOCS } from '#lib/glsl/keywords.js';
+import { analyzeModel, findLocal, type GlslDocument, type GlslFunction, type GlslVariable, resolveScopedType, resolveType } from '#lib/glsl/analyze.js';
 import { registerCodeActions } from '#lib/glsl/code-actions.js';
 import { type ColorPreviewListener, registerColorProvider } from '#lib/glsl/color-provider.js';
 import { registerSemanticTokens } from '#lib/glsl/semantic-tokens.js';
+import { GlslUnit, modelUnit } from '#lib/glsl/unit.js';
 
 const DISPOSABLES_KEY = '__glslProviderDisposables';
 const ACTIVE_EDITOR_KEY = '__glslActiveEditor';
@@ -200,54 +201,19 @@ interface WorkspaceDoc {
 }
 
 interface WorkspaceSymbolMatch {
-	model: Monaco.editor.ITextModel | null;
+	model: Monaco.editor.ITextModel;
 	name: string;
 	line: number;
+	column: number;
 	type: string | null;
 	kind: 'function' | 'struct' | 'variable' | 'define';
 }
 
-function isWorkspaceModel(model: Monaco.editor.ITextModel): boolean {
-	return model.getLanguageId() === 'glsl';
-}
-
 function getWorkspaceDocs(monaco: typeof Monaco): WorkspaceDoc[] {
-	return monaco.editor.getModels().filter(isWorkspaceModel).map((model) => ({
-		model,
-		doc: analyzeModel(model),
-	}));
+	return monaco.editor.getModels().filter((model) => model.getLanguageId() === 'glsl').map((model) => ({ doc: analyzeModel(model), model }));
 }
 
-function findLocalSymbol(doc: GlslDocument, name: string, cursorLine: number): WorkspaceSymbolMatch | null {
-	const enclosingFn = doc.functions.find((fn) => cursorLine >= fn.line && cursorLine <= fn.bodyEndLine);
-	if (enclosingFn) {
-		const local = enclosingFn.localVariables.find((variable) => variable.name === name);
-		if (local) {
-			return {
-				kind: 'variable',
-				line: local.line,
-				model: null,
-				name: local.name,
-				type: local.type,
-			};
-		}
-	}
-
-	const fn = doc.functions.find((functionDoc) => functionDoc.name === name);
-	if (fn) return { kind: 'function', line: fn.line, model: null, name, type: fn.returnType };
-
-	const st = doc.structs.find((struct) => struct.name === name);
-	if (st) return { kind: 'struct', line: st.line, model: null, name, type: name };
-
-	const variable = doc.variables.find((docVariable) => docVariable.name === name);
-	if (variable) return { kind: 'variable', line: variable.line, model: null, name, type: variable.type };
-
-	const def = doc.defines.find((define) => define.name === name);
-	if (def) return { kind: 'define', line: def.line, model: null, name, type: null };
-
-	return null;
-}
-
+/** Declaration of `name` seen from `cursorLine` of `cursorModel`: locals first, then this buffer's globals, then the other buffers. */
 function findWorkspaceSymbol(
 	monaco: typeof Monaco,
 	name: string,
@@ -255,24 +221,19 @@ function findWorkspaceSymbol(
 	cursorLine: number,
 ): WorkspaceSymbolMatch | null {
 	const docs = getWorkspaceDocs(monaco);
-	const current = docs.find((entry) => entry.model.uri.toString() === cursorModel.uri.toString());
-	if (current) {
-		const localMatch = findLocalSymbol(current.doc, name, cursorLine);
-		if (localMatch) return { ...localMatch, model: current.model };
-	}
+	const local = findLocal(analyzeModel(cursorModel), name, cursorLine)?.variable;
+	if (local) return { column: local.column, kind: 'variable', line: local.line, model: cursorModel, name, type: local.type };
 
-	for (const entry of docs) {
-		if (entry.model.uri.toString() === cursorModel.uri.toString()) continue;
-		const fn = entry.doc.functions.find((functionDoc) => functionDoc.name === name);
-		if (fn) return { kind: 'function', line: fn.line, model: entry.model, name, type: fn.returnType };
-		const st = entry.doc.structs.find((struct) => struct.name === name);
-		if (st) return { kind: 'struct', line: st.line, model: entry.model, name, type: name };
-		const variable = entry.doc.variables.find((docVariable) => docVariable.name === name);
-		if (variable) return { kind: 'variable', line: variable.line, model: entry.model, name, type: variable.type };
-		const def = entry.doc.defines.find((define) => define.name === name);
-		if (def) return { kind: 'define', line: def.line, model: entry.model, name, type: null };
+	for (const { doc, model } of [...docs.filter((entry) => entry.model === cursorModel), ...docs.filter((entry) => entry.model !== cursorModel)]) {
+		const fn = doc.functions.find((candidate) => candidate.name === name);
+		if (fn) return { column: fn.column, kind: 'function', line: fn.line, model, name, type: fn.returnType };
+		const struct = doc.structs.find((candidate) => candidate.name === name);
+		if (struct) return { column: struct.column, kind: 'struct', line: struct.line, model, name, type: name };
+		const variable = doc.variables.find((candidate) => candidate.name === name);
+		if (variable) return { column: variable.column, kind: 'variable', line: variable.line, model, name, type: variable.type };
+		const define = doc.defines.find((candidate) => candidate.name === name);
+		if (define) return { column: define.column, kind: 'define', line: define.line, model, name, type: null };
 	}
-
 	return null;
 }
 
@@ -281,28 +242,10 @@ interface TypeConstructorOverload {
 	params: { type: string; name: string }[];
 }
 
-function findDeclarationColumn(model: Monaco.editor.ITextModel, line: number, name: string): number {
-	const lineText = model.getLineContent(line);
-	const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-	const match = lineText.match(new RegExp(`\\b${escapedName}\\b`));
-	return match?.index !== undefined ? match.index + 1 : 1;
-}
-
-function buildGotoPositionLink(line: number, column: number, label: string): string {
-	const args = encodeURIComponent(JSON.stringify([{ lineNumber: line, column }]));
+/** Markdown link running the editor's goto command, `uri` switches to another buffer first. */
+function buildGotoPositionLink(line: number, column: number, label: string, uri?: string): string {
+	const args = encodeURIComponent(JSON.stringify([{ column, lineNumber: line, uri }]));
 	return `[${label}](command:${GOTO_POSITION_COMMAND_ID}?${args})`;
-}
-
-function formatLineLink(model: Monaco.editor.ITextModel, line: number, column: number): string {
-	return buildGotoPositionLink(line, column, `line ${line}`);
-}
-
-function formatLineScopedText(label: string, model: Monaco.editor.ITextModel, line: number, name: string): string {
-	return `${label} ${formatLineLink(model, line, findDeclarationColumn(model, line, name))}.`;
-}
-
-function formatFunctionParameterText(model: Monaco.editor.ITextModel, line: number, functionName: string, declarationName: string): string {
-	return `Function parameter of ${buildGotoPositionLink(line, findDeclarationColumn(model, line, functionName), functionName)} declared at ${formatLineLink(model, line, findDeclarationColumn(model, line, declarationName))}.`;
 }
 
 function buildTypeConstructorOverloads(typeName: string): TypeConstructorOverload[] | null {
@@ -336,7 +279,9 @@ function buildTypeConstructorOverloads(typeName: string): TypeConstructorOverloa
 
 	const addOverload = (params: { type: string; name: string }[]): void => {
 		const raw = `${typeName}(${params.map((param) => `${param.type} ${param.name}`).join(', ')})`;
-		overloads.set(raw, { raw, params });
+		/** Keyed by parameter types, the single-part partition repeats the copy constructor under another parameter name. */
+		const key = params.map((param) => param.type).join(',');
+		if (!overloads.has(key)) overloads.set(key, { raw, params });
 	};
 
 	addOverload([{ type: scalarType, name: 'x' }]);
@@ -363,41 +308,6 @@ function buildTypeConstructorOverloads(typeName: string): TypeConstructorOverloa
 	return [...overloads.values()];
 }
 
-function formatOverloadLines(overloads: string[], activeIndex: number | null = null): string[] {
-	return overloads.map((line, index) => (index === activeIndex ? `→ ${line}` : line));
-}
-
-function formatTypeConstructorOverloadList(typeName: string, activeIndex: number | null = null): string[] | null {
-	const overloads = buildTypeConstructorOverloads(typeName);
-	if (!overloads) return null;
-	return formatOverloadLines(overloads.map((overload) => overload.raw), activeIndex);
-}
-
-function resolveTypeConstructorOverloadIndex(
-	typeName: string,
-	args: string[],
-	doc: GlslDocument,
-	lineNumber: number,
-): number | null {
-	const overloads = buildTypeConstructorOverloads(typeName);
-	if (!overloads) return null;
-
-	for (let index = 0; index < overloads.length; index++) {
-		const overload = overloads[index];
-		if (overload.params.length !== args.length) continue;
-		let matches = true;
-		for (let argIndex = 0; argIndex < args.length; argIndex++) {
-			const argType = inferExpressionType(args[argIndex], doc, lineNumber);
-			if (!argType || !isTypeAcceptable(argType, new Set([overload.params[argIndex].type]))) {
-				matches = false;
-				break;
-			}
-		}
-		if (matches) return index;
-	}
-
-	return null;
-}
 
 function parseBuiltinOverloads(signature: string): BuiltinOverload[] {
 	return signature
@@ -638,11 +548,6 @@ function formatGlslCodeBlock(lines: string[]): string {
 	return ['```glsl', ...lines, '```'].join('\n');
 }
 
-function formatOverloadRaw(overload: BuiltinOverload): string {
-	const params = overload.params.map((param) => param.raw).join(', ');
-	return `${overload.returnType} ${overload.functionName}(${params})`;
-}
-
 function expandAbstractType(typeText: string, genericDim: number, n: number, m: number): string {
 	const vectorSuffix = genericDim === 1 ? '' : String(genericDim);
 	const genericReplacements: Array<[RegExp, string]> = [
@@ -667,63 +572,6 @@ function expandAbstractType(typeText: string, genericDim: number, n: number, m: 
 	for (const [pattern, replacement] of genericReplacements) expanded = expanded.replace(pattern, replacement);
 	for (const [pattern, replacement] of shapeReplacements) expanded = expanded.replace(pattern, replacement);
 	return expanded;
-}
-
-function expandBuiltinOverload(overload: BuiltinOverload): string[] {
-	const hasGenericAliases = /(genType|genIType|genUType|genBType)\b/.test(overload.raw);
-	const hasN = /\b(?:vecN|ivecN|uvecN|bvecN|matN|matNxM|matMxN)\b/.test(overload.raw);
-	const hasM = /\b(?:vecM|matNxM|matMxN)\b/.test(overload.raw);
-
-	const genericDims = hasGenericAliases ? [1, 2, 3, 4] : [2];
-	const nValues = hasN ? [2, 3, 4] : [2];
-	const mValues = hasM ? [2, 3, 4] : [2];
-
-	const variants = new Set<string>();
-	for (const genericDim of genericDims) {
-		for (const n of nValues) {
-			for (const m of mValues) {
-				const returnType = expandAbstractType(overload.returnType, genericDim, n, m);
-				const params = overload.params.map((param) => ({
-					...param,
-					type: expandAbstractType(param.type, genericDim, n, m),
-				}));
-				variants.add(`${returnType} ${overload.functionName}(${params.map((p) => `${p.type} ${p.name}`).join(', ')})`);
-			}
-		}
-	}
-
-	return variants.size > 0 ? [...variants] : [formatOverloadRaw(overload)];
-}
-
-function formatBuiltinParameterDocs(
-	builtin: { params?: Record<string, string> },
-	overload: BuiltinOverload | null,
-	activeParamIndex: number | null,
-): string | null {
-	if (!overload || overload.params.length === 0) return null;
-
-	const lines = overload.params.map((param, index) => {
-		const custom = builtin.params?.[param.name];
-		const fallback = PARAMETER_FALLBACK_DOCS[param.name];
-		const detail = custom ?? fallback ?? 'Parameter used by this overload.';
-		const marker = activeParamIndex === index ? '**→** ' : '- ';
-		return `${marker}\`${param.name}\` (\`${param.type}\`): ${detail}`;
-	});
-
-	return ['**Parameters**', ...lines].join('  \n');
-}
-
-function formatBuiltinExamples(builtin: { examples?: string[] }): string | null {
-	if (!builtin.examples || builtin.examples.length === 0) return null;
-	return formatGlslCodeBlock(builtin.examples);
-}
-
-function formatUserFunctionSignature(
-	returnType: string,
-	name: string,
-	params: { type: string; name: string }[],
-): string {
-	return `${returnType} ${name}(${params.map((param) => `${param.type} ${param.name}`).join(', ')})`;
 }
 
 // Completion range: start = word start, end = end of full word at position (for mid-word replace)
@@ -945,63 +793,45 @@ function registerCompletion(monaco: typeof Monaco): Monaco.IDisposable {
 					insertText:      isVar ? name : `${name}($0)`,
 					insertTextRules: isVar ? undefined : CITR.InsertAsSnippet,
 					detail:          doc.signature.split('\n')[0],
-					documentation:   { value: doc.description },
+					documentation:   { value: hoverBody(doc.unavailable && `⚠️ ${doc.unavailable}`, doc.extension && `Needs \`#extension ${doc.extension} : enable\`.`, doc.description, doc.examples && formatGlslCodeBlock(doc.examples)) },
+					/** Struck through and sorted last, the linter reports them as compile errors. */
+					tags:            doc.unavailable ? [monaco.languages.CompletionItemTag.Deprecated] : undefined,
+					sortText:        doc.unavailable ? `9${name}` : undefined,
 					range,
 				});
 			}
 
-			for (const v of docInfo.variables) {
-				if (BUILTIN_DOCS[v.name] || GLSL_TYPES.includes(v.name)) continue;
-				if (inCallCtx && !isTypeAcceptable(v.type, expectedTypes!)) continue;
-				suggestions.push({
-					label:         { label: v.name, description: v.type },
-					kind:          v.qualifier === 'uniform'   ? CIK.Constant
-					             : v.qualifier === 'attribute' ? CIK.Field
-					             : CIK.Variable,
-					insertText:    v.name,
-					detail:        [v.qualifier, v.type].filter(Boolean).join(' '),
-					documentation: { value: `**${v.qualifier ?? 'variable'}** \`${v.type} ${v.name}\`  \nDeclared at line ${v.line}` },
-					range,
-				});
-			}
-
-			for (const fn of docInfo.functions) {
-				if (BUILTIN_DOCS[fn.name]) continue;
-				if (inCallCtx && !isTypeAcceptable(fn.returnType, expectedTypes!)) continue;
-				const paramList = fn.params.map((p) => `${p.type} ${p.name}`).join(', ');
-				suggestions.push({
-					label:           { label: fn.name, description: fn.returnType },
-					kind:            CIK.Function,
-					insertText:      `${fn.name}($0)`,
-					insertTextRules: CITR.InsertAsSnippet,
-					detail:          `${fn.returnType} ${fn.name}(${paramList})`,
-					documentation:   { value: `User-defined function at line ${fn.line}` },
-					range,
-				});
-			}
-
-			for (const st of docInfo.structs) {
-				const fieldList = st.fields.map((f) => `  ${f.type} ${f.name};`).join('\n');
-				suggestions.push({
-					label:         st.name,
-					kind:          CIK.Struct,
-					insertText:    st.name,
-					detail:        `struct ${st.name}`,
-					documentation: { value: `\`\`\`glsl\nstruct ${st.name} {\n${fieldList}\n}\n\`\`\`\n\nUser-defined struct at line ${st.line}` },
-					range,
-				});
-			}
-
-			// Defines are always shown (their type is unknown at parse time)
-			for (const def of docInfo.defines) {
-				suggestions.push({
-					label:         def.name,
-					kind:          CIK.Constant,
-					insertText:    def.name,
-					detail:        `#define ${def.name} ${def.value}`,
-					documentation: { value: `Preprocessor macro at line ${def.line}` },
-					range,
-				});
+			/** Locals in scope first, then this buffer's globals, then the other buffers' (Common shares its scope with every pass). */
+			const seen = new Set<string>();
+			const docs = getWorkspaceDocs(monaco);
+			const enclosing = docInfo.functions.find((fn) => position.lineNumber >= fn.line && position.lineNumber <= fn.bodyEndLine);
+			const locals = enclosing?.localVariables.filter((variable) => variable.line <= position.lineNumber && position.lineNumber <= variable.scopeEndLine).reverse() ?? [];
+			const documentation = (code: string, comment: string | null) => ({ value: hoverBody(formatGlslCodeBlock([code]), comment) });
+			const addVariable = (variable: GlslVariable, kind: Monaco.languages.CompletionItemKind, sortPrefix: string) => {
+				if (seen.has(variable.name) || (inCallCtx && !isTypeAcceptable(variable.type, expectedTypes!))) return;
+				seen.add(variable.name);
+				suggestions.push({ detail: declarationLine(variable), documentation: documentation(`${declarationLine(variable)};`, variable.comment), insertText: variable.name, kind, label: { description: variable.type, label: variable.name }, range, sortText: `${sortPrefix}${variable.name}` });
+			};
+			for (const variable of locals) addVariable(variable, CIK.Variable, '0');
+			for (const { doc } of [...docs.filter((entry) => entry.model === model), ...docs.filter((entry) => entry.model !== model)]) {
+				for (const variable of doc.variables) addVariable(variable, variable.qualifier === 'uniform' || variable.qualifier === 'const' ? CIK.Constant : CIK.Variable, '1');
+				for (const fn of doc.functions) {
+					if (seen.has(fn.name) || (inCallCtx && !isTypeAcceptable(fn.returnType, expectedTypes!))) continue;
+					seen.add(fn.name);
+					suggestions.push({ detail: functionSignature(fn), documentation: documentation(functionSignature(fn), fn.comment), insertText: `${fn.name}($0)`, insertTextRules: CITR.InsertAsSnippet, kind: CIK.Function, label: { description: fn.returnType, label: fn.name }, range, sortText: `1${fn.name}` });
+				}
+				for (const struct of doc.structs) {
+					if (seen.has(struct.name)) continue;
+					seen.add(struct.name);
+					suggestions.push({ detail: `struct ${struct.name}`, documentation: documentation(`struct ${struct.name} {\n${struct.fields.map((field) => `  ${field.type} ${field.name};`).join('\n')}\n};`, struct.comment), insertText: struct.name, kind: CIK.Struct, label: struct.name, range });
+				}
+				/** Macros are always offered, their type is unknown until expansion. */
+				for (const define of doc.defines) {
+					if (seen.has(define.name)) continue;
+					seen.add(define.name);
+					const signature = `#define ${define.name}${define.params ? `(${define.params.join(', ')})` : ''} ${define.value}`;
+					suggestions.push({ detail: signature, documentation: documentation(signature, define.comment), insertText: define.name, kind: CIK.Constant, label: define.name, range });
+				}
 			}
 
 			return { suggestions };
@@ -1009,326 +839,240 @@ function registerCompletion(monaco: typeof Monaco): Monaco.IDisposable {
 	});
 }
 
+/** Markdown sections of a hover, Monaco draws a separator between them. */
+type HoverSections = string[];
+
+/** Types GLSL ES 1.00 (WebGL 1) doesn't have. */
+const ES3_ONLY_TYPE_RE = /^(?:uint|uvec[234]|mat[234]x[234]|sampler3D|sampler2DShadow|samplerCubeShadow)$/;
+
+/** Buffer names shown in hovers for symbols from another buffer, filled by the editor. */
+export const modelLabels = new WeakMap<Monaco.editor.ITextModel, string>();
+
+function declarationLine(variable: GlslVariable): string {
+	const qualifier = variable.qualifier && variable.qualifier !== 'in' ? `${variable.qualifier} ` : '';
+	const array = variable.arraySize !== undefined ? `[${variable.arraySize}]` : '';
+	const initializer = variable.initializer ? ` = ${variable.initializer}` : '';
+	return `${qualifier}${variable.type} ${variable.name}${array}${initializer}`;
+}
+
+function functionSignature(fn: GlslFunction): string {
+	return `${fn.returnType} ${fn.name}(${fn.params.map(declarationLine).join(', ')})`;
+}
+
+/** "*Kind* · Buffer · [line 12]" with a link that jumps to the declaration, across buffers too. */
+function locationLine(kind: string, hovered: Monaco.editor.ITextModel, target: Monaco.editor.ITextModel, symbol: { line: number; column: number }): string {
+	const buffer = target === hovered ? '' : ` · ${modelLabels.get(target) ?? target.uri.path.slice(1)}`;
+	return `*${kind}*${buffer} · ${buildGotoPositionLink(symbol.line, symbol.column, `line ${symbol.line}`, target === hovered ? undefined : target.uri.toString())}`;
+}
+
+function hoverBody(...parts: (string | null | undefined | false)[]): string {
+	return parts.filter(Boolean).join('\n\n');
+}
+
+/** Replaces the generic types of a builtin overload with the ones the call arguments resolved to: `mix(a, b, 0.5)` with `vec3` arguments shows `vec3 mix(vec3 x, vec3 y, float a)`. */
+function concreteOverload(overload: BuiltinOverload, inferred: (string | null)[]): string | null {
+	const generic = overload.params.findIndex((param, index) => /\b(?:gen[IB]?Type|[ib]?vecN|matN)\b/.test(param.type) && inferred[index] && /^(?:float|int|bool|[ib]?vec[234]|mat[234])$/.test(inferred[index]!));
+	if (generic < 0) return null;
+	const size = Number(/\d/.exec(inferred[generic]!)?.[0] ?? 1);
+	const concrete = (type: string) => expandAbstractType(type, size, size, size);
+	return `${concrete(overload.returnType)} ${overload.functionName}(${overload.params.map((param) => `${concrete(param.type)} ${param.name}`).join(', ')})`;
+}
+
+function builtinHover(model: Monaco.editor.ITextModel, position: Monaco.Position, name: string, builtin: GlslDoc, lineText: string, wordEndColumn: number): HoverSections {
+	const overloads = parseBuiltinOverloads(builtin.signature);
+	if (overloads.length === 0) return [formatGlslCodeBlock([`${builtin.signature};`]), hoverBody(builtin.description, builtin.details), ...(builtin.examples ? ['**Examples**', formatGlslCodeBlock(builtin.examples)] : [])];
+
+	const activeCursor = getActiveCursorPositionForModel(model, position);
+	const callInfo = extractCallInfoAtFunctionName(lineText, wordEndColumn, activeCursor.lineNumber === position.lineNumber ? activeCursor.column : null);
+	const resolution = callInfo ? resolveBuiltinOverload(name, callInfo.args, analyzeModel(model), position.lineNumber) : null;
+	const selected = resolution?.overload ?? overloads[0];
+	const concrete = resolution ? concreteOverload(selected, resolution.inferredTypes) : null;
+
+	/** Every overload with its generic types spelled out, the selected one first and the line matching the call marked with an arrow. */
+	const ordered = [selected, ...overloads.filter((overload) => overload !== selected)];
+	const signatures = [...new Set(ordered.flatMap(expandBuiltinOverload))];
+	const marked = resolution ? (concrete && signatures.includes(concrete) ? concrete : signatures[0]) : null;
+
+	return [
+		formatGlslCodeBlock(signatures.map((signature) => (signature === marked ? `→ ${signature}` : signature))),
+		...[
+			builtin.unavailable && `⚠️ **Not available in WebGL 1.** ${builtin.unavailable}`,
+			builtin.extension && `🧩 Needs \`#extension ${builtin.extension} : enable\` at the top of the shader.`,
+			formatBuiltinParameterDocs(builtin, selected, callInfo?.activeArgIndex ?? null),
+			builtin.returns && `**Returns**  \n${builtin.returns}`,
+			hoverBody(builtin.description, builtin.details),
+			...(builtin.examples ? ['**Examples**', formatGlslCodeBlock(builtin.examples)] : []),
+		].filter((section): section is string => Boolean(section)),
+	];
+}
+
+function expandBuiltinOverload(overload: BuiltinOverload): string[] {
+	const generic = /\bgen[IB]?Type\b/.test(overload.raw);
+	const hasN = /\b(?:[iub]?vecN|matN|matNxM|matMxN)\b/.test(overload.raw);
+	const hasM = /\b(?:vecM|matNxM|matMxN)\b/.test(overload.raw);
+	const variants = new Set<string>();
+	for (const dimension of generic ? [1, 2, 3, 4] : [2]) {
+		for (const n of hasN ? [2, 3, 4] : [2]) {
+			for (const m of hasM ? [2, 3, 4] : [2]) {
+				const expand = (type: string) => expandAbstractType(type, dimension, n, m);
+				variants.add(`${expand(overload.returnType)} ${overload.functionName}(${overload.params.map((param) => `${expand(param.type)} ${param.name}`).join(', ')})`);
+			}
+		}
+	}
+	return [...variants];
+}
+
+/** Parameter list of the overload, the argument under the cursor marked with an arrow. */
+function formatBuiltinParameterDocs(builtin: GlslDoc, overload: BuiltinOverload, activeParamIndex: number | null): string | null {
+	if (overload.params.length === 0) return null;
+	const lines = overload.params.map((param, index) => {
+		const detail = builtin.params?.[param.name] ?? PARAMETER_FALLBACK_DOCS[param.name];
+		return `${activeParamIndex === index ? '**→** ' : '- '}\`${param.name}\` (\`${param.type}\`)${detail ? `: ${detail}` : ''}`;
+	});
+	return ['**Parameters**', ...lines].join('  \n');
+}
+
+/** Number of components and scalar family of a constructor argument type, `vec3` → 3. */
+function componentCount(type: string): number | null {
+	if (/^(?:float|int|bool)$/.test(type)) return 1;
+	const size = /^[ib]?vec([234])$/.exec(type)?.[1];
+	return size ? Number(size) : null;
+}
+
+/**
+ * Constructor overload matching the argument types of the call at `wordEnd`, constructors convert between float, int and bool so only the
+ * component counts must line up. An argument of unknown type matches anything, the overload with the fewest unknowns wins.
+ */
+function activeConstructorIndex(monaco: typeof Monaco, model: Monaco.editor.ITextModel, name: string, wordStart: Monaco.IPosition): number | null {
+	const shared = monaco.editor.getModels().filter((other) => other !== model && other.getLanguageId() === 'glsl').map(modelUnit);
+	const unit = new GlslUnit(model.getValue(), shared);
+	/** The word start, its end touches the `(` token too. */
+	const index = unit.tokenAt(model.getOffsetAt(wordStart));
+	if (index < 0 || unit.text(index) !== name || unit.text(index + 1) !== '(') return null;
+	const argTypes = unit.callArgs(index + 1).map((range) => unit.expressionType(range));
+	let best: { index: number; unknowns: number } | null = null;
+	buildTypeConstructorOverloads(name)?.forEach((overload, overloadIndex) => {
+		if (overload.params.length !== argTypes.length) return;
+		let unknowns = 0;
+		for (const [argIndex, param] of overload.params.entries()) {
+			const argType = argTypes[argIndex];
+			if (argType === null || componentCount(argType) === null) unknowns++;
+			else if (componentCount(argType) !== componentCount(param.type)) return;
+		}
+		if (!best || unknowns < best.unknowns) best = { index: overloadIndex, unknowns };
+	});
+	return (best as { index: number } | null)?.index ?? null;
+}
+
+function typeHover(monaco: typeof Monaco, model: Monaco.editor.ITextModel, position: Monaco.Position, name: string, wordStartColumn: number): HoverSections {
+	const typeDoc = TYPE_DOCS[name];
+	const activeConstructor = activeConstructorIndex(monaco, model, name, { column: wordStartColumn, lineNumber: position.lineNumber });
+	/** The matched constructor goes first, long lists (vec4 has 10) would push it below the hover's scroll limit. */
+	const constructors = buildTypeConstructorOverloads(name)
+		?.map((overload, index) => `${index === activeConstructor ? '→ ' : '  '}${name}(${overload.params.map((param) => param.type).join(', ')})`)
+		.sort((a, b) => Number(b.startsWith('→')) - Number(a.startsWith('→')));
+	const swizzleSets = typeDoc.components ? [0, 1, 2].map((set) => `\`${typeDoc.components!.map((component) => component[set]).join('')}\``).join(' · ') : null;
+	return [
+		formatGlslCodeBlock([typeDoc.struct]),
+		hoverBody(
+			ES3_ONLY_TYPE_RE.test(name) && '⚠️ **Not available here.** GLSL ES 3.00 only, WebGL 1 (GLSL ES 1.00) doesn\'t have this type.',
+			typeDoc.description,
+			swizzleSets && `Components ${swizzleSets}, swizzles mix them freely within one set: \`v.zyx\`, \`v.rrr\`.`,
+		),
+		...(constructors ? [`**Constructors**\n${formatGlslCodeBlock(constructors)}`] : []),
+	];
+}
+
+/** Hover of the identifier after a `.`: struct field or swizzle. */
+function memberHover(monaco: typeof Monaco, model: Monaco.editor.ITextModel, position: Monaco.Position, name: string, lineText: string, wordStartColumn: number): HoverSections | null {
+	const owner = resolveMemberChain(monaco, model, lineText.slice(0, wordStartColumn - 2), position.lineNumber);
+	if (!owner) return null;
+	for (const { doc, model: target } of getWorkspaceDocs(monaco)) {
+		const field = doc.structs.find((struct) => struct.name === owner.type)?.fields.find((candidate) => candidate.name === name);
+		if (field) return [formatGlslCodeBlock([`${field.type} ${owner.type}.${field.name}`]), hoverBody(field.comment, locationLine(`Field of ${owner.type}`, model, target, field))];
+	}
+	if (!getSwizzles(owner.type).includes(name)) return null;
+	const resultType = swizzleResultType(owner.type, name);
+	const repeats = new Set(name).size !== name.length;
+	return [
+		formatGlslCodeBlock([`${resultType} ${owner.expression}.${name}`]),
+		hoverBody(
+			`Swizzle of \`${owner.type} ${owner.expression}\`, picks ${[...name].map((component) => `\`${component}\``).join(', ')}.`,
+			repeats && 'It repeats a component, so it can be read but not assigned.',
+		),
+	];
+}
+
+function variableHover(kind: string, variable: GlslVariable, hovered: Monaco.editor.ITextModel, target: Monaco.editor.ITextModel): HoverSections {
+	const engine = variable.qualifier === 'uniform' ? UNIFORM_DOCS[variable.name] : undefined;
+	return [
+		formatGlslCodeBlock([`${declarationLine(variable)};`]),
+		hoverBody(variable.comment, engine && `${engine.description} Set by Shayders every frame.`, locationLine(kind, hovered, target, variable)),
+	];
+}
+
 function registerHover(monaco: typeof Monaco): Monaco.IDisposable {
 	return monaco.languages.registerHoverProvider('glsl', {
 		provideHover(model, position): Monaco.languages.Hover | null {
 			const word = model.getWordAtPosition(position);
 			if (!word) return null;
-			const workspaceDocs = getWorkspaceDocs(monaco);
-
 			const name = word.word;
-			const range: Monaco.IRange = {
-				startLineNumber: position.lineNumber,
-				endLineNumber:   position.lineNumber,
-				startColumn:     word.startColumn,
-				endColumn:       word.endColumn,
-			};
+			const lineText = model.getLineContent(position.lineNumber);
+			const before = lineText.slice(0, word.startColumn - 1);
+			const sections = ((): HoverSections | null => {
+				if (/#\s*$/.test(before) && PREPROCESSOR_DOCS[name]) return [formatGlslCodeBlock([`#${name}`]), PREPROCESSOR_DOCS[name]];
+				if (/\.\s*$/.test(before)) return memberHover(monaco, model, position, name, lineText, word.startColumn);
 
-			// Member access: swizzle or struct field after a dot
-			const lineText  = model.getLineContent(position.lineNumber);
-			const charBefore = lineText[word.startColumn - 2];
-			if (charBefore === '.') {
-				const owner = resolveMemberChain(monaco, model, lineText.slice(0, word.startColumn - 2), position.lineNumber);
-				if (owner) {
-					const { expression: ownerName, type: ownerType } = owner;
-					{
-						// Struct field
-						const structM = workspaceDocs
-							.map((entry) => entry.doc.structs.find((struct) => struct.name === ownerType))
-							.find((struct): struct is NonNullable<typeof struct> => struct !== undefined);
-						if (structM) {
-							const field = structM.fields.find((f) => f.name === name);
-							if (field) {
-								const contents: Monaco.IMarkdownString[] = [
-									{ value: formatGlslCodeBlock([`${field.type} ${ownerType}.${field.name};`]), isTrusted: true },
-									{ value: `Field of struct \`${ownerType}\`.`, isTrusted: true },
-								];
-								return {
-									range,
-									contents,
-								};
-							}
-						}
-						// Swizzle
-						const swizzles = getSwizzles(ownerType);
-						if (swizzles.includes(name)) {
-							const resultType = swizzleResultType(ownerType, name);
-							const contents: Monaco.IMarkdownString[] = [
-								{ value: formatGlslCodeBlock([`${resultType} value = ${ownerName}.${name};`]), isTrusted: true },
-								{ value: `Swizzle from \`${ownerType}\` to \`${resultType}\`.`, isTrusted: true },
-							];
-							return {
-								range,
-								contents,
-							};
-						}
-					}
-				}
-			}
-
-			// Built-in function or variable
-			const builtin = BUILTIN_DOCS[name];
-			if (builtin) {
 				const doc = analyzeModel(model);
-				const builtinLine = builtin.signature.split('\n')[0] ?? '';
-				const activeCursor = getActiveCursorPositionForModel(model, position);
-				const activeCursorColumn = activeCursor.lineNumber === position.lineNumber
-					? activeCursor.column
-					: null;
-
-				const callInfo = extractCallInfoAtFunctionName(lineText, word.endColumn, activeCursorColumn);
-				const overloadResolution = callInfo
-					? resolveBuiltinOverload(name, callInfo.args, doc, position.lineNumber)
-					: null;
-
-				const overloads = parseBuiltinOverloads(builtin.signature);
-				const selectedRaw = overloadResolution?.overload.raw ?? overloads[0]?.raw ?? null;
-				const selectedIndex = selectedRaw
-					? Math.max(0, overloads.findIndex((overload) => overload.raw === selectedRaw))
-					: 0;
-
-				const orderedOverloads = overloads
-					.map((overload, index) => ({ overload, index }))
-					.sort((a, b) => {
-						if (a.index === selectedIndex && b.index !== selectedIndex) return -1;
-						if (b.index === selectedIndex && a.index !== selectedIndex) return 1;
-						return a.index - b.index;
-					});
-
-				const contents: Monaco.IMarkdownString[] = [];
-				const selectedOverload = overloadResolution?.overload ?? overloads[selectedIndex] ?? overloads[0] ?? null;
-				const activeParamIndex = callInfo?.activeArgIndex ?? null;
-
-				if (orderedOverloads.length > 0) {
-					const expandedSignatures: string[] = [];
-					const seen = new Set<string>();
-					let activeSignatureMarked = false;
-					for (const { overload } of orderedOverloads) {
-						const isSelected = selectedOverload?.raw === overload.raw;
-						for (const expanded of expandBuiltinOverload(overload)) {
-							if (seen.has(expanded)) continue;
-							seen.add(expanded);
-							if (!activeSignatureMarked && isSelected) {
-								expandedSignatures.push(`→ ${expanded}`);
-								activeSignatureMarked = true;
-							} else {
-								expandedSignatures.push(expanded);
-							}
-						}
-					}
-					contents.push({
-						value: formatGlslCodeBlock(expandedSignatures),
-						isTrusted: true,
-					});
-				} else {
-					const builtinVarMatch = builtinLine.match(/^(\S+)\s+([a-zA-Z_]\w*)$/);
-					contents.push({ value: formatGlslCodeBlock([builtinVarMatch ? `${builtinVarMatch[1]} ${builtinVarMatch[2]};` : builtinLine]), isTrusted: true });
+				const local = findLocal(doc, name, position.lineNumber);
+				if (local) {
+					const isParam = local.fn.params.includes(local.variable);
+					return variableHover(`${isParam ? 'Parameter of' : 'Local variable in'} ${local.fn.name}()`, local.variable, model, model);
 				}
 
-				const paramDocs = formatBuiltinParameterDocs(builtin, selectedOverload, activeParamIndex);
-				if (paramDocs) contents.push({ value: paramDocs, isTrusted: true });
-				if (builtin.returns) contents.push({ value: `**Returns**  \n${builtin.returns}`, isTrusted: true });
-				contents.push({ value: builtin.description, isTrusted: true });
-				const exampleBlock = formatBuiltinExamples(builtin);
-				if (exampleBlock) {
-					contents.push({ value: '**Examples**', isTrusted: true });
-					contents.push({ value: exampleBlock, isTrusted: true });
-				}
+				const builtin = BUILTIN_DOCS[name];
+				if (builtin) return builtinHover(model, position, name, builtin, lineText, word.endColumn);
+				if (TYPE_DOCS[name]) return typeHover(monaco, model, position, name, word.startColumn);
 
-				return {
-					range,
-					contents,
-				};
-			}
-
-			// GLSL type
-			const typeDoc = TYPE_DOCS[name];
-			if (typeDoc) {
-				const doc = analyzeModel(model);
-				const activeCursor = getActiveCursorPositionForModel(model, position);
-				const activeCursorColumn = activeCursor.lineNumber === position.lineNumber
-					? activeCursor.column
-					: null;
-				const callInfo = extractCallInfoAtFunctionName(lineText, word.endColumn, activeCursorColumn);
-				const activeConstructorIndex = callInfo
-					? resolveTypeConstructorOverloadIndex(name, callInfo.args, doc, position.lineNumber)
-					: null;
-				const constructorDocs = formatTypeConstructorOverloadList(name, activeConstructorIndex);
-				const contents: Monaco.IMarkdownString[] = [
-					{ value: `\`\`\`glsl\n${typeDoc.struct}\n\`\`\``, isTrusted: true },
-					...(constructorDocs ? [{ value: `**Constructors**  \n${formatGlslCodeBlock(constructorDocs)}`, isTrusted: true }] : []),
-					{ value: typeDoc.description, isTrusted: true },
-				];
-				return {
-					range,
-					contents,
-				};
-			}
-
-			// User-defined symbols
-			const doc = analyzeModel(model);
-
-			// Local variable inside a function
-			const enclosingFn = doc.functions.find(
-				(f) => position.lineNumber >= f.line && position.lineNumber <= f.bodyEndLine,
-			);
-			const localVar = enclosingFn?.localVariables.find((v) => v.name === name);
-			if (localVar) {
-				const param = enclosingFn?.params.find((v) => v.name === name);
-				const declarationText = param
-					? formatFunctionParameterText(model, localVar.line, enclosingFn?.name ?? 'anonymous', localVar.name)
-					: formatLineScopedText('Local variable declared at', model, localVar.line, localVar.name);
-				const contents: Monaco.IMarkdownString[] = [
-					{
-						value: formatGlslCodeBlock([`${localVar.type} ${localVar.name};`]),
-						isTrusted: true,
-					},
-					{ value: declarationText, isTrusted: true },
-				];
-				return {
-					range,
-					contents,
-				};
-			}
-
-			const workspaceMatch = findWorkspaceSymbol(monaco, name, model, position.lineNumber);
-			if (workspaceMatch?.model && workspaceMatch.line > 0) {
-				const targetModel = workspaceMatch.model;
-				const targetLineText = targetModel.getLineContent(workspaceMatch.line);
-				const targetCol = targetLineText.indexOf(name);
-				const startColumn = targetCol >= 0 ? targetCol + 1 : 1;
-				const endColumn = targetCol >= 0 ? targetCol + name.length + 1 : Number.MAX_SAFE_INTEGER;
-				const contents: Monaco.IMarkdownString[] = [];
-
-				if (workspaceMatch.kind === 'function' && workspaceMatch.type) {
-					const fn = workspaceDocs.find((entry) => entry.model.uri.toString() === targetModel.uri.toString())?.doc.functions.find((functionDoc) => functionDoc.name === name);
-					if (fn) {
-						const params = fn.params.map((param) => ({
-							type: `${param.qualifier && param.qualifier !== 'in' ? `${param.qualifier} ` : ''}${param.type}`,
-							name: param.name,
-						}));
-						contents.push({ value: formatGlslCodeBlock([formatUserFunctionSignature(fn.returnType, fn.name, params)]), isTrusted: true });
-						if (params.length > 0) {
-							contents.push({ value: ['**Parameters**', ...params.map((param) => `- \`${param.name}\` (\`${param.type}\`)`)].join('  \n'), isTrusted: true });
-						}
-						contents.push({ value: formatLineScopedText('User-defined function at', targetModel, fn.line, fn.name), isTrusted: true });
+				const docs = getWorkspaceDocs(monaco);
+				const ordered = [...docs.filter((entry) => entry.model === model), ...docs.filter((entry) => entry.model !== model)];
+				for (const { doc: entryDoc, model: target } of ordered) {
+					const functions = entryDoc.functions.filter((fn) => fn.name === name);
+					if (functions.length > 0) {
+						return [
+							formatGlslCodeBlock(functions.map(functionSignature)),
+							...(functions[0].params.length > 0 ? [['**Parameters**', ...functions[0].params.map((param) => `- \`${param.name}\` (\`${declarationLine({ ...param, initializer: undefined, name: '' }).trim()}\`)${param.comment ? `: ${param.comment}` : ''}`)].join('  \n')] : []),
+							hoverBody(
+								functions.find((fn) => fn.comment)?.comment,
+								locationLine(functions.length > 1 ? `Function, ${functions.length} overloads` : 'Function', model, target, functions[0]),
+							),
+						];
 					}
-				} else if (workspaceMatch.kind === 'struct') {
-					const struct = workspaceDocs.find((entry) => entry.model.uri.toString() === targetModel.uri.toString())?.doc.structs.find((structDoc) => structDoc.name === name);
+					const struct = entryDoc.structs.find((candidate) => candidate.name === name);
 					if (struct) {
-						const fields = struct.fields.map((field) => `  ${field.type} ${field.name};`).join('\n');
-						contents.push({ value: `\`\`\`glsl\nstruct ${struct.name} {\n${fields}\n}\n\`\`\``, isTrusted: true });
-						contents.push({ value: formatLineScopedText('User-defined struct at', targetModel, struct.line, struct.name), isTrusted: true });
+						const fields = struct.fields.map((field) => `  ${field.type} ${field.name};${field.comment ? ` // ${field.comment.replace(/ {2}\n/g, ' ')}` : ''}`);
+						return [formatGlslCodeBlock([`struct ${struct.name} {`, ...fields, '};']), hoverBody(struct.comment, `Its name is also its constructor: \`${struct.name}(${struct.fields.map((field) => field.type).join(', ')})\`.`, locationLine('Struct', model, target, struct))];
 					}
-				} else if (workspaceMatch.kind === 'variable') {
-					const variable = workspaceDocs.find((entry) => entry.model.uri.toString() === targetModel.uri.toString())?.doc.variables.find((docVariable) => docVariable.name === name);
-					if (variable) {
-						const qualifier = variable.qualifier ? `${variable.qualifier} ` : '';
-						contents.push({ value: formatGlslCodeBlock([`${qualifier}${variable.type} ${variable.name};`.trim()]), isTrusted: true });
-						contents.push({ value: formatLineScopedText('Declared at', targetModel, variable.line, variable.name), isTrusted: true });
-					}
-				} else if (workspaceMatch.kind === 'define') {
-					const def = workspaceDocs.find((entry) => entry.model.uri.toString() === targetModel.uri.toString())?.doc.defines.find((define) => define.name === name);
-					if (def) {
-						contents.push({ value: `\`\`\`glsl\n#define ${def.name} ${def.value}\n\`\`\``, isTrusted: true });
-						contents.push({ value: formatLineScopedText('Preprocessor macro at', targetModel, def.line, def.name), isTrusted: true });
+					const variable = entryDoc.variables.find((candidate) => candidate.name === name);
+					if (variable) return variableHover(variable.qualifier === 'uniform' ? 'Uniform' : variable.qualifier === 'const' ? 'Constant' : 'Global variable', variable, model, target);
+					const define = entryDoc.defines.find((candidate) => candidate.name === name);
+					if (define) {
+						const params = define.params ? `(${define.params.join(', ')})` : '';
+						return [formatGlslCodeBlock([`#define ${define.name}${params} ${define.value}`]), hoverBody(define.comment, locationLine(define.params ? 'Function-like macro' : 'Macro', model, target, define))];
 					}
 				}
 
-				if (contents.length > 0) {
-					return {
-						range: {
-							startLineNumber: position.lineNumber,
-							endLineNumber: position.lineNumber,
-							startColumn,
-							endColumn,
-						},
-						contents,
-					};
-				}
-			}
-
-			const fn = doc.functions.find((f) => f.name === name);
-			if (fn) {
-				const activeCursor = getActiveCursorPositionForModel(model, position);
-				const callCtx = activeCursor.lineNumber === position.lineNumber
-					? inferCallContext(lineText, activeCursor.column - 1)
-					: null;
-				const activeParamIndex = callCtx?.fnName === fn.name ? callCtx.argIndex : null;
-				const params = fn.params.map((param) => ({
-					type: `${param.qualifier && param.qualifier !== 'in' ? `${param.qualifier} ` : ''}${param.type}`,
-					name: param.name,
-				}));
-				const contents: Monaco.IMarkdownString[] = [
-					{
-						value: formatGlslCodeBlock([formatUserFunctionSignature(fn.returnType, fn.name, params)]),
-						isTrusted: true,
-					},
-					...(params.length > 0
-						? [{
-							value: ['**Parameters**', ...params.map((param, index) => `${activeParamIndex === index ? '**→** ' : '- '}\`${param.name}\` (\`${param.type}\`)`)].join('  \n'),
-							isTrusted: true,
-						}]
-						: []),
-						{ value: formatLineScopedText('User-defined function at', model, fn.line, fn.name), isTrusted: true },
-				];
-				return {
-					range,
-					contents,
-				};
-			}
-
-			const struct = doc.structs.find((s) => s.name === name);
-			if (struct) {
-				const fields = struct.fields.map((f) => `  ${f.type} ${f.name};`).join('\n');
-				return {
-					range,
-					contents: [
-						{ value: `\`\`\`glsl\nstruct ${struct.name} {\n${fields}\n}\n\`\`\``, isTrusted: true },
-						{ value: formatLineScopedText('User-defined struct at', model, struct.line, struct.name), isTrusted: true },
-					],
-				};
-			}
-
-			const variable = doc.variables.find((v) => v.name === name);
-			if (variable) {
-				const uniformDoc = variable.qualifier === 'uniform' ? UNIFORM_DOCS[variable.name] : undefined;
-				if (uniformDoc) {
-					const contents: Monaco.IMarkdownString[] = [
-						{ value: formatGlslCodeBlock([`${uniformDoc.signature};`]), isTrusted: true },
-						{ value: uniformDoc.description, isTrusted: true },
-					];
-					return {
-						range,
-						contents,
-					};
-				}
-				const qualifier = variable.qualifier ? `${variable.qualifier} ` : '';
-				const contents: Monaco.IMarkdownString[] = [
-					{
-						value: formatGlslCodeBlock([`${qualifier}${variable.type} ${variable.name};`.trim()]),
-						isTrusted: true,
-					},
-						{ value: formatLineScopedText('Declared at', model, variable.line, variable.name), isTrusted: true },
-				];
-				return {
-					range,
-					contents,
-				};
-			}
-
-			const def = doc.defines.find((d) => d.name === name);
-			if (def) {
-				return {
-					range,
-					contents: [
-						{ value: `\`\`\`glsl\n#define ${def.name} ${def.value}\n\`\`\``, isTrusted: true },
-						{ value: formatLineScopedText('Preprocessor macro at', model, def.line, def.name), isTrusted: true },
-					],
-				};
-			}
-
-			return null;
+				const uniform = UNIFORM_DOCS[name];
+				if (uniform) return [formatGlslCodeBlock([`${uniform.signature};`]), hoverBody(uniform.description, `⚠️ Not declared in this buffer, add \`${uniform.signature};\` to read it.`)];
+				if (KEYWORD_DOCS[name]) return [formatGlslCodeBlock([name]), KEYWORD_DOCS[name]];
+				if (PREDEFINED_MACRO_DOCS[name]) return [formatGlslCodeBlock([`#define ${name}`]), hoverBody(PREDEFINED_MACRO_DOCS[name], '*Predefined macro*')];
+				return null;
+			})();
+			if (!sections) return null;
+			return {
+				contents: sections.map((value) => ({ isTrusted: true, supportThemeIcons: true, value })),
+				range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
+			};
 		},
 	});
 }
@@ -1339,24 +1083,12 @@ function registerDefinition(monaco: typeof Monaco): Monaco.IDisposable {
 			const word = model.getWordAtPosition(position);
 			if (!word) return null;
 
-			const name = word.word;
-			const workspaceSymbol = findWorkspaceSymbol(monaco, name, model, position.lineNumber);
-			if (!workspaceSymbol?.model) return null;
-
-			const targetModel = workspaceSymbol.model;
-			const lineText = targetModel.getLineContent(workspaceSymbol.line);
-			const colStart = lineText.indexOf(name);
-			const startCol = colStart >= 0 ? colStart + 1 : 1;
-			const endCol   = colStart >= 0 ? colStart + name.length + 1 : Number.MAX_SAFE_INTEGER;
-
+			if (/\.\s*$/.test(model.getLineContent(position.lineNumber).slice(0, word.startColumn - 1))) return null;
+			const symbol = findWorkspaceSymbol(monaco, word.word, model, position.lineNumber);
+			if (!symbol) return null;
 			return {
-				uri:   targetModel.uri,
-				range: {
-					startLineNumber: workspaceSymbol.line,
-					endLineNumber:   workspaceSymbol.line,
-					startColumn:     startCol,
-					endColumn:       endCol,
-				},
+				range: new monaco.Range(symbol.line, symbol.column, symbol.line, symbol.column + word.word.length),
+				uri: symbol.model.uri,
 			};
 		},
 	});
@@ -1407,7 +1139,7 @@ function registerSignatureHelp(monaco: typeof Monaco): Monaco.IDisposable {
 						.join(', ');
 					sigSource = {
 						signature:   `${fn.returnType} ${fn.name}(${paramList})`,
-						description: `User-defined at line ${fn.line}`,
+						description: fn.comment ?? `User-defined at line ${fn.line}`,
 					};
 				}
 			}
@@ -1464,6 +1196,7 @@ function constructorComponents(typeName: string): string[] {
 function argComponentCount(
 	arg: string,
 	docInfo: GlslDocument,
+	lineNumber: number,
 ): number {
 	const trimmed = arg.trim();
 	// Trailing swizzle: word.xyzw / word.rgba / word.stpq
@@ -1473,7 +1206,7 @@ function argComponentCount(
 	// Simple identifier - try to resolve its type
 	const identMatch = trimmed.match(/^([a-zA-Z_]\w*)$/);
 	if (identMatch) {
-		const varType = resolveType(docInfo, identMatch[1]);
+		const varType = resolveScopedType(docInfo, identMatch[1], lineNumber);
 		if (varType) {
 			const vecMatch = varType.match(/(?:vec|ivec|uvec|bvec)(\d)/);
 			if (vecMatch) return parseInt(vecMatch[1], 10);
@@ -1540,7 +1273,7 @@ function registerInlayHints(monaco: typeof Monaco): Monaco.IDisposable {
 
 						const flushArg = (hintCol: number, buf: string, isOnlyArg: boolean = false) => {
 							if (hintCol < 0 || slotIdx >= components.length) return;
-							let count = argComponentCount(buf, docInfo);
+							let count = argComponentCount(buf, docInfo, lineNum);
 							const remainingSlots = components.length - slotIdx;
 
 							// If single argument that doesn't fill all slots, broadcast it to fill remaining

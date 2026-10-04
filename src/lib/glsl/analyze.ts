@@ -1,84 +1,105 @@
 import type { editor } from 'monaco-editor/editor';
+import { type Declaration, GlslUnit, modelUnit } from '#lib/glsl/unit.js';
+
+export { stripComments } from '#lib/glsl/unit.js';
 
 /** Storage / parameter qualifier on a variable declaration */
-export type GlslQualifier = 'uniform' | 'attribute' | 'varying' | 'const' | 'in' | 'out' | 'inout';
+export type GlslQualifier = 'uniform' | 'const' | 'in' | 'out' | 'inout';
 
-export interface GlslVariable {
+interface GlslSymbol {
 	name: string;
-	type: string;
-	qualifier?: GlslQualifier;
-	/** True when declared as an array, e.g. `float arr[4]` */
-	arraySize?: number;
-	/** Line number (1-based) where the declaration was found */
+	/** 1-based position of the name. */
 	line: number;
+	column: number;
+	/** Doc comment above the declaration, or trailing on its line. */
+	comment: string | null;
 }
 
-export interface GlslFunction {
-	name: string;
+export interface GlslVariable extends GlslSymbol {
+	type: string;
+	qualifier?: GlslQualifier;
+	/** Array length as written, e.g. `4` or `MAX_LIGHTS` for `float arr[MAX_LIGHTS]`. */
+	arraySize?: string;
+	/** Initializer source with whitespace collapsed. */
+	initializer?: string;
+	/** Last line (1-based) where a local is visible, the end of its block. */
+	scopeEndLine: number;
+}
+
+export interface GlslFunction extends GlslSymbol {
 	returnType: string;
 	params: GlslVariable[];
-	line: number;
 	/** Last line (1-based) of the function body closing brace */
 	bodyEndLine: number;
+	/** Parameters and locals, in declaration order. */
 	localVariables: GlslVariable[];
 }
 
-export interface GlslDefine {
-	name: string;
+export interface GlslDefine extends GlslSymbol {
 	value: string;
-	line: number;
+	/** Parameter names of a function-like macro. */
+	params: string[] | null;
 }
 
-export interface GlslStructField {
-	name: string;
+export interface GlslStructField extends GlslSymbol {
 	type: string;
 }
 
-export interface GlslStruct {
-	name: string;
+export interface GlslStruct extends GlslSymbol {
 	fields: GlslStructField[];
-	line: number;
 }
 
 export interface GlslDocument {
+	/** Globals, uniforms and constants. */
 	variables: GlslVariable[];
 	functions: GlslFunction[];
 	defines: GlslDefine[];
 	structs: GlslStruct[];
 }
 
-// Helpers
+const MAX_INITIALIZER_LENGTH = 80;
 
-/** Built-in GLSL type pattern (no struct names - those are added dynamically). */
-const BUILTIN_TYPE_RE =
-	'(?:u?i?b?vec[234]|mat[234](?:x[234])?|sampler(?:2D|3D|Cube(?:Shadow)?|2DShadow)|float|int|uint|bool|void)';
+/** Converts the token model into the line-based symbol tables the editor providers read. */
+function documentOf(unit: GlslUnit): GlslDocument {
+	const symbolAt = (name: string, nameIndex: number, first: number, last: number): GlslSymbol => {
+		const { column, line } = unit.position(unit.tokens[nameIndex].start);
+		return { column, comment: unit.comment(first, last), line, name };
+	};
+	const lineOfToken = (index: number) => unit.position(unit.tokens[Math.min(index, unit.tokens.length - 1)].start).line;
+	const variableOf = (declaration: Declaration): GlslVariable => {
+		const isParam = declaration.kind === 'param';
+		const initializer = declaration.initStart >= 0 && declaration.initEnd > declaration.initStart
+			? unit.slice(declaration.initStart, declaration.initEnd).replace(/\s+/g, ' ')
+			: undefined;
+		const arrayOpen = declaration.nameIndex + 1;
+		return {
+			...symbolAt(declaration.name, declaration.nameIndex, isParam ? declaration.nameIndex : declaration.statementStart, isParam ? declaration.nameIndex : declaration.statementEnd),
+			arraySize: declaration.isArray ? unit.slice(arrayOpen + 1, unit.match[arrayOpen]) : undefined,
+			initializer: initializer && initializer.length > MAX_INITIALIZER_LENGTH ? `${initializer.slice(0, MAX_INITIALIZER_LENGTH - 1)}…` : initializer,
+			qualifier: (isParam ? declaration.qualifier ?? 'in' : declaration.qualifier ?? undefined) as GlslQualifier | undefined,
+			scopeEndLine: lineOfToken(declaration.scopeEnd),
+			type: declaration.type,
+		};
+	};
 
-/** Escape a string for use inside a RegExp character class or alternation. */
-function escapeReAnalyze(s: string): string {
-	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/** Build a type-pattern string that includes the given struct names. */
-function buildTypeRe(structNames: string[]): string {
-	if (structNames.length === 0) return BUILTIN_TYPE_RE;
-	// BUILTIN_TYPE_RE starts with `(?:` (3 chars) and ends with `)` (1 char)
-	return `(?:${BUILTIN_TYPE_RE.slice(3, -1)}|${structNames.map(escapeReAnalyze).join('|')})`;
-}
-
-export function stripComments(src: string): string {
-	// Replace block comments with equal-length whitespace (preserves line numbers)
-	let out = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
-	// Replace line comments
-	out = out.replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
-	return out;
-}
-
-function lineOf(src: string, index: number): number {
-	let line = 1;
-	for (let i = 0; i < index && i < src.length; i++) {
-		if (src[i] === '\n') line++;
-	}
-	return line;
+	return {
+		defines: [...unit.defines.values()].map((macro) => {
+			const { column, line } = unit.position(macro.nameStart);
+			return { column, comment: unit.comment(macro.tokenIndex, macro.tokenIndex), line, name: macro.name, params: macro.params, value: macro.value };
+		}),
+		functions: unit.functions.map((fn) => ({
+			...symbolAt(fn.name, fn.nameIndex, fn.start, fn.paramsClose),
+			bodyEndLine: lineOfToken(fn.bodyClose),
+			localVariables: unit.declarations.filter((declaration) => declaration.fn === fn).map(variableOf),
+			params: fn.params.map(variableOf),
+			returnType: fn.returnType,
+		})),
+		structs: [...unit.structs.values()].map((struct) => ({
+			...symbolAt(struct.name, struct.nameIndex, struct.start, struct.nameIndex),
+			fields: [...struct.fields].map(([name, field]) => ({ ...symbolAt(name, field.nameIndex, field.nameIndex - 1, field.nameIndex + 1), type: field.type })),
+		})),
+		variables: unit.declarations.filter((declaration) => declaration.kind === 'global' || declaration.kind === 'uniform').map(variableOf),
+	};
 }
 
 const modelAnalysis = new WeakMap<editor.ITextModel, { doc: GlslDocument; version: number }>();
@@ -88,216 +109,28 @@ export function analyzeModel(model: editor.ITextModel): GlslDocument {
 	const version = model.getVersionId();
 	const cached = modelAnalysis.get(model);
 	if (cached?.version === version) return cached.doc;
-	const doc = analyzeDocument(model.getValue());
+	const doc = documentOf(modelUnit(model));
 	modelAnalysis.set(model, { doc, version });
 	return doc;
 }
 
-// Main parser
-export function analyzeDocument(src: string): GlslDocument {
-	const clean = stripComments(src);
-
-	const variables: GlslVariable[] = [];
-	const functions: GlslFunction[] = [];
-	const defines: GlslDefine[] = [];
-	const structs: GlslStruct[] = [];
-	const seen = new Set<string>();
-
-	function addVar(v: GlslVariable) {
-		if (!seen.has(v.name)) {
-			seen.add(v.name);
-			variables.push(v);
-		}
-	}
-
-	// Struct declarations: struct Name { type field; ... }
-	// Uses a simple [^}]* body match - nested structs are not valid GLSL so this is safe.
-	const structRe = /\bstruct\s+(\w+)\s*\{([^}]*)\}/g;
-	for (const m of clean.matchAll(structRe)) {
-		const structName = m[1];
-		const body = m[2];
-		const fields: GlslStructField[] = [];
-		const fieldRe = /\b(\w+)\s+(\w+)\s*(?:\[\s*(\d+)\s*\])?\s*;/g;
-		for (const fm of body.matchAll(fieldRe)) {
-			fields.push({ name: fm[2], type: fm[1] });
-		}
-		structs.push({ name: structName, fields, line: lineOf(clean, m.index!) });
-	}
-
-	// Build a type-pattern string that includes user-defined struct names so that
-	// variables of struct type (e.g. `uniform MyStruct foo;`) are properly parsed.
-	const TYPE_RE_SRC = buildTypeRe(structs.map((s) => s.name));
-
-	// #define
-	const defineRe = /#define\s+(\w+)(?:\([^)]*\))?\s*([^\n]*)/g;
-	for (const m of clean.matchAll(defineRe)) {
-		defines.push({ name: m[1], value: m[2].trim(), line: lineOf(clean, m.index!) });
-	}
-
-	// Qualified global declarations (uniform / attribute / varying / const)
-	// Matches optional array suffix for things like `uniform sampler2D uTex[4];`.
-	const qualifiedRe = new RegExp(
-		`\\b(uniform|attribute|varying|const)\\s+(?:(?:lowp|mediump|highp)\\s+)?(${TYPE_RE_SRC})\\s+(\\w+)(?:\\s*\\[\\s*(\\d+)\\s*\\])?\\s*(?:;|=)`,
-		'g',
-	);
-	for (const m of clean.matchAll(qualifiedRe)) {
-		addVar({
-			name:      m[3],
-			type:      m[2],
-			qualifier: m[1] as GlslQualifier,
-			arraySize: m[4] !== undefined ? parseInt(m[4], 10) : undefined,
-			line:      lineOf(clean, m.index!),
-		});
-	}
-
-	// Character ranges [start, end) of every function body - used below to exclude
-	// local variable declarations from the global-scope scan.
-	const funcBodyRanges: Array<{ start: number; end: number }> = [];
-
-	// Function declarations with local variable tracking
-	const funcRe = new RegExp(
-		`\\b(${TYPE_RE_SRC})\\s+(\\w+)\\s*\\(([^)]*)\\)\\s*\\{`,
-		'g',
-	);
-	for (const m of clean.matchAll(funcRe)) {
-		const returnType = m[1];
-		const name = m[2];
-		const paramStr = m[3];
-		const funcStartIndex = m.index! + m[0].length - 1; // index of opening '{'
-
-		const params: GlslVariable[] = [];
-		for (const part of paramStr.split(',')) {
-			const pm = part.trim().match(
-				new RegExp(`\\b(?:(in|out|inout)\\s+)?(?:(?:lowp|mediump|highp)\\s+)?(${TYPE_RE_SRC})\\s+(\\w+)`),
-			);
-			if (pm) {
-				params.push({
-					name:      pm[3],
-					type:      pm[2],
-					qualifier: (pm[1] as GlslQualifier) ?? 'in',
-					line:      lineOf(clean, m.index!),
-				});
-			}
-		}
-
-		// Find the matching closing brace of the function body
-		let braceDepth = 1;
-		let funcBodyEndIndex = funcStartIndex + 1;
-		while (braceDepth > 0 && funcBodyEndIndex < clean.length) {
-			if (clean[funcBodyEndIndex] === '{') braceDepth++;
-			else if (clean[funcBodyEndIndex] === '}') braceDepth--;
-			funcBodyEndIndex++;
-		}
-
-		funcBodyRanges.push({ start: funcStartIndex, end: funcBodyEndIndex });
-
-		const funcBody = clean.slice(funcStartIndex + 1, funcBodyEndIndex - 1);
-		const bodyEndLine = lineOf(clean, funcBodyEndIndex - 1);
-
-		// Parse local variables within this function
-		const localVariables: GlslVariable[] = [...params];
-		const localVarRe = new RegExp(
-			`\\b(${TYPE_RE_SRC})\\s+(\\w+(?:\\s*,\\s*\\w+)*)\\s*(?:=|;)`,
-			'g',
-		);
-		const localArrayRe = new RegExp(
-			`\\b(${TYPE_RE_SRC})\\s+(\\w+)\\s*\\[\\s*(\\d+)\\s*\\]\\s*(?:=|;)`,
-			'g',
-		);
-		for (const lm of funcBody.matchAll(localVarRe)) {
-			const type = lm[1];
-			const names = lm[2].split(',').map((s) => s.trim());
-			for (const varName of names) {
-				if (!localVariables.find((v) => v.name === varName)) {
-					localVariables.push({
-						name: varName,
-						type,
-						line: lineOf(clean, funcStartIndex + (lm.index ?? 0)),
-					});
-				}
-			}
-		}
-		for (const am of funcBody.matchAll(localArrayRe)) {
-			const type = am[1];
-			const name = am[2];
-			const size = parseInt(am[3], 10);
-			if (!localVariables.find((v) => v.name === name)) {
-				localVariables.push({
-					arraySize: size,
-					line: lineOf(clean, funcStartIndex + (am.index ?? 0)),
-					name,
-					type,
-				});
-			}
-		}
-
-		functions.push({ name, returnType, params, line: lineOf(clean, m.index!), bodyEndLine, localVariables });
-
-		for (const p of params) addVar(p);
-	}
-
-	// Top-level (global scope) variable declarations without a qualifier:
-	// e.g. `vec3 myGlobal;`  or  `float a, b = 1.0;`
-	// We must skip any match that falls inside a function body, otherwise local
-	// variables would be incorrectly promoted to the global variables list.
-	const globalVarRe = new RegExp(
-		`\\b(${TYPE_RE_SRC})\\s+(\\w+(?:\\s*,\\s*\\w+)*)\\s*(?:=|;)`,
-		'g',
-	);
-	const globalArrayRe = new RegExp(
-		`\\b(${TYPE_RE_SRC})\\s+(\\w+)\\s*\\[\\s*(\\d+)\\s*\\]\\s*(?:=|;)`,
-		'g',
-	);
-	for (const m of globalVarRe[Symbol.matchAll](clean)) {
-		const idx = m.index!;
-		if (funcBodyRanges.some((r) => idx >= r.start && idx < r.end)) continue;
-		const type = m[1];
-		const names = m[2].split(',').map((s) => s.trim());
-		for (const name of names) {
-			if (!functions.find((f) => f.name === name)) {
-				addVar({ name, type, line: lineOf(clean, idx) });
-			}
-		}
-	}
-	for (const m of globalArrayRe[Symbol.matchAll](clean)) {
-		const idx = m.index!;
-		if (funcBodyRanges.some((r) => idx >= r.start && idx < r.end)) continue;
-		const type = m[1];
-		const name = m[2];
-		const size = parseInt(m[3], 10);
-		if (!functions.find((f) => f.name === name)) {
-			addVar({
-				arraySize: size,
-				line: lineOf(clean, idx),
-				name,
-				type,
-			});
-		}
-	}
-
-	return { variables, functions, defines, structs };
+export function analyzeDocument(source: string): GlslDocument {
+	return documentOf(new GlslUnit(source));
 }
 
-/** Look up the type of a symbol in the global variables list. */
+/** Look up the type of a global, uniform or constant. */
 export function resolveType(doc: GlslDocument, name: string): string | undefined {
 	return doc.variables.find((v) => v.name === name)?.type;
 }
 
-/**
- * Look up the type of a symbol considering both local and global scope.
- * Pass the current cursor line (1-based) to enable function-local variable lookup.
- */
-export function resolveScopedType(
-	doc: GlslDocument,
-	name: string,
-	cursorLine: number,
-): string | undefined {
-	const fn = doc.functions.find(
-		(f) => cursorLine >= f.line && cursorLine <= f.bodyEndLine,
-	);
-	if (fn) {
-		const local = fn.localVariables.find((v) => v.name === name);
-		if (local) return local.type;
-	}
-	return resolveType(doc, name);
+/** Innermost parameter or local named `name` visible on `line` (1-based), the latest declaration wins when a name is shadowed. */
+export function findLocal(doc: GlslDocument, name: string, line: number): { fn: GlslFunction; variable: GlslVariable } | null {
+	const fn = doc.functions.find((candidate) => line >= candidate.line && line <= candidate.bodyEndLine);
+	const variable = fn?.localVariables.findLast((candidate) => candidate.name === name && candidate.line <= line && line <= candidate.scopeEndLine);
+	return fn && variable ? { fn, variable } : null;
+}
+
+/** Look up the type of a symbol on `line` (1-based), locals and parameters first. */
+export function resolveScopedType(doc: GlslDocument, name: string, line: number): string | undefined {
+	return findLocal(doc, name, line)?.variable.type ?? resolveType(doc, name);
 }
