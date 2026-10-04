@@ -36,7 +36,7 @@
 		thumbnails?: Record<string, string>;
 		uploadError?: string;
 		uploadStatus?: string;
-		webcamVideo?: HTMLVideoElement | null;
+		webcamStream?: MediaStream | null;
 	}
 
 	let {
@@ -52,7 +52,7 @@
 		thumbnails = {},
 		uploadError = '',
 		uploadStatus = '',
-		webcamVideo = $bindable(null),
+		webcamStream = null,
 	}: Props = $props();
 
 	/** Keyed by URL so picking a new file clears the error without any reset logic. */
@@ -117,7 +117,16 @@
 				playsinline
 			></video>
 		{:else if channel?.type === 'webcam'}
-			<video bind:this={webcamVideo} autoplay class="h-full w-full object-cover" muted playsinline></video>
+			<video
+				{@attach (video) => {
+					video.srcObject = webcamStream;
+					if (webcamStream) video.play().catch(() => {});
+				}}
+				autoplay
+				class="h-full w-full object-cover"
+				muted
+				playsinline
+			></video>
 		{:else if channel?.type === 'buffer' && channel.bufferId && thumbnails[channel.bufferId]}
 			<img src={thumbnails[channel.bufferId]} alt={channel.name ?? ''} class="h-full w-full object-cover" />
 		{:else if channel?.type === 'buffer'}

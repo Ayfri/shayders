@@ -35,7 +35,6 @@
 	const assignableBuffers = $derived(buffers.filter((buffer) => buffer.id !== 'common' && buffer.id !== 'image'));
 	const channelMap = $derived(new Map(channels.map((channel) => [channel.id, channel] as const)));
 
-	let webcamVideos = $state<(HTMLVideoElement | null)[]>(CHANNEL_SLOT_IDS.map(() => null));
 	let webcamStreams = $state<(MediaStream | null)[]>(CHANNEL_SLOT_IDS.map(() => null));
 	/** One message per slot, an upload status and an error never show together. */
 	let slotMessages = $state.raw<Record<number, { error: boolean; text: string }>>({});
@@ -95,17 +94,6 @@
 		}
 	});
 
-	$effect(() => {
-		for (const id of CHANNEL_SLOT_IDS) {
-			const video = webcamVideos[id];
-			const stream = webcamStreams[id];
-			if (video && stream && video.srcObject !== stream) {
-				video.srcObject = stream;
-				video.play().catch(() => {});
-			}
-		}
-	});
-
 	$effect(() => () => {
 		destroyed = true;
 		CHANNEL_SLOT_IDS.forEach(stopWebcam);
@@ -157,7 +145,7 @@
 			accept={SHADER_FILE_ACCEPT}
 			{assignableBuffers}
 			channel={channelMap.get(id) ?? null}
-			bind:webcamVideo={webcamVideos[id]}
+			webcamStream={webcamStreams[id]}
 			{id}
 			onAssignBuffer={(buffer) => replaceChannel(id, { bufferId: buffer.id, name: buffer.label, type: 'buffer', url: null })}
 			onClear={() => replaceChannel(id, { bufferId: null, name: null, type: null, url: null })}

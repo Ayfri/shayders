@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { ChevronLeft, ChevronRight, Code, Copy, Layers, type LucideIcon, Pencil, Play, Plus, Save, Settings, Trash2, Tv2, X } from '@lucide/svelte';
 	import { convertFromShadertoy, isShadertoyShader } from '#features/shaders/model/shadertoy-converter.js';
 	import GlslEditor from '#features/shaders/editor/GlslEditor.svelte';
 	import BuiltinsPanel from '#features/shaders/editor/BuiltinsPanel.svelte';
 	import ChannelsPanel from '#features/shaders/editor/ChannelsPanel.svelte';
 	import EditorSettingsModal from '#features/shaders/editor/EditorSettingsModal.svelte';
+	import Button from '#components/ui/Button.svelte';
 	import Modal from '#components/ui/Modal.svelte';
 	import type { ChannelEntry, ShaderBuffer } from '#features/shaders/model/shader-content.js';
 	import { editorSettings } from '#features/shaders/editor/editor-settings.svelte.js';
@@ -69,24 +70,19 @@
 	/** Context menu box, used to keep it inside the viewport. */
 	const CONTEXT_MENU_SIZE = { height: 120, width: 176 };
 
-	let visible = $state(true);
-	/** Width side by side, height when stacked. */
-	let size = $state(0);
 	let isDragging = $state(false);
 	let channelsOpen = $state(false);
 	let showSettings = $state(false);
-	let showConvertModal = $state(false);
-	let promptedShadertoyByBuffer = $state<Record<string, true>>({});
 	let viewportHeight = $state(0);
 	let viewportWidth = $state(0);
 	let contextMenu = $state<{ bufferId: string; bufferLabel: string; x: number; y: number } | null>(null);
 	let editingTabId = $state<string | null>(null);
 	let editingLabel = $state('');
-	let renameInput = $state<HTMLInputElement | null>(null);
+	/** Buffers whose Shadertoy prompt was declined, they aren't asked again. */
+	const declinedConversions = new SvelteSet<string>();
 
 	let dragStartPointer = 0;
 	let dragStartSize = 0;
-	let wasVerticalLayout: boolean | null = null;
 
 	/** Matches the `lg` breakpoint where ShaderEditorPage switches from stacked to side by side. */
 	const vertical = $derived(viewportWidth < 1024);
@@ -95,30 +91,17 @@
 	const hasCommon = $derived(buffers.some((buffer) => buffer.id === 'common'));
 	const canAddBuffer = $derived(canAddUserBuffer(buffers));
 	const isShadertoy = $derived(isShadertoyShader(value));
+	const showConvertModal = $derived(isShadertoy && !declinedConversions.has(activeBufferId));
 
-	$effect(() => {
-		if (!viewportWidth || !viewportHeight) return;
-
-		size = Math.min(size || (vertical ? viewportHeight : viewportWidth) * 0.5, maxSize);
-		if (wasVerticalLayout === vertical) return;
-		if (vertical && viewOnly) visible = false;
-		wasVerticalLayout = vertical;
+	/** Stacked viewers start with the code hidden so the shader gets the screen, switching layout applies that default again. */
+	let visible = $derived(!(viewOnly && vertical && viewportWidth > 0));
+	/** Size picked by dragging, dropped on a layout switch since a width doesn't make sense as a height. */
+	let draggedSize = $derived.by<number | null>(() => {
+		void vertical;
+		return null;
 	});
-
-	/** Asks once per buffer, pasting Shadertoy code again after it was fixed asks again. */
-	$effect(() => {
-		if (!isShadertoy) {
-			if (promptedShadertoyByBuffer[activeBufferId]) {
-				const { [activeBufferId]: _removed, ...rest } = promptedShadertoyByBuffer;
-				promptedShadertoyByBuffer = rest;
-			}
-			return;
-		}
-		if (showConvertModal || promptedShadertoyByBuffer[activeBufferId]) return;
-
-		promptedShadertoyByBuffer = { ...promptedShadertoyByBuffer, [activeBufferId]: true };
-		showConvertModal = true;
-	});
+	/** Width side by side, height when stacked. */
+	const size = $derived(Math.min(draggedSize ?? (vertical ? viewportHeight : viewportWidth) * 0.5, maxSize));
 
 	function openContextMenu(event: MouseEvent, buffer: ShaderBuffer) {
 		if (buffer.id === 'image') return;
@@ -127,13 +110,10 @@
 		contextMenu = { bufferId: buffer.id, bufferLabel: buffer.label, x: event.clientX, y: event.clientY };
 	}
 
-	async function startRename(id: string, label: string) {
+	function startRename(id: string, label: string) {
 		contextMenu = null;
 		editingTabId = id;
 		editingLabel = label;
-		await tick();
-		renameInput?.focus();
-		renameInput?.select();
 	}
 
 	function commitRename() {
@@ -143,7 +123,6 @@
 
 	function handleConvert() {
 		if (isShadertoy) value = convertFromShadertoy(value);
-		showConvertModal = false;
 	}
 
 	function startDrag(event: PointerEvent) {
@@ -156,7 +135,7 @@
 	function handleWindowPointermove(event: PointerEvent) {
 		if (!isDragging) return;
 		const delta = dragStartPointer - (vertical ? event.clientY : event.clientX);
-		size = Math.max(vertical ? 100 : 240, Math.min(maxSize, dragStartSize + delta));
+		draggedSize = Math.max(vertical ? 100 : 240, Math.min(maxSize, dragStartSize + delta));
 	}
 </script>
 
@@ -242,7 +221,10 @@
 
 					{#if editingTabId === buffer.id}
 						<input
-							bind:this={renameInput}
+							{@attach (input) => {
+								input.focus();
+								input.select();
+							}}
 							bind:value={editingLabel}
 							onclick={(event) => event.stopPropagation()}
 							onblur={commitRename}
@@ -306,29 +288,33 @@
 				<Settings size={14} />
 			</button>
 			<span class="mr-auto hidden font-mono text-xs text-subtle sm:inline">Ctrl+Enter</span>
-			<button
+			<Button
 				onclick={() => (channelsOpen = !channelsOpen)}
 				aria-pressed={channelsOpen}
-				class={['px-3 py-1 font-mono text-xs font-semibold tracking-wider', channelsOpen ? 'btn-accent' : 'btn-ghost']}
+				variant={channelsOpen ? 'accent' : 'ghost'}
+				size="toolbar"
+				mono
 				title="Toggle channels"
 			>
 				<Tv2 size={12} />
 				<span class="hidden min-[360px]:inline">Channels</span>
-			</button>
-			<button onclick={onRun} class="btn-accent px-2 py-0.5 font-mono text-xs font-semibold tracking-wider sm:px-4 sm:py-1">
+			</Button>
+			<Button onclick={onRun} variant="accent" size="toolbar" mono>
 				<Play size={12} />
 				Run
-			</button>
+			</Button>
 			{#if !viewOnly}
-				<button
+				<Button
 					onclick={onSave}
 					disabled={isSaving}
-					class="btn-ghost bg-surface px-2 py-0.5 font-mono text-xs font-semibold tracking-wider sm:px-4 sm:py-1"
+					variant="ghost"
+					size="toolbar"
+					mono
 					title={auth.isLoggedIn ? 'Save shader (Ctrl+S)' : 'Save locally (Ctrl+S)'}
 				>
 					<Save size={12} />
 					{isSaving ? 'Saving…' : 'Save'}
-				</button>
+				</Button>
 			{/if}
 			<button
 				onclick={() => (visible = false)}
@@ -382,12 +368,12 @@
 {/if}
 
 <EditorSettingsModal open={showSettings} onClose={() => (showSettings = false)} />
-<Modal open={showConvertModal} onClose={() => (showConvertModal = false)} title="Convert from Shadertoy?">
+<Modal open={showConvertModal} onClose={() => declinedConversions.add(activeBufferId)} title="Convert from Shadertoy?">
 	<div class="px-5 py-4">
 		<p class="mb-6 text-sm text-foreground">This shader looks like Shadertoy code. Convert it to the WebGL format Shayders runs?</p>
 		<div class="flex items-center justify-end gap-2">
-			<button onclick={() => (showConvertModal = false)} class="btn-ghost px-4 py-2 font-mono text-xs font-semibold">Cancel</button>
-			<button onclick={handleConvert} class="btn-accent px-4 py-2 font-mono text-xs font-semibold">Convert</button>
+			<Button onclick={() => declinedConversions.add(activeBufferId)} variant="ghost" size="sm" mono>Cancel</Button>
+			<Button onclick={handleConvert} variant="accent" size="sm" mono>Convert</Button>
 		</div>
 	</div>
 </Modal>

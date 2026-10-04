@@ -40,7 +40,6 @@
 		return { ...settingsToMonaco(editorSettings), ...(compact.current ? COMPACT_OPTIONS : {}) };
 	}
 
-	let editorContainer = $state<HTMLElement | null>(null);
 	let editor = $state.raw<Monaco.editor.IStandaloneCodeEditor | null>(null);
 	let monacoApi = $state.raw<typeof Monaco | null>(null);
 	let analysisTimer = 0;
@@ -89,9 +88,8 @@
 		analysisTimer = window.setTimeout(() => refreshAnalysis(monaco), ANALYSIS_DEBOUNCE_MS);
 	}
 
-	$effect(() => {
-		const container = editorContainer;
-		if (!container) return;
+	/** Everything reactive is read after the first `await`, so the attachment never reruns and Monaco lives as long as its container. */
+	function attachMonaco(container: HTMLElement) {
 		let cancelled = false;
 		const disposables: Monaco.IDisposable[] = [];
 		const globals = globalThis as Record<string, unknown>;
@@ -236,7 +234,7 @@
 			editor = null;
 			monacoApi = null;
 		};
-	});
+	}
 
 	/** Pushes external value changes (tab switch, uniform toggles, Shadertoy conversion) into the active model. */
 	$effect(() => {
@@ -282,7 +280,7 @@
 </script>
 
 <div class="relative flex min-h-0 w-full flex-1">
-	<div bind:this={editorContainer} class="min-h-0 w-full flex-1"></div>
+	<div {@attach attachMonaco} class="min-h-0 w-full flex-1"></div>
 </div>
 
 <style>

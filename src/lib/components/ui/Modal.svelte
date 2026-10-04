@@ -10,19 +10,14 @@
 	}
 
 	let { children, open = false, onClose, title }: Props = $props();
-
-	let dialog = $state<HTMLDialogElement | null>(null);
-
-	$effect(() => {
-		if (!dialog) return;
-		if (open) dialog.showModal();
-		else if (dialog.open) dialog.close();
-	});
 </script>
 
 <dialog
-	bind:this={dialog}
-	onclick={(event) => event.target === dialog && onClose?.()}
+	{@attach (dialog) => {
+		if (open) dialog.showModal();
+		else if (dialog.open) dialog.close();
+	}}
+	onclick={(event) => event.target === event.currentTarget && onClose?.()}
 	oncancel={(event) => {
 		event.preventDefault();
 		onClose?.();
