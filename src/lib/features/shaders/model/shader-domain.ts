@@ -13,7 +13,5 @@ export const CHANNEL_UNIFORM_NAMES = ['uChannel0', 'uChannel1', 'uChannel2', 'uC
 
 export const FULLSCREEN_TOGGLE_KEY = 'f' as const;
 
-export const THUMB_SIZE = {
-	height: 72,
-	width: 128,
-} as const;
+/** Longest side of a buffer preview in pixels, the other side follows the canvas aspect ratio. */
+export const THUMB_MAX_SIZE = 128;
